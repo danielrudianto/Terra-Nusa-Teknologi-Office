@@ -5,8 +5,6 @@ from utils.error_handler import handle_error
 from datetime import datetime, timedelta
 from pyseto import Paseto
 from utils.auth_utils import KEY
-from utils.logger_utils import log_request
-from fastapi.responses import JSONResponse
 
 router = APIRouter()
 
@@ -16,6 +14,7 @@ async def login(loginData: LoginData):
         result = await UserController.login(loginData.model_dump())
         if "error" in result:
             handle_error(400, result["error"])
+            raise Exception(status_code=400, detail=result["error"])
         #Generate JWT token
         # Generate JWT token
         payload = {
@@ -28,12 +27,9 @@ async def login(loginData: LoginData):
         
         return {"access_token": token, "token_type": "bearer"}
     except ValueError as e:
-        print(e)
+        handle_error(400, str(e))
+        raise Exception(status_code=400, detail=str(e))
     except Exception as e:
-        return JSONResponse(
-            {
-                "messsage": "Whoops, something is wrong on our side. Please contact your administrator"
-            },
-            status_code=500
-        )
+        handle_error(500, str(e))
+        raise Exception(status_code=500, detail=str(e))
     

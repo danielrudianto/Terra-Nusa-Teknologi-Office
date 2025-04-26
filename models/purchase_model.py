@@ -1,10 +1,10 @@
-from pydantic import BaseModel, Optional, Field
-from typing import Annotated
-from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date
+from pydantic import BaseModel, Field
+from typing import Optional, Annotated
+from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float
 from utils.database import metadata
 from datetime import date
 
-# Define the Client model
+# Define the Purchase model
 class Purchase(BaseModel):
     purchase_date: date
     supplier_id: int
@@ -19,8 +19,8 @@ class Purchase(BaseModel):
     ppn: Optional[float] = None  # PPN value (optional)
     pbbkb: Optional[float] = None  # PBBKB value (optional)
     due_date: Optional[date] = None  # Due date for the purchase (optional)
-    purchase_order_id: int # ID of the purchase order
-    
+    purchase_order_id: int  # ID of the purchase order
+
 # Define the SQLAlchemy table
 purchases_table = Table(
     "purchases",
@@ -32,11 +32,10 @@ purchases_table = Table(
     Column("created_by", Integer),
     Column("created_at", DateTime()),
     Column("is_delete", Boolean, default=False),
-    Column("pph_rate", float(), nullable=False, default=0),
-    Column("dpp", float()),
-    Column("ppn", float(), nullable=False, default=0),
-    Column("pbbkb", float(), nullable=False, default=0),
-    Column("due_date", DateTime(), nullable=False, default=0),
-    Column("purchase_order_id", Integer)
+    Column("pph_rate", Float(), nullable=False, default=0),
+    Column("dpp", Float()),
+    Column("ppn", Float(), nullable=False, default=0),
+    Column("pbbkb", Float(), nullable=False, default=0),
+    Column("due_date", DateTime(), nullable=True),
+    Column("purchase_order_id", Integer),
 )
-    

@@ -1,7 +1,8 @@
 from pydantic import BaseModel, EmailStr, StringConstraints, Field
 from typing import Annotated
-from sqlalchemy import Table, Column, Integer, String, Boolean
+from sqlalchemy import Table, Column, DateTime, Integer, String, Boolean
 from utils.database import metadata
+from datetime import date
 
 # Define the Client model
 class Client(BaseModel):
@@ -22,4 +23,11 @@ clients_table = Table(
     Column("email", String(255), nullable=True),
     Column("npwp", String(50), nullable=True),
     Column("is_active", Boolean, default=True),
+    Column("created_at", DateTime(), nullable=False,default=date.today()),
+    Column("created_by", Integer, nullable=False),
+    Column("updated_at", DateTime(), nullable=True,default=None),
+    Column("updated_by", Integer, nullable=True, default=None),
+    Column("is_delete", Boolean, default=False),
+    Column("deleted_at", DateTime(), nullable=True, default=None),
+    Column("deleted_by", Integer, nullable=True, default=None),
 )

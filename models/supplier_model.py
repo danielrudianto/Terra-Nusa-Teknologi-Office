@@ -13,7 +13,7 @@ class Supplier(BaseModel):
 
 # Define the clients table
 suppliers_table = Table(
-    "clients",
+    "suppliers",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("name", String(255), nullable=False),

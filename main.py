@@ -1,11 +1,12 @@
-from utils.config import load_dotenv
+import utils.config
+
 from fastapi import FastAPI, HTTPException
-from utils.database import database
-from utils.logger_utils import log_info
+from utils.logger_utils import log_info, log_error
 from contextlib import asynccontextmanager
 from routes.routes import router
 from fastapi.middleware.cors import CORSMiddleware
 from utils.error_handler import handle_error
+from utils.database import database
 
 log_info("Testing logger functionality")
 
@@ -14,8 +15,11 @@ log_info("Testing logger functionality")
 async def lifespan(app: FastAPI):
     log_info("Lifespan function started")  # Debug log
     # Startup logic
-    await database.connect()
-    log_info("Database connected successfully!")
+    try:
+        await database.connect()
+        log_info("Database connected successfully!")
+    except Exception as e:
+        log_error(f"Error connecting to database: {e}")
     yield  # This is where the application runs
     # Shutdown logic
     await database.disconnect()
@@ -23,7 +27,7 @@ async def lifespan(app: FastAPI):
 
 
 # Create an instance of the FastAPI application
-app = FastAPI(lifespan=lifespan, redirect_slashes=False)
+app = FastAPI(lifespan=lifespan, redirect_slashes=True)
 
 # Add CORS middleware
 app.add_middleware(
@@ -38,6 +42,9 @@ app.add_exception_handler(HTTPException, handle_error)
 
 # Include the router
 app.include_router(router)
+
+for route in app.routes:
+    log_info(f"Route registered: {route.path}")
 
 # Run the application
 if __name__ == "__main__":

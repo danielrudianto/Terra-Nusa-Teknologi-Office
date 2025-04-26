@@ -11,6 +11,7 @@ async def create_client(client: Client, payload: dict = Depends(validate_token))
     """
     Create a new client. Requires a valid token.
     """
+    print(payload)
     result = await ClientController.create_client(client.model_dump())
     if "error" in result:
         handle_error(400, result["error"])

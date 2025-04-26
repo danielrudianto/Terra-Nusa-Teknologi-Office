@@ -1,0 +1,11 @@
+dotenv
+fastapi
+sqlalchemy
+uvicorn
+databases
+pymysql
+aiomysql
+pydantic
+pydantic[email]
+pyseto
+bcrypt
