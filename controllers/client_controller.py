@@ -1,8 +1,8 @@
 from sqlalchemy import insert, select, update, delete
 from utils.database import database
 from models.client_model import clients_table
-from utils.error_handler import handle_error
 from typing import Dict, List, Optional
+from utils.logger_utils import log_error, log_info
 
 class ClientController:
     @staticmethod
@@ -16,12 +16,14 @@ class ClientController:
         Returns:
             Dict: A success message with the created client ID.
         """
+        log_info("Creating client with data: %s", client_data)
         try:
             query = insert(clients_table).values(**client_data)
             client_id = await database.execute(query)
+            log_info("Client created successfully with ID: %s", client_id)
             return {"message": "Client created successfully", "client_id": client_id}
         except Exception as e:
-            handle_error(400, f"Failed to create client: {str(e)}")
+            raise Exception(e)
 
     @staticmethod
     async def get_all_clients() -> List[Dict]:
@@ -72,7 +74,8 @@ class ClientController:
             await database.execute(query)
             return {"message": "Client updated successfully"}
         except Exception as e:
-            handle_error(400, f"Failed to update client: {str(e)}")
+            log_error
+            raise Exception(e)
 
     @staticmethod
     async def delete_client(client_id: int) -> Dict:
@@ -94,7 +97,8 @@ class ClientController:
             await database.execute(query)
             return {"message": "Client deleted successfully"}
         except Exception as e:
-            handle_error(400, f"Failed to delete client: {str(e)}")
+            log_error("Error deleting client with ID %s: %s", client_id, str(e))
+            raise Exception(e)
 
     @staticmethod
     async def _fetch_client_by_id(client_id: int) -> Dict:
@@ -113,5 +117,6 @@ class ClientController:
         query = select(clients_table).where(clients_table.c.id == client_id)
         client = await database.fetch_one(query)
         if not client:
-            handle_error(404, f"Client with ID {client_id} not found")
+            log_error("Client with ID %s not found", client_id)
+            raise Exception(f"Client with ID {client_id} not found")
         return dict(client)  # Convert to dictionary for consistency

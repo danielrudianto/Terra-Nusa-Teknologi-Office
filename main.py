@@ -5,7 +5,6 @@ from utils.logger_utils import log_info, log_error
 from contextlib import asynccontextmanager
 from routes.routes import router
 from fastapi.middleware.cors import CORSMiddleware
-from utils.error_handler import handle_error
 from utils.database import database
 
 log_info("Testing logger functionality")

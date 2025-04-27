@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from controllers.client_controller import ClientController
 from models.client_model import Client
-from utils.error_handler import handle_error
+from utils.logger_utils import log_error
 from utils.auth_utils import validate_token
 
 router = APIRouter()
@@ -11,10 +11,9 @@ async def create_client(client: Client, payload: dict = Depends(validate_token))
     """
     Create a new client. Requires a valid token.
     """
-    print(payload)
     result = await ClientController.create_client(client.model_dump())
     if "error" in result:
-        handle_error(400, result["error"])
+        log_error("Failed to create a client, error: %s", result["error"])
     return result
 
 @router.get("/")
@@ -29,21 +28,31 @@ async def get_client(client_id: int, payload: dict = Depends(validate_token)):
     """
     Get a specific client by ID. Requires a valid token.
     """
-    result = await ClientController.get_client_by_id(client_id)
-    if "error" in result:
-        handle_error(400, result["error"])
-    return result
+    try:
+        result = await ClientController.get_client_by_id(client_id)
+        if "error" in result:
+            log_error("Client with ID %d not found", client_id)
+            return HTTPException(404, detail="Client not found")
+        return result
+    except Exception as e:
+        log_error("Error fetching client with ID %d: %s", client_id, str(e))
+        return HTTPException(500, detail="Internal server error")
 
 @router.put("/{client_id}")
 async def update_client(client_id: int, client: Client, payload: dict = Depends(validate_token)):
     """
     Update a specific client by ID. Requires a valid token.
     """
-    await validate_client_exists(client_id)
-    result = await ClientController.update_client(client_id, client.model_dump())
-    if "error" in result:
-        handle_error(400, result["error"])
-    return result
+    try:
+        await validate_client_exists(client_id)
+        result = await ClientController.update_client(client_id, client.model_dump())
+        if "error" in result:
+            log_error("Failed to update client with ID %d, error: %s", client_id, result["error"])
+            return HTTPException(404, detail="Client not found")
+        return result
+    except Exception as e:
+        log_error("Error updating client with ID %d: %s", client_id, str(e))
+        return HTTPException(500, detail="Internal server error")
 
 @router.delete("/{client_id}")
 async def delete_client(client_id: int, payload: dict = Depends(validate_token)):
