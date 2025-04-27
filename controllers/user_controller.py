@@ -1,10 +1,10 @@
 from sqlalchemy import insert, select
 from utils.database import database
 from models.user_model import users_table
-from utils.error_handler import handle_error
 from bcrypt import hashpw, gensalt, checkpw
 from fastapi.responses import JSONResponse
 from services.user_service import UserService
+from utils.logger_utils import log_error, log_info
 
 class UserController:
     @staticmethod
@@ -14,7 +14,8 @@ class UserController:
             user_id = await database.execute(query)
             return {"message": "User created successfully", "user_id": user_id}
         except Exception as e:
-            handle_error(400, str(e))
+            log_error("Error creating user: %s", str(e))
+            raise e
             
     @staticmethod
     async def login(user_data: dict):
@@ -47,4 +48,5 @@ class UserController:
             user_id = await database.execute(query)
             return {"message": "User registered successfully", "user_id": user_id}
         except Exception as e:
-            handle_error(400, str(e))
+            log_error("Error registering user: %s", str(e))
+            raise e

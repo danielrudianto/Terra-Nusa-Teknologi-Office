@@ -1,24 +1,20 @@
-from fastapi import HTTPException
-from utils.error_handler import handle_error
+from fastapi import HTTPException, Request
 import os
 from datetime import datetime
 from pyseto import Paseto, Key
 
-
-
 SECRET_KEY = os.getenv("SECRET_KEY")
 KEY = Key.new(version=4, purpose="local", key=SECRET_KEY.encode())
 
-def validate_token(token: str):
+def validate_token(request: Request):
+    token = request.headers.get("Authorization")
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Authorization token is missing.")
+    
     try:
-        # Decrypt and validate the token
-        payload = Paseto.new(version=4, purpose="local").decrypt(KEY, token)
-        
-        # Check expiration
-        exp = datetime.fromisoformat(payload["exp"])
-        if datetime.utcnow() > exp:
-            raise HTTPException(status_code=401, detail="Token has expired")
-        
-        return payload  # Return the payload for use in the route
-    except Exception as e:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        # Validate the token
+        payload = validate_token(token)
+        return payload  # Return the user payload if valid
+    except HTTPException as e:
+        raise e  # Re-raise the exception if token validation fails
