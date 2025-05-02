@@ -26,7 +26,7 @@ class UserService:
             return result
         except ProgrammingError as e:
             log_error(str(e))
-            raise ProgrammingError("Database error")
+            raise Exception(f"Database error: {str(e)}")
         except Exception as e:
             log_error(str(e))
             raise Exception(str(e))

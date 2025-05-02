@@ -5,10 +5,11 @@ from typing import Dict, List, Optional
 from utils.logger_utils import log_error, log_info
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
+from datetime import datetime
 
 class ClientController:
     @staticmethod
-    async def create_client(client_data: Dict) -> Dict:
+    async def create_client(client_data: Dict, userID: int) -> Dict:
         """
         Create a new client in the database.
 
@@ -18,11 +19,15 @@ class ClientController:
         Returns:
             Dict: A success message with the created client ID.
         """
+        log_info(userID)
         log_info(f"Creating client with data: {client_data}")
         try:
+            client_data["created_at"] = datetime.now()
+            client_data["created_by"] = userID
+
             query = insert(clients_table).values(**client_data)
             client_id = await database.execute(query)
-            log_info("Client created successfully with ID: %s", client_id)
+            log_info(f"Client created successfully with ID: {client_id}")
             return {"message": "Client created successfully", "client_id": client_id}
         except IntegrityError as e:
             log_error(f"Integrity error: {str(e)}")

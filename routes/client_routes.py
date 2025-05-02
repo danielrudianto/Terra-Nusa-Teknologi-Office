@@ -1,3 +1,4 @@
+from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from controllers.client_controller import ClientController
 from models.client_model import Client
@@ -7,9 +8,10 @@ from utils.auth_utils import validate_token
 router = APIRouter()
 
 @router.post("/")
-async def create_client(client: Client):
+async def create_client(client: Client, payload: dict = Depends(validate_token)):
     try:
-        result = await ClientController.create_client(client.model_dump())
+        userID = payload.get("user_id")
+        result = await ClientController.create_client(client.model_dump(), userID)
         return result
     except HTTPException as e:
         # Optionally log the error or handle it differently

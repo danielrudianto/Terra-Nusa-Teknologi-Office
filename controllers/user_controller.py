@@ -5,6 +5,7 @@ from bcrypt import hashpw, gensalt, checkpw
 from fastapi.responses import JSONResponse
 from services.user_service import UserService
 from utils.logger_utils import log_error, log_info
+from fastapi import HTTPException
 
 class UserController:
     @staticmethod
@@ -22,22 +23,30 @@ class UserController:
         try:
             result = await UserService.get_user_by_email(user_data["email"])
 
+            hashed_password = hashpw(user_data["password"].encode("utf-8"), gensalt()).decode("utf-8")
+            log_info(f"Hashed password: {hashed_password}")
+
             # Check if the user exists
             if result is None:
-                raise ValueError("Email and password does not match")
+                log_info("User not found")
+                return {"error": "Email or password is incorrect", "status": 401}
 
             # Verify the password
             if checkpw(user_data["password"].encode("utf-8"), result.password.encode("utf-8")):
-                return JSONResponse({
+                log_info(f"Password verified for user ID: {result.id}")
+                return {
                     "message": "Login successful",
                     "user_id": result.id,
                     "email": result.email,
-                })
+                    "name": result.name,
+                }
             else:
-                raise ValueError("Email and password does not match")
+                #print hashed password
+                log_info("Password verification failed")
+                return {"error": "Email or password is incorrect", "status": 401}
         except Exception as e:
-            # Catch any unexpected errors and return them
-            raise Exception(e)
+            log_error(e)
+            return {"error": "Internal server error", "status": 500}
             
     @staticmethod
     async def register(user_data: dict):

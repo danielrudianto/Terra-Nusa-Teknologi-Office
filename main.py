@@ -46,4 +46,4 @@ for route in app.routes:
 # Run the application
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000, reload=True, reload_dirs=["./controllers", "./routes", "./models", "./utils"])
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True, workers=1)

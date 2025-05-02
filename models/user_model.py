@@ -8,8 +8,8 @@ from datetime import datetime
 # Define the User model
 class User(BaseModel):
     id: int  # Unique ID for the user
-    username: str  # Username of the user
     password: str  # Password of the user
+    name: str # Name of the user
     email: str  # Email address of the user
     is_active: bool = True  # Flag to indicate if the user is active
     is_deleted: bool = False  # Flag to indicate if the user is deleted
@@ -22,7 +22,7 @@ users_table = Table(
     "users",
     metadata,
     Column("id", Integer, primary_key=True),
-    Column("username", String(50), unique=True),
+    Column("name", String(100), nullable=False),
     Column("password", String(255)),
     Column("email", String(100), unique=True),
     Column("is_active", Boolean, default=True),

@@ -11,6 +11,7 @@ class Client(BaseModel):
     phone_number: Annotated[str, StringConstraints(pattern=r"^\+?\d{10,15}$")]  # Phone number must be 10-15 digits, optional "+" at the start
     email: EmailStr  # Valid email format
     npwp: Annotated[str, StringConstraints(pattern=r"^\d{15}$")] | None = None  # Optional NPWP, must be 15 digits
+    uuid: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")] | None = None  # Optional UUID, must be in valid format
     
 # Define the clients table
 clients_table = Table(
@@ -30,4 +31,5 @@ clients_table = Table(
     Column("is_delete", Boolean, default=False),
     Column("deleted_at", DateTime(), nullable=True, default=None),
     Column("deleted_by", Integer, nullable=True, default=None),
+    Column("uuid", String(50), nullable=False, unique=True),
 )

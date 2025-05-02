@@ -2,9 +2,11 @@ from fastapi import APIRouter, HTTPException
 from models.auth_model import LoginData
 from controllers.user_controller import UserController
 from datetime import datetime, timedelta
-from pyseto import Paseto
 from utils.auth_utils import KEY
 from utils.logger_utils import log_error, log_info
+from pyseto import Key
+import pyseto
+import json
 
 router = APIRouter()
 
@@ -16,8 +18,8 @@ async def login(loginData: LoginData):
         
         # Check for errors in the result
         if "error" in result:
-            log_error("Login failed for user %s: %s", loginData.username, result["error"])
-            raise HTTPException(status_code=400, detail=result["error"])
+            log_info(f"Login failed for user {loginData.email}")
+            raise HTTPException(status_code=result.status, detail=result["error"])
         
         # Generate JWT token
         payload = {
@@ -26,15 +28,18 @@ async def login(loginData: LoginData):
             "exp": (datetime.utcnow() + timedelta(hours=1)).isoformat(),  # Token expires in 1 hour
             "iat": datetime.utcnow().isoformat(),  # Issued at
         }
-        token = Paseto.new(version=4, purpose="local").encrypt(KEY, payload)
+
+        refresh_payload = {
+            "user_id": result["user_id"],
+            "exp": (datetime.utcnow() + timedelta(hours=8)).isoformat(),  # Refresh token expires in 30 days
+            "iat": datetime.utcnow().isoformat(),  # Issued at
+        }
         
-        return {"access_token": token, "token_type": "bearer"}
-    
-    except ValueError as e:
-        # Handle specific value errors
-        raise HTTPException(status_code=400, detail=str(e))
-    
+        token = pyseto.encode(KEY, payload, serializer=json)
+        refresh_token = pyseto.encode(KEY, refresh_payload, serializer=json)
+        
+        return {"access_token": token, "refresh_token": refresh_token, "token_type": "bearer"}
     except Exception as e:
-        print(e)
-        raise HTTPException(status_code=500, detail="Internal server error.")
+        log_error(f"Error during login: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
     
