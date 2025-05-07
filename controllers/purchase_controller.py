@@ -1,7 +1,6 @@
 from sqlalchemy import insert, select, update, delete
 from utils.database import database
 from models.purchase_model import purchases_table
-from utils.error_handler import handle_error
 
 class PurchaseController:
     @staticmethod
@@ -11,14 +10,14 @@ class PurchaseController:
             purchase_id = await database.execute(query)
             return {"message": "Purchase created successfully", "purchase_id": purchase_id}
         except Exception as e:
-            handle_error(400, str(e))
+            return {"error": str(e), "status": 500}
 
     @staticmethod
     async def get_purchase_by_project_name(project_name: str):
         query = select(purchases_table).where(purchases_table.c.project_name == project_name)
         purchase = await database.fetch_one(query)
         if not purchase:
-            handle_error(404, "Purchase not found")
+            return {"error": "Data not found", "status": 404}
         return purchase
     
     @staticmethod
@@ -31,5 +30,5 @@ class PurchaseController:
         query = select(purchases_table).where(purchases_table.c.id == purchase_id)
         purchase = await database.fetch_one(query)
         if not purchase:
-            handle_error(404, "Purchase not found")
+            return {"error": "Data not found", "status": 404}
         return purchase 

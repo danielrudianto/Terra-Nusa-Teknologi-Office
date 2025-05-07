@@ -20,6 +20,6 @@ suppliers_table = Table(
     Column("address", String(255), nullable=False),
     Column("phone_number", String(20), nullable=False),
     Column("email", String(255), nullable=True),
-    Column("npwp", String(50), nullable=True),
+    Column("npwp", String(16), nullable=True),
     Column("is_active", Boolean, default=True),
 )
