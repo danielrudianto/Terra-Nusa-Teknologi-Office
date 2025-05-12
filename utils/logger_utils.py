@@ -57,7 +57,7 @@ def log_response(response):
     logger.info(f"Headers: {response.headers}")
     logger.info(f"Body: {response.body()}")
     
-def log_error(error):
+def log_error(error: str):
     """
     Log the error details.
     """

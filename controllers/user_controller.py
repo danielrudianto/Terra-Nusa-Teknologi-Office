@@ -23,9 +23,6 @@ class UserController:
         try:
             result = await UserService.get_user_by_email(user_data["email"])
 
-            hashed_password = hashpw(user_data["password"].encode("utf-8"), gensalt()).decode("utf-8")
-            log_info(f"Hashed password: {hashed_password}")
-
             # Check if the user exists
             if result is None:
                 log_info("User not found")

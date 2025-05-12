@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from routes.routes import router
 from fastapi.middleware.cors import CORSMiddleware
 from utils.database import database
+from utils.meilisearch import setup_meilisearch
 
 log_info("Testing logger functionality")
 
@@ -17,6 +18,8 @@ async def lifespan(app: FastAPI):
     try:
         await database.connect()
         log_info("Database connected successfully!")
+        setup_meilisearch()
+        log_info("Meilisearch setup completed successfully!")
     except Exception as e:
         log_error(f"Error connecting to database: {e}")
     yield  # This is where the application runs

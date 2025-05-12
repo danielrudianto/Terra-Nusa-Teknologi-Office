@@ -6,36 +6,72 @@ from datetime import date
 
 # Define the Purchase model
 class Purchase(BaseModel):
-    purchase_date: date
-    supplier_id: int
-    project_id: int  # ID of the project
-    created_by: int  # ID of the user who created the purchase
-    created_at: date  # Date when the purchase was created
-    is_delete: bool = False  # Flag to indicate if the purchase is deleted
-    deleted_by: Optional[int] = None  # ID of the user who deleted the purchase (optional)
-    deleted_at: Optional[date] = None  # Date when the purchase was deleted (optional)
-    pph_rate: Annotated[float, Field(ge=0, le=10)]  # PPH rate (0-10%)
+    invoiceName: str  # Name of the invoice
+    receiptName: str  # Name of the receipt
+    taxInvoiceName: str | None = None  # Name of the tax invoice
+    supplierID: int  # ID of the supplier
+    date: date  # Date of the purchase
+    dueDate: date | None = None
+    purchaseOrderName: str  # Name of the purchase order
+    projectName: str  # Name of the project
+    purchaseType: str  # Type of the purchase
     dpp: Annotated[float, Field(ge=0)]  # DPP value (greater than or equal to 0)
-    ppn: Optional[float] = None  # PPN value (optional)
-    pbbkb: Optional[float] = None  # PBBKB value (optional)
-    due_date: Optional[date] = None  # Due date for the purchase (optional)
-    purchase_order_id: int  # ID of the purchase order
+    ppn: Annotated[float, Field(ge=0)]  # PPN value (optional)
+    pbbkb: Annotated[float, Field(ge=0)]  # PBBKB value (optional)
+    pphCode: str  # PPH code
+    pphTaxObject: str  # PPH tax object
+    pphPercentage: Annotated[float, Field(ge=0, le=10)]  # PPH percentage (0-10%)
+    otherValue: Optional[float] = None  # Other value (optional)
+    otherValueNote: Optional[str] = None  # Note for other value (optional)
+    isInvoiceAttached: bool  # Flag to indicate if the invoice is attached
+    isReceiptAttached: bool  # Flag to indicate if the receipt is attached
+    isTaxInvoiceAttached: bool  # Flag to indicate if the tax invoice is attached
+    isCopAttached: bool  # Flag to indicate if the COP is attached
+    isCopyPurchaseOrderAttached: bool  # Flag to indicate if the copy purchase order is attached
+    bankName: str  # Name of the bank
+    bankAccountName: str  # Name of the bank account
+    bankAccountNumber: str  # Bank account number
+    paymentMethod: str  # Payment method
+    isPaid: bool = False  # Flag to indicate if the purchase is paid
+    isDelete: bool = False  # Flag to indicate if the purchase is deleted
 
 # Define the SQLAlchemy table
 purchases_table = Table(
     "purchases",
     metadata,
     Column("id", Integer, primary_key=True),
-    Column("purchase_date", Date()),
-    Column("supplier_id", Integer),
-    Column("project_id", Integer),
-    Column("created_by", Integer),
-    Column("created_at", DateTime()),
-    Column("is_delete", Boolean, default=False),
-    Column("pph_rate", Float(), nullable=False, default=0),
-    Column("dpp", Float()),
-    Column("ppn", Float(), nullable=False, default=0),
-    Column("pbbkb", Float(), nullable=False, default=0),
-    Column("due_date", DateTime(), nullable=True),
-    Column("purchase_order_id", Integer),
+    Column("invoice_name", String(100), nullable=False),
+    Column("receipt_name", String(100), nullable=False),
+    Column("tax_invoice_name", String(100), nullable=True),
+    Column("supplier_id", Integer, nullable=False),
+    Column("date", Date(), nullable=False),
+    Column("due_date", Date(), nullable=True),
+    Column("purchase_order_name", String(100), nullable=False),
+    Column("project_name", String(100), nullable=False),
+    Column("purchase_type", String(100), nullable=False),
+    Column("dpp", Float(), nullable=False),
+    Column("ppn", Float(), nullable=False),
+    Column("pbbkb", Float(), nullable=False),
+    Column("pph_code", String(100), nullable=False),
+    Column("pph_tax_object", String(100), nullable=False),
+    Column("pph_percentage", Float(), nullable=False),
+    Column("other_value", Float(), nullable=True),
+    Column("other_value_note", String(255), nullable=True),
+    Column("is_invoice_attached", Boolean(), nullable=False),
+    Column("is_receipt_attached", Boolean(), nullable=False),
+    Column("is_tax_invoice_attached", Boolean(), nullable=False),
+    Column("is_cop_attached", Boolean(), nullable=False),
+    Column("is_copy_purchase_order_attached", Boolean(), nullable=False),
+    Column("bank_name", String(100), nullable=False),
+    Column("bank_account_name", String(100), nullable=False),
+    Column("bank_account_number", String(100), nullable=False),
+    Column("payment_method", String(100), nullable=False),
+    Column("is_paid", Boolean(), nullable=False, default=False),
+    Column("is_delete", Boolean(), nullable=False, default=False),
+    Column("created_at", DateTime(), nullable=False, default=date.today()),
+    Column("updated_at", DateTime(), nullable=True, default=None),
+    Column("deleted_at", DateTime(), nullable=True, default=None),
+    Column("created_by", Integer, nullable=False),
+    Column("updated_by", Integer, nullable=True),
+    Column("deleted_by", Integer, nullable=True),
 )

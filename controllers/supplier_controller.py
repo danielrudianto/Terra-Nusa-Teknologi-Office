@@ -4,6 +4,7 @@ from models.supplier_model import suppliers_table
 from utils.logger_utils import log_error, log_info
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
+from utils.meilisearch import client
 
 class SupplierController:
     @staticmethod
@@ -17,7 +18,6 @@ class SupplierController:
         Returns:
             Dict: A success message with the created supplier ID.
         """
-        log_info(userID)
         log_info(f"Creating supplier with data: {supplier_data}")
         try:
             supplier_data["created_at"] = datetime.now()
@@ -26,10 +26,51 @@ class SupplierController:
             query = insert(suppliers_table).values(**supplier_data)
             supplier_id = await database.execute(query)
             log_info(f"Supplier created successfully with ID: {supplier_id}")
+            # Add to meilisearch
+            client.index("suppliers").add_documents([
+                {
+                    "id": supplier_id,
+                    "name": supplier_data["name"],
+                    "address": supplier_data["address"],
+                    "city": supplier_data["city"],
+                    "province": supplier_data["province"],
+                    "phone_number": supplier_data["phone_number"],
+                    "email": supplier_data["email"],
+                    "npwp": supplier_data["npwp"],
+                    "items_sold": supplier_data["items_sold"].split(","),
+                    "service_area": supplier_data["service_area"].split(","),
+                }
+            ])
+
             return {"message": "Supplier created successfully", "supplier_id": supplier_id}
         except IntegrityError as e:
             log_error(f"Integrity error: {str(e)}")
-            return {"error": "Client already exists.", "status": 400}
+            return {"error": "Supplier already exists.", "status": 400}
         except Exception as e:
             log_error(f"Unexpected error: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+        
+    @staticmethod
+    async def get_suppliers(keyword: str = None, page: int = 1):
+        """
+        Get suppliers from the database.
+
+        Args:
+            keyword (str): The keyword to search for.
+
+        Returns:
+            List[Dict]: A list of suppliers.
+        """
+        log_info(f"Fetching suppliers with keyword: {keyword}")
+        try:
+            result = client.index("suppliers").search(keyword, {"limit": 10, "offset": (page - 1) * 10})
+
+            if not result["hits"]:
+                return {"message": "No suppliers found."}
+            return {
+                "data": result["hits"],
+                "count": result["estimatedTotalHits"],
+            }
+        except Exception as e:
+            log_error(f"Error fetching suppliers: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
