@@ -1,12 +1,11 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from models.auth_model import LoginData
 from controllers.user_controller import UserController
 from datetime import datetime, timedelta
-from utils.auth_utils import KEY
 from utils.logger_utils import log_error, log_info
-from pyseto import Key
 import pyseto
 import json
+from utils.auth_utils import create_access_token, validate_token
 
 router = APIRouter()
 
@@ -17,26 +16,38 @@ async def login(loginData: LoginData):
     # Check for errors in the result
     if "error" in result:
         log_info(f"Login failed for user {loginData.email}")
-        statusCode = result.get('status', 500)
-        detail = result.get('error', 'Internal server error')
-        raise HTTPException(status_code=statusCode, detail=detail)
+        raise HTTPException(status_code=400, detail="Invalid credentials")
     
+    now = datetime.utcnow()
+
     # Generate JWT token
     payload = {
         "user_id": result["user_id"],
         "name": result["name"],
-        "exp": (datetime.utcnow() + timedelta(hours=1)).isoformat(),  # Token expires in 1 hour
-        "iat": datetime.utcnow().isoformat(),  # Issued at
+        "exp": int((now + timedelta(hours=1)).timestamp()),  # Token expires in 1 hour
+        "iat": int(now.timestamp()),  # Issued at
     }
 
     refresh_payload = {
         "user_id": result["user_id"],
-        "exp": (datetime.utcnow() + timedelta(hours=8)).isoformat(),  # Refresh token expires in 30 days
-        "iat": datetime.utcnow().isoformat(),  # Issued at
+        "exp": int((now + timedelta(hours=8)).timestamp()),  # Refresh token expires in 30 days
+        "iat": int(now.timestamp())
     }
-    
-    token = pyseto.encode(KEY, payload, serializer=json)
-    refresh_token = pyseto.encode(KEY, refresh_payload, serializer=json)
+
+    token = create_access_token(payload, timedelta(hours=1))
+    refresh_token = create_access_token(refresh_payload, timedelta(hours=8))
     
     return {"access_token": token, "refresh_token": refresh_token, "token_type": "bearer"}
     
+@router.post("/refresh")
+async def refresh_token(request: Request):
+    refresh_token = request.headers.get("x-refresh-token").split(" ")[1]
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Refresh token not provided")
+    
+    # Decode the refresh token
+    token_data = validate_token(refresh_token)
+    if "error" in token_data:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    
+    return {"access_token": token_data, "token_type": "bearer"}

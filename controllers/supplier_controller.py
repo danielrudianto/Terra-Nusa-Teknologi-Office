@@ -20,8 +20,8 @@ class SupplierController:
         """
         log_info(f"Creating supplier with data: {supplier_data}")
         try:
-            supplier_data["created_at"] = datetime.now()
-            supplier_data["created_by"] = userID
+            supplier_data["createdAt"] = datetime.now()
+            supplier_data["createdBy"] = userID
 
             query = insert(suppliers_table).values(**supplier_data)
             supplier_id = await database.execute(query)
@@ -30,15 +30,16 @@ class SupplierController:
             client.index("suppliers").add_documents([
                 {
                     "id": supplier_id,
+                    "prefix": supplier_data["prefix"],
                     "name": supplier_data["name"],
                     "address": supplier_data["address"],
                     "city": supplier_data["city"],
                     "province": supplier_data["province"],
-                    "phone_number": supplier_data["phone_number"],
+                    "phoneNumber": supplier_data["phoneNumber"],
                     "email": supplier_data["email"],
                     "npwp": supplier_data["npwp"],
-                    "items_sold": supplier_data["items_sold"].split(","),
-                    "service_area": supplier_data["service_area"].split(","),
+                    "itemsSold": supplier_data["itemsSold"].split(","),
+                    "serviceArea": supplier_data["serviceArea"].split(","),
                 }
             ])
 

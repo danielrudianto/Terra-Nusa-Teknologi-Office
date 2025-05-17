@@ -1,31 +1,90 @@
-from fastapi import HTTPException, Request
-import os
-from pyseto import Paseto, Key
+from fastapi import HTTPException, Depends
 from utils.logger_utils import log_error, log_info
-import json
+from fastapi.security import OAuth2PasswordBearer
+from datetime import datetime, timedelta, timezone
+import jwt
+import os
+from typing import Annotated
+from jwt.exceptions import InvalidTokenError
+
+from pydantic import BaseModel
+from passlib.context import CryptContext
+from models.user_model import users_table
+from utils.database import database
 
 SECRET_KEY = os.getenv("SECRET_KEY")
-KEY = Key.new(version=4, purpose="local", key=SECRET_KEY)
+ALGORITHM = os.getenv("ALGORITHM")
+ACCESS_TOKEN_EXPIRE_MINUTES = 1
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-def validate_token(request: Request):
-    log_info("Validating token started")
-    token = request.headers["Authorization"].split(" ")[1]
+class Token(BaseModel):
+    access_token: str
+    token_type: str
 
-    if not token:
-        log_info("Authorization token is missing")
-        raise HTTPException(status_code=401, detail="Authorization token is missing.")
-    
+class TokenData(BaseModel):
+    username: str | None = None
+
+class User(BaseModel):
+    username: str
+    email: str | None = None
+    full_name: str | None = None
+    disabled: bool | None = None
+
+class UserInDB(User):
+    hashed_password: str
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def authenticate_user(username: str, password: str):
+    user = users_table.select().where(users_table.c.username == username).first()    
+    if not user:
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user
+
+def validate_token(token: str):
     try:
-        # Validate the token
-        decoded = Paseto().decode(KEY, token, deserializer=json)
-        payload = decoded.payload
-        log_info(f"Token payload: {payload}")
-        # Convert the payload to a dictionary
-        return payload
-    except HTTPException as e:
-        log_error(f"Token validation error: {str(e)}")
-        return {"error": "Token validation error.", "status": 401}
-    except Exception as e:
-        log_error(f"Token validation error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error.")
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        userID = payload.get("user_id")
+        if userID is None:
+            raise HTTPException(status_code=401, detail="Invalid authentication credentials 1")
+        token_data = create_access_token(data={"user_id": userID, "iat": datetime.now(timezone.utc)})
+        return token_data
+    except InvalidTokenError:
+        return {"error": "Invalid authentication credentials", "status": 401}
+
+async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        userID = payload.get("user_id")
+        if userID is None:
+            raise HTTPException(status_code=401, detail="Invalid authentication credentials 1")
     
+        query = users_table.select().where(users_table.c.id == userID)
+        user = await database.fetch_one(query)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Invalid authentication credentials 2")
+        return user
+    except InvalidTokenError as e:
+        print(e)
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials 3")
+    except Exception as e:
+        print(e)
+
+
+def create_access_token(data: dict, expires_delta: timedelta | None = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire.timestamp()})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt

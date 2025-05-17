@@ -1,0 +1,103 @@
+datasource db {
+    provider = "mysql"
+    url      = env("PRISMA_DATABASE_URL")
+}
+
+generator client {
+    provider  = "prisma-client"
+    output   = "./generated"
+    interface = "asyncio"
+}
+
+model User {
+    id            Int       @id @default(autoincrement())
+    name          String    @db.VarChar(100)
+    password      String?   @db.VarChar(255)
+    email         String    @unique @db.VarChar(100)
+    isActive      Boolean   @default(true)
+    isDeleted     Boolean?  @default(false)
+    createdBy     Int?
+    createdByUser User?     @relation("UserCreated", fields: [createdBy], references: [id])
+    createdAt     DateTime? @default(now())
+    updatedAt     DateTime? @updatedAt
+    deletedAt     DateTime?
+
+    usersCreated User[] @relation("UserCreated")
+
+    suppliersCreated Supplier[] @relation("UserSuppliers")
+    suppliersUpdated Supplier[] @relation("UserSuppliersUpdate")
+    suppliersDeleted Supplier[] @relation("UserSuppliersDelete")
+
+    purchasesCreated Purchase[] @relation("UserPurchasesCreate")
+    purchasesUpdated Purchase[] @relation("userPurchasesUpdate")
+    purchasesDeleted Purchase[] @relation("UserPurchasesDelete")
+}
+
+model Supplier {
+    id            Int       @id @default(autoincrement())
+    prefix        String?   @db.VarChar(25)
+    name          String    @db.VarChar(255)
+    address       String    @db.VarChar(255)
+    city          String    @db.VarChar(100)
+    province      String    @db.VarChar(100)
+    phoneNumber   String    @db.VarChar(20)
+    email         String?   @db.VarChar(255)
+    npwp          String?   @db.VarChar(16)
+    itemsSold     String    @db.VarChar(1000)
+    serviceArea   String    @db.VarChar(1000)
+    createdBy     Int
+    createdByUser User      @relation("UserSuppliers", fields: [createdBy], references: [id])
+    createdAt     DateTime? @default(now())
+    isActive      Boolean   @default(true)
+    isDeleted     Boolean?  @default(false)
+    updatedBy     Int?
+    updatedByUser User?     @relation("UserSuppliersUpdate", fields: [updatedBy], references: [id])
+    updatedAt     DateTime? @updatedAt
+    deletedBy     Int?
+    deletedByUser User?     @relation("UserSuppliersDelete", fields: [deletedBy], references: [id])
+    deletedAt     DateTime?
+
+    purchases Purchase[] @relation("SupplierPurchases")
+}
+
+model Purchase {
+    id                          Int       @id @default(autoincrement())
+    invoiceName                 String    @db.VarChar(100)
+    receiptName                 String    @db.VarChar(100)
+    taxInvoiceName              String?   @db.VarChar(100)
+    supplierID                  Int
+    date                        DateTime  @db.Date()
+    dueDate                     DateTime? @db.Date()
+    purchaseOrderName           String    @db.VarChar(100)
+    projectName                 String    @db.VarChar(100)
+    purchaseType                String    @db.VarChar(100)
+    dpp                         Float
+    ppn                         Float
+    pbbkb                       Float
+    pphCode                     String    @db.VarChar(100)
+    pphTaxObject                String    @db.VarChar(100)
+    pphPercentage               Float
+    otherValue                  Float?
+    otherValueNote              String?   @db.VarChar(255)
+    isInvoiceAttached           Boolean
+    isReceiptAttached           Boolean
+    isTaxInvoiceAttached        Boolean
+    isCopAttached               Boolean
+    isCopyPurchaseOrderAttached Boolean
+    bankName                    String    @db.VarChar(100)
+    bankAccountName             String    @db.VarChar(100)
+    bankAccountNumber           String    @db.VarChar(100)
+    paymentMethod               String    @db.VarChar(100)
+    isPaid                      Boolean   @default(false)
+    isDelete                    Boolean   @default(false)
+    createdAt                   DateTime  @default(now())
+    updatedAt                   DateTime? @updatedAt
+    deletedAt                   DateTime?
+    createdBy                   Int
+    updatedBy                   Int?
+    deletedBy                   Int?
+    supplier                    Supplier  @relation("SupplierPurchases", fields: [supplierID], references: [id])
+    userCreated                 User      @relation("UserPurchasesCreate", fields: [createdBy], references: [id])
+    userUpdated                 User?     @relation("userPurchasesUpdate", fields: [updatedBy], references: [id])
+    userDeleted                 User?     @relation("UserPurchasesDelete", fields: [deletedBy], references: [id])
+}

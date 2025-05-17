@@ -1,7 +1,7 @@
 from sqlalchemy import insert, select
 from utils.database import database
 from models.user_model import users_table
-from bcrypt import hashpw, gensalt, checkpw
+import bcrypt
 from fastapi.responses import JSONResponse
 from services.user_service import UserService
 from utils.logger_utils import log_error, log_info
@@ -22,6 +22,8 @@ class UserController:
     async def login(user_data: dict):
         try:
             result = await UserService.get_user_by_email(user_data["email"])
+            hashpassword = bcrypt.hashpw(user_data["password"].encode("utf-8"), bcrypt.gensalt())
+            log_info(f"Hashed password: {hashpassword}")
 
             # Check if the user exists
             if result is None:
@@ -29,7 +31,9 @@ class UserController:
                 return {"error": "Email or password is incorrect", "status": 401}
 
             # Verify the password
-            if checkpw(user_data["password"].encode("utf-8"), result.password.encode("utf-8")):
+            checkpass = bcrypt.checkpw(user_data["password"].encode("utf-8"), result["password"].encode("utf-8"))
+            log_info(f"Password check result: {checkpass}")
+            if checkpass:
                 log_info(f"Password verified for user ID: {result.id}")
                 return {
                     "message": "Login successful",
@@ -48,7 +52,7 @@ class UserController:
     @staticmethod
     async def register(user_data: dict):
         try:
-            hashed_password = hashpw(user_data["password"].encode("utf-8"), gensalt())
+            hashed_password = bcrypt.hashpw(user_data["password"].encode("utf-8"), salt)
             user_data["password"] = hashed_password.decode("utf-8")
             query = insert(users_table).values(**user_data)
             user_id = await database.execute(query)

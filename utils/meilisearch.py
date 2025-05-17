@@ -16,6 +16,16 @@ settings = {
     "filterableAttributes": ["is_active"],
 }
 
+client.index(index_name).update_settings(settings)
+client.index(index_name).update_synonyms({
+    "jabodetabek": ["jakarta", "depok", "tangerang", "bekasi", "bogor"],
+    "jawa_barat": ["bandung", "cimahi", "bekasi", "bogor"],
+    "jawa_tengah": ["semarang", "solo", "salatiga", "magelang"],
+    "jawa_timur": ["surabaya", "malang", "kediri", "probolinggo"],
+    "bali": ["denpasar", "badung", "tabanan", "klungkung"],
+    "sumatera_utara": ["medan", "binjai", "deliserdang", "langkat"],
+})
+
 def setup_meilisearch():
     try:
         client.create_index(index_name, {"primaryKey": "id"})
