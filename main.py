@@ -6,9 +6,9 @@ from contextlib import asynccontextmanager
 from routes.routes import router
 from fastapi.middleware.cors import CORSMiddleware
 from utils.meilisearch import setup_meilisearch
+from utils.database import database
 
 import asyncio
-from prisma import Prisma
 
 log_info("Testing logger functionality")
 
@@ -18,8 +18,7 @@ async def lifespan(app: FastAPI):
     log_info("Lifespan function started")  # Debug log
     # Startup logic
     try:
-        prisma = Prisma()
-        await prisma.connect()
+        await database.connect()
         log_info("Database connected successfully!")
 
         setup_meilisearch()
@@ -28,7 +27,7 @@ async def lifespan(app: FastAPI):
         log_error(f"Error connecting to database: {e}")
     yield  # This is where the application runs
     # Shutdown logic
-    await prisma.disconnect()
+    await database.disconnect()
     log_info("Database disconnected successfully!")
 
 

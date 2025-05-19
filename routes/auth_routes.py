@@ -3,7 +3,6 @@ from models.auth_model import LoginData
 from controllers.user_controller import UserController
 from datetime import datetime, timedelta
 from utils.logger_utils import log_error, log_info
-import pyseto
 import json
 from utils.auth_utils import create_access_token, validate_token
 

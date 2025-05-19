@@ -25,9 +25,19 @@ class PurchaseController:
         
         try:
             offset = (page - 1) * 10
+            supplier_columns = [
+                suppliers_table.c.id.label("supplier_id"),
+                suppliers_table.c.name.label("supplier_name"),
+                suppliers_table.c.address.label("supplier_address"),
+                suppliers_table.c.city.label("supplier_city"),
+                suppliers_table.c.province.label("supplier_province"),
+                suppliers_table.c.prefix.label("supplier_prefix"),
+            ]
+            
             query = (
-                select(purchases_table, suppliers_table)
+                select(*purchases_table.c, *supplier_columns)
                 .join(suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id)
+                .order_by(purchases_table.c.date.desc())
                 .offset(offset)
                 .limit(10)
             )
@@ -36,8 +46,28 @@ class PurchaseController:
             #Count the total number of purchases
             count_query = select(func.count()).select_from(purchases_table)
             count = await database.fetch_val(count_query)
+
+            #Convert the result
+            purchase_result = []
+            for purchase in purchases:
+                purchase_dict = dict(purchase)
+                purchase_dict["id"] = purchase_dict.pop("id")
+                purchase_dict["createdAt"] = purchase_dict.pop("createdAt")
+                purchase_dict["updatedAt"] = purchase_dict.pop("updatedAt")
+                purchase_dict["deletedAt"] = purchase_dict.pop("deletedAt")
+                purchase_dict["createdBy"] = purchase_dict.pop("createdBy")
+                purchase_dict["supplierID"] = purchase_dict.pop("supplierID")
+                purchase_dict["supplier"] = {
+                    "id": purchase_dict.pop("supplier_id"),
+                    "name": purchase_dict.pop("supplier_name"),
+                    "address": purchase_dict.pop("supplier_address"),
+                    "city": purchase_dict.pop("supplier_city"),
+                    "province": purchase_dict.pop("supplier_province"),
+                    "prefix": purchase_dict.pop("supplier_prefix"),
+                }
+                purchase_result.append(purchase_dict)
             
-            return {"data": purchases, "count": count}
+            return {"data": purchase_result, "count": count}
         except Exception as e:
             log_error(f"Error fetching purchases: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": str(e), "status": 500} 
