@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
         await database.connect()
         log_info("Database connected successfully!")
 
-        setup_meilisearch()
+        await setup_meilisearch()
         log_info("Meilisearch setup completed successfully!")
     except Exception as e:
         log_error(f"Error connecting to database: {e}")
