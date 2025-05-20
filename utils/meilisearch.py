@@ -23,11 +23,11 @@ settings = {
 client.index(index_name).update_settings(settings)
 client.index(index_name).update_synonyms({
     "jabodetabek": ["jakarta", "depok", "tangerang", "bekasi", "bogor"],
-    "jawa_barat": ["bandung", "cimahi", "bekasi", "bogor"],
-    "jawa_tengah": ["semarang", "solo", "salatiga", "magelang"],
-    "jawa_timur": ["surabaya", "malang", "kediri", "probolinggo"],
+    "jawa barat": ["bandung", "cimahi", "bekasi", "bogor"],
+    "jawa tengah": ["semarang", "solo", "salatiga", "magelang"],
+    "jawa timur": ["surabaya", "malang", "kediri", "probolinggo"],
     "bali": ["denpasar", "badung", "tabanan", "klungkung"],
-    "sumatera_utara": ["medan", "binjai", "deliserdang", "langkat"],
+    "sumatera utara": ["medan", "binjai", "deliserdang", "langkat"],
 })
 
 
@@ -46,10 +46,13 @@ async def setup_meilisearch():
         for supplier in suppliers:
             supplier_dict = dict(supplier)
 
+            supplier_dict["phone_number"] = supplier_dict["phoneNumber"]
+            supplier_dict["name"] = supplier_dict["name"] + ", " + supplier_dict["prefix"]
+
             #Sold items
-            supplier_dict["itemsSold"] = supplier_dict["itemsSold"].split(",") if supplier_dict["itemsSold"] else []
+            supplier_dict["items_sold"] = supplier_dict["itemsSold"].split(",") if supplier_dict["itemsSold"] else []
             #Service area
-            supplier_dict["serviceArea"] = supplier_dict["serviceArea"].split(",") if supplier_dict["serviceArea"] else []
+            supplier_dict["service_area"] = supplier_dict["serviceArea"].split(",") if supplier_dict["serviceArea"] else []
             
             index.add_documents([supplier_dict])
             log_info(f"Document with ID '{supplier_dict['id']}' added to index '{index_name}' successfully.")

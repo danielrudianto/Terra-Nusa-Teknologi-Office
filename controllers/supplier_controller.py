@@ -50,7 +50,30 @@ class SupplierController:
         except Exception as e:
             log_error(f"Unexpected error: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
-        
+
+    @staticmethod
+    async def get_supplier(supplier_id: int):
+        """
+        Get a supplier by ID from the database.
+
+        Args:
+            supplier_id (int): The ID of the supplier to fetch.
+
+        Returns:
+            Dict: The supplier data.
+        """
+        log_info(f"Fetching supplier with ID: {supplier_id}")
+        try:
+            query = select(suppliers_table).where(suppliers_table.c.id == supplier_id)
+            supplier = await database.fetch_one(query)
+
+            if not supplier:
+                return {"message": "Supplier not found."}
+            return dict(supplier)
+        except Exception as e:
+            log_error(f"Error fetching supplier: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
     @staticmethod
     async def get_suppliers(keyword: str = None, page: int = 1):
         """

@@ -14,6 +14,13 @@ async def create_supplier(supplier: Supplier, current_user: Annotated[User, Depe
     if "error" in result:
         raise HTTPException(status_code=result["status"], detail=result["error"])
     return result
+
+@router.get("/{supplier_id}")
+async def get_supplier(supplier_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+    result = await SupplierController.get_supplier(supplier_id)
+    if "error" in result:
+        raise HTTPException(status_code=result["status"], detail=result["error"])
+    return result
     
 @router.get("/")
 async def get_suppliers(request: Request, current_user: Annotated[User, Depends(get_current_user)]):
