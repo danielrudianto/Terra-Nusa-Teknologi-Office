@@ -11,8 +11,10 @@ class ReimbursementItems(BaseModel):
     date: d # Date of the reimbursement item
 
 reimbursement_items_table = Table(
+    "reimbursement_items",
+    metadata,
     Column("id", Integer, primary_key=True),
-    Column("reimbursementId", Integer, nullable=False),
+    Column("reimbursementID", Integer, nullable=False),
     Column("description", String(100), nullable=False),
     Column("amount", Float(), nullable=False),
     Column("date", Date(), nullable=False),
@@ -20,12 +22,11 @@ reimbursement_items_table = Table(
 
 # Define the Purchase model
 class Reimbursement(BaseModel):
-    name: str # Name of the reimbursement
+    name: str | None = None# Name of the reimbursement
     date: d  # Date of the reimbursement
     dueDate: d # Due date of the reimbursement
     projectName: str  # Name of the project
     purchaseType: str  # Type of the purchase
-    dpp: Annotated[float, Field(ge=0)]  # DPP value (greater than or equal to 0)
     bankName: str  # Name of the bank
     bankAccountName: str  # Name of the bank account
     bankAccountNumber: str  # Bank account number
@@ -33,7 +34,7 @@ class Reimbursement(BaseModel):
     isPaid: bool = False  # Flag to indicate if the purchase is paid
     isDelete: bool = False  # Flag to indicate if the purchase is deleted
     createdAt: d = Field(default_factory=dt.now)  # Creation date
-    createdBy: int  # ID of the user who created the purchase
+    createdBy: int | None = None  # ID of the user who created the purchase
     updatedAt: Optional[d] = None  # Update date
     updatedBy: Optional[int] = None  # ID of the user who updated the purchase
     deletedAt: Optional[d] = None  # Deletion date
@@ -50,7 +51,6 @@ reimbursements_table = Table(
     Column("dueDate", Date(), nullable=True),
     Column("projectName", String(100), nullable=False),
     Column("purchaseType", String(100), nullable=False),
-    Column("dpp", Float(), nullable=False),
     Column("bankName", String(100), nullable=False),
     Column("bankAccountName", String(100), nullable=False),
     Column("bankAccountNumber", String(100), nullable=False),

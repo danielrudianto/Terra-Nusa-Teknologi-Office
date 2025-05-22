@@ -35,6 +35,13 @@ class Purchase(BaseModel):
     paymentMethod: str  # Payment method
     isPaid: bool = False  # Flag to indicate if the purchase is paid
     isDelete: bool = False  # Flag to indicate if the purchase is deleted
+    lastStatus: str = "Ready"  # Last status of the purchase
+
+class PurchaseStatus(BaseModel):
+    id: int  # ID of the purchase
+    status: str  # Status of the purchase
+    createdAt: dt  # Creation date of the purchase
+    description: str  # Description of the status
 
 # Define the SQLAlchemy table
 purchases_table = Table(
@@ -54,7 +61,7 @@ purchases_table = Table(
     Column("ppn", Float(), nullable=False),
     Column("pbbkb", Float(), nullable=False),
     Column("pphCode", String(100), nullable=False),
-    Column("pphTaxObject", String(100), nullable=False),
+    Column("pphTaxObject", String(500), nullable=False),
     Column("pphPercentage", Float(), nullable=False),
     Column("otherValue", Float(), nullable=True),
     Column("otherValueNote", String(255), nullable=True),
@@ -75,4 +82,17 @@ purchases_table = Table(
     Column("createdBy", Integer, nullable=False),
     Column("updatedBy", Integer, nullable=True),
     Column("deletedBy", Integer, nullable=True),
+    Column("lastStatus", String(100), nullable=False, default="Waiting"),
+)
+
+# Define the PurchaseStatus SQLAlchemy table
+purchase_status_table = Table(
+    "purchase_status",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("purchaseID", Integer, nullable=False),
+    Column("status", String(100), nullable=False),
+    Column("createdBy", Integer, nullable=False),
+    Column("createdAt", DateTime(), nullable=False, default=dt.now()),
+    Column("description", String(255), nullable=True),
 )

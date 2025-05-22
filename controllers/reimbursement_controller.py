@@ -22,7 +22,7 @@ class ReimbursementController:
         try:
             reimbursement_data["createdAt"] = datetime.now()
             reimbursement_data["createdBy"] = userID
-            reimbursement_items = reimbursement_data.pop("items", None)
+            reimbursement_items = reimbursement_data.pop("reimbursementItems", None)
 
             projectName = reimbursement_data["projectName"]
             
@@ -35,19 +35,61 @@ class ReimbursementController:
             reimbursement_name = f"{count+1:03}-REIM-{projectName}-{reimbursement_data['purchaseType']}"
             reimbursement_data["name"] = reimbursement_name
 
-            query = insert(reimbursement_data).values(**reimbursement_data)
+            query = insert(reimbursements_table).values(**reimbursement_data)
             reimbursement_id = await database.execute(query)
 
             # Add items to reimbursement_items table
             if reimbursement_items:
                 for item in reimbursement_items:
                     item["reimbursementID"] = reimbursement_id
-                    item["createdAt"] = datetime.now()
-                    item["createdBy"] = userID
                     query = insert(reimbursement_items_table).values(**item)
                     await database.execute(query)
 
-            return {"message": "Reimbursement created successfully", "user_id": userID, "reimbursement": reimbursement_data}
+            return {"message": "Reimbursement created successfully", "user_id": userID, "reimbursementID": reimbursement_id}
         except Exception as e:
             log_error(f"Error creating reimbursement: {str(e)}")
+            return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def get_reimbursements(page: int):
+        """
+        Get all reimbursements.
+        """
+        # Logic to get all reimbursements
+        # This is a placeholder implementation. Replace with actual logic.
+        log_info(f"Getting all reimbursements for page: {page}")
+        try:
+            # "SELECT reimbursements.*, a.amount FROM reimbursements LEFT JOIN (SELECT reimbursementID, SUM(amount) as amount FROM reimbursement_items GROUP BY reimbursementID) a ON reimbursements.id = a.reimbursementID ORDER BY date DESC LIMIT 10 OFFSET (page - 1) * 10"
+            amount_subq = (
+                select(
+                    reimbursement_items_table.c.reimbursementID,
+                    func.sum(reimbursement_items_table.c.amount).label("amount")
+                )
+                .group_by(reimbursement_items_table.c.reimbursementID)
+            ).subquery()
+
+            query = (
+                select(
+                    reimbursements_table,
+                    amount_subq.c.amount
+                )
+                .select_from(
+                    reimbursements_table.outerjoin(
+                        amount_subq, reimbursements_table.c.id == amount_subq.c.reimbursementID
+                    )
+                )
+                .order_by(reimbursements_table.c.date.desc())
+                .limit(10)
+                .offset((page - 1) * 10)
+            )
+
+            reimbursements = await database.fetch_all(query)
+
+            #Count the total number of purchases
+            count_query = select(func.count()).select_from(reimbursements_table)
+            count = await database.fetch_val(count_query)
+
+            return {"data": reimbursements, "count": count}
+        except Exception as e:
+            log_error(f"Error getting reimbursements: {str(e)}")
             return {"error": str(e), "status": 500}

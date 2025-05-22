@@ -38,8 +38,8 @@ class SupplierController:
                     "phoneNumber": supplier_data["phoneNumber"],
                     "email": supplier_data["email"],
                     "npwp": supplier_data["npwp"],
-                    "itemsSold": supplier_data["itemsSold"].split(","),
-                    "serviceArea": supplier_data["serviceArea"].split(","),
+                    "items_sold": supplier_data["itemsSold"].split(","),
+                    "service_area": supplier_data["serviceArea"].split(","),
                 }
             ])
 

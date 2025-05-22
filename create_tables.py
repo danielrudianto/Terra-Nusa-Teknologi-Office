@@ -10,6 +10,7 @@ import models.supplier_model  # Import the supplier model to create the table
 import models.purchase_order_model  # Import the purchase order model to create the table
 import models.client_model  # Import the client model to create the table
 import models.reimbursement_model  # Import the reimbursement model to create the table
+import models.bank_model # Import the bank model to create the table
 
 if __name__ == "__main__":
     metadata.create_all(engine, checkfirst=True)

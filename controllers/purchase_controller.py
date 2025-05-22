@@ -1,6 +1,6 @@
 from sqlalchemy import func, insert, select, update, delete
 from utils.database import database
-from models.purchase_model import purchases_table
+from models.purchase_model import purchases_table, purchase_status_table
 from models.supplier_model import suppliers_table
 from utils.logger_utils import log_error, log_info
 from datetime import datetime
@@ -13,6 +13,16 @@ class PurchaseController:
         try:
             query = insert(purchases_table).values(**purchase_data)
             purchase_id = await database.execute(query)
+
+            if(purchase_data["lastStatus"] == "Waiting"):
+                statusDescription = purchase_data["statusDescription"]
+                status_query = insert(purchase_status_table).values(
+                    purchaseID=purchase_id,
+                    status=purchase_data["lastStatus"],
+                    createdAt=purchase_data["createdAt"],
+                    description=statusDescription
+                )
+                await database.execute(status_query)
             return {"message": "Purchase created successfully", "purchase_id": purchase_id}
         except Exception as e:
             log_error(f"Error creating purchase: {str(e)}")
@@ -71,3 +81,33 @@ class PurchaseController:
         except Exception as e:
             log_error(f"Error fetching purchases: {str(e)}")
             return {"error": str(e), "status": 500} 
+        
+    @staticmethod
+    async def update_status(purchaseStatus: dict, userID: int):
+        try:
+            purchase_id = purchaseStatus["purchaseID"]
+            status = purchaseStatus["status"]
+            description = purchaseStatus["description"]
+            createdAt = purchaseStatus["createdAt"]
+
+            #Get the purchase
+            query = select(purchases_table).where(purchases_table.c.id == purchase_id)
+            purchase = await database.fetch_one(query)
+
+            if not purchase:
+                return {"error": "Purchase not found", "status": 404}
+            
+            #Check if the status
+
+            # Update the purchase status
+            query = (
+                update(purchase_status_table)
+                .where(purchase_status_table.c.purchaseID == purchase_id)
+                .values(status=status, description=description, createdAt=createdAt)
+            )
+            await database.execute(query)
+
+            return {"message": "Purchase status updated successfully"}
+        except Exception as e:
+            log_error(f"Error updating purchase status: {str(e)}")
+            return {"error": str(e), "status": 500}
