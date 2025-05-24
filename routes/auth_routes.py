@@ -29,7 +29,7 @@ async def login(loginData: LoginData):
 
     refresh_payload = {
         "user_id": result["user_id"],
-        "exp": int((now + timedelta(hours=8)).timestamp()),  # Refresh token expires in 30 days
+        "exp": int((now + timedelta(hours=12)).timestamp()),  # Refresh token expires in 30 days
         "iat": int(now.timestamp())
     }
 

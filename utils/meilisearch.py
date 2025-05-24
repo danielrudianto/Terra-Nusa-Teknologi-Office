@@ -33,29 +33,29 @@ client.index(index_name).update_synonyms({
 
 async def setup_meilisearch():
     # try:
-        # client.create_index(index_name, {"primaryKey": "id"})
-        # log_info(f"Index '{index_name}' created successfully.")
+    #     client.create_index(index_name, {"primaryKey": "id"})
+    #     log_info(f"Index '{index_name}' created successfully.")
 
-        #Clear all the data
-        # index.delete_all_documents()
-        # log_info(f"All documents in index '{index_name}' deleted successfully.")
+    #     # Clear all the data
+    #     index.delete_all_documents()
+    #     log_info(f"All documents in index '{index_name}' deleted successfully.")
 
-        # # Add existing supplier to the index
-        # query = select(suppliers_table)
-        # suppliers = await database.fetch_all(query)
-        # for supplier in suppliers:
-        #     supplier_dict = dict(supplier)
+    #     # Add existing supplier to the index
+    #     query = select(suppliers_table)
+    #     suppliers = await database.fetch_all(query)
+    #     for supplier in suppliers:
+    #         supplier_dict = dict(supplier)
 
-        #     supplier_dict["phone_number"] = supplier_dict["phoneNumber"]
-        #     supplier_dict["name"] = supplier_dict["name"] + ", " + supplier_dict["prefix"]
+    #         supplier_dict["phone_number"] = supplier_dict["phoneNumber"]
+    #         supplier_dict["name"] = supplier_dict["name"] + ", " + supplier_dict["prefix"]
 
-        #     #Sold items
-        #     supplier_dict["items_sold"] = supplier_dict["itemsSold"].split(",") if supplier_dict["itemsSold"] else []
-        #     #Service area
-        #     supplier_dict["service_area"] = supplier_dict["serviceArea"].split(",") if supplier_dict["serviceArea"] else []
+    #         #Sold items
+    #         supplier_dict["items_sold"] = supplier_dict["itemsSold"].split(",") if supplier_dict["itemsSold"] else []
+    #         #Service area
+    #         supplier_dict["service_area"] = supplier_dict["serviceArea"].split(",") if supplier_dict["serviceArea"] else []
             
-        #     index.add_documents([supplier_dict])
-        #     log_info(f"Document with ID '{supplier_dict['id']}' added to index '{index_name}' successfully.")
+    #         index.add_documents([supplier_dict])
+    #         log_info(f"Document with ID '{supplier_dict['id']}' added to index '{index_name}' successfully.")
 
     # except Exception as e:
     #     raise e

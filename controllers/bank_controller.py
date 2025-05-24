@@ -6,6 +6,8 @@ from utils.logger_utils import log_error, log_info
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from datetime import datetime
+from utils.redis import r
+import json
 
 class BankController:
     @staticmethod 
@@ -28,6 +30,15 @@ class BankController:
             query = insert(bank_accounts_table).values(**bank_data)
             bank_id = await database.execute(query)
             log_info(f"Bank account created successfully with ID: {bank_id}")
+
+            # Add to redis
+            r.rpush("bank_account", json.dumps({
+                "id": bank_id,
+                "bankAccountNumber": bank_data["bankAccountNumber"],
+                "bankAccountName": bank_data["bankAccountName"],
+                "bankName": bank_data["bankName"],
+            }))
+
             return {"message": "Bank account created successfully", "bank_id": bank_id}
         except IntegrityError as e:
             log_error(f"Integrity error: {str(e)}")
@@ -64,7 +75,29 @@ class BankController:
         except Exception as e:
             log_error(f"Error retrieving bank accounts: {str(e)}")
             return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def get_all_bank_accounts() -> List[Dict]:
+        """
+        Retrieve the top bank accounts from the database.
         
+        Returns:
+            List[Dict]: A list of top bank accounts.
+        """
+        log_info("Getting top bank accounts")
+        try:
+            bank_accounts = r.lrange("bank_account", 0, -1)
+            if not bank_accounts:
+                query = select(bank_accounts_table).limit(10)
+                bank_accounts = await database.fetch_all(query)
+                r.rpush("bank_account", json.dumps(bank_accounts))
+            else:
+                bank_accounts = [json.loads(account) for account in bank_accounts]
+            return bank_accounts
+        except Exception as e:
+            log_error(f"Error retrieving top bank accounts: {str(e)}")
+            return []
+
     @staticmethod
     async def get_bank_account_by_id(bank_id: int) -> Optional[Dict]:
         """

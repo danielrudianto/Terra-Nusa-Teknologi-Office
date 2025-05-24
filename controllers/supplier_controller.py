@@ -90,7 +90,7 @@ class SupplierController:
             result = client.index("suppliers").search(keyword, {"limit": 10, "offset": (page - 1) * 10})
 
             if not result["hits"]:
-                return {"message": "No suppliers found."}
+                return {"data": [], "count": 0}
             return {
                 "data": result["hits"],
                 "count": result["estimatedTotalHits"],
