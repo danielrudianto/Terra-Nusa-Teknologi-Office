@@ -1,9 +1,11 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Annotated
-from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, ForeignKey
+from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, ForeignKey, or_, select, func, insert
 from utils.database import metadata
-from datetime import date as d
-from datetime import datetime as dt
+from datetime import datetime as d
+from utils.logger_utils import log_error
+from models.supplier_model import suppliers_table
+from utils.database import database
 
 # Define the Purchase model
 class Purchase(BaseModel):
@@ -16,6 +18,7 @@ class Purchase(BaseModel):
     purchaseOrderName: str  # Name of the purchase order
     projectName: str  # Name of the project
     purchaseType: str  # Type of the purchase
+    procurementType: str # Type of procurement (either goods or other)
     dpp: Annotated[float, Field(ge=0)]  # DPP value (greater than or equal to 0)
     ppn: Annotated[float, Field(ge=0)]  # PPN value (optional)
     pbbkb: Annotated[float, Field(ge=0)]  # PBBKB value (optional)
@@ -38,11 +41,213 @@ class Purchase(BaseModel):
     lastStatus: str  # Last status of the purchase
     lastStatusDescription: str | None
 
+    @staticmethod
+    async def get_purchases(page: int, pageSize: int, filterObject: dict, sortBy: str, sortByDirection: str, keyword: str | None):
+        offset = (page - 1) * pageSize
+        supplier_columns = [
+            suppliers_table.c.id.label("supplier_id"),
+            suppliers_table.c.name.label("supplier_name"),
+            suppliers_table.c.address.label("supplier_address"),
+            suppliers_table.c.city.label("supplier_city"),
+            suppliers_table.c.province.label("supplier_province"),
+            suppliers_table.c.prefix.label("supplier_prefix"),
+        ]
+
+        conditions = [purchases_table.c.isDelete == False]
+
+        or_conditions = []
+        if(keyword is not None and keyword != ""):
+            or_conditions.append(purchases_table.c.purchaseOrderName.ilike(f"%{keyword}%"))
+            or_conditions.append(purchases_table.c.invoiceName.ilike(f"%{keyword}%"))
+            or_conditions.append(purchases_table.c.receiptName.ilike(f"%{keyword}%"))
+            or_conditions.append(purchases_table.c.taxInvoiceName.ilike(f"%{keyword}%"))
+            or_conditions.append(suppliers_table.c.name.ilike(f"%{keyword}%"))
+        conditions.append(or_(*or_conditions))
+
+        or_conditions = []
+        if filterObject.get("isDue"):
+            or_conditions.append(purchases_table.c.dueDate <= d.now().date())
+        if filterObject.get("isNotDue"):
+            or_conditions.append(purchases_table.c.dueDate > d.now().date())
+
+        conditions.append(or_(*or_conditions))
+
+        or_conditions = []
+        if filterObject.get("isPaid"):
+            or_conditions.append(purchases_table.c.isPaid == True)
+        if filterObject.get("isUnpaid"):
+            or_conditions.append(purchases_table.c.isPaid == False)
+
+        conditions.append(or_(*or_conditions))
+
+        or_conditions = []
+        if filterObject.get("isReady"):
+            or_conditions.append(purchases_table.c.lastStatus == "ready")   
+        if filterObject.get("isDraft"):
+            or_conditions.append(purchases_table.c.lastStatus == "draft")
+
+        conditions.append(or_(*or_conditions))
+
+        # Sort by, using switch case
+        if sortBy == "date":
+            order_by = purchases_table.c.date.desc() if sortByDirection == "desc" else purchases_table.c.date
+        elif sortBy == "purchaseOrderName":
+            order_by = purchases_table.c.purchaseOrderName.desc() if sortByDirection == "desc" else purchases_table.c.purchaseOrderName
+        elif sortBy == "dueDate":
+            order_by = purchases_table.c.dueDate.desc() if sortByDirection == "desc" else purchases_table.c.dueDate
+        elif sortBy == "total":
+            order_by = (purchases_table.c.ppn + purchases_table.c.dpp).desc() if sortByDirection == "desc" else (purchases_table.c.ppn + purchases_table.c.dpp)
+        elif sortBy == "supplier":
+            order_by = suppliers_table.c.name.desc() if sortByDirection == "desc" else suppliers_table.c.name.asc()
+        elif sortBy == "invoiceName":
+            order_by = purchases_table.c.invoiceName.desc() if sortByDirection == "desc" else purchases_table.c.invoiceName.asc()
+        elif sortBy == "project":
+            order_by = purchases_table.c.projectName.desc() if sortByDirection == "desc" else purchases_table.c.projectName.asc()
+        else:
+            order_by = purchases_table.c.date.desc()
+            
+        
+        try:
+            query = (
+                select(*purchases_table.c, *supplier_columns)
+                .join(suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id)
+                .where(*conditions)
+                .order_by(order_by)
+                .offset(offset)
+                .limit(pageSize)
+            )
+            purchases = await database.fetch_all(query)
+
+            #Count the total number of purchases
+            count_query = (
+                    select(func.count())
+                .select_from(purchases_table.join(suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id))
+                .where(*conditions)
+            )
+            count = await database.fetch_val(count_query)
+
+            #Convert the result
+            purchase_result = []
+            for purchase in purchases:
+                purchase_dict = dict(purchase)
+                purchase_dict["id"] = purchase_dict.pop("id")
+                purchase_dict["createdAt"] = purchase_dict.pop("createdAt")
+                purchase_dict["updatedAt"] = purchase_dict.pop("updatedAt")
+                purchase_dict["deletedAt"] = purchase_dict.pop("deletedAt")
+                purchase_dict["createdBy"] = purchase_dict.pop("createdBy")
+                purchase_dict["supplierID"] = purchase_dict.pop("supplierID")
+                purchase_dict["supplier"] = {
+                    "id": purchase_dict.pop("supplier_id"),
+                    "name": purchase_dict.pop("supplier_name"),
+                    "address": purchase_dict.pop("supplier_address"),
+                    "city": purchase_dict.pop("supplier_city"),
+                    "province": purchase_dict.pop("supplier_province"),
+                    "prefix": purchase_dict.pop("supplier_prefix"),
+                }
+                purchase_result.append(purchase_dict)
+            
+            return {"data": purchase_result, "count": count}
+        except Exception as e:
+            log_error(f"Error fetching purchases: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def create_purchase(purchase_data: dict):
+        """
+        Create a new purchase in the database.
+        """
+        try:
+            query = insert(purchases_table).values(**purchase_data)
+            purchase_id = await database.execute(query)
+            return purchase_id
+        except Exception as e:
+            log_error(f"Error creating purchase: {str(e)}")
+            return {"error": str(e), "status": 500}
+    
+    @staticmethod
+    async def get_purchase_by_id(purchaseID: int):
+        try:
+            supplier_columns = [
+                suppliers_table.c.id.label("supplier_id"),
+                suppliers_table.c.name.label("supplier_name"),
+                suppliers_table.c.address.label("supplier_address"),
+                suppliers_table.c.city.label("supplier_city"),
+                suppliers_table.c.province.label("supplier_province"),
+                suppliers_table.c.prefix.label("supplier_prefix"),
+            ]
+            query = (
+                select(*purchases_table.c, *supplier_columns)
+                .join(suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id)
+                .where(purchases_table.c.id == purchaseID)
+            )
+            purchase = await database.fetch_one(query)
+
+            if not purchase:
+                return {"error": "Purchase not found", "status": 404}
+
+            return purchase
+        except Exception as e:
+            log_error(f"Error fetching purchase by ID: {str(e)}")
+            return {"error": str(e), "status": 500} 
+
+    @staticmethod
+    async def get_purchase_by_project(projectName: str):
+        try:
+            supplier_columns = [
+                suppliers_table.c.id.label("supplier_id"),
+                suppliers_table.c.name.label("supplier_name"),
+                suppliers_table.c.address.label("supplier_address"),
+                suppliers_table.c.city.label("supplier_city"),
+                suppliers_table.c.province.label("supplier_province"),
+                suppliers_table.c.prefix.label("supplier_prefix"),
+            ]
+            # Query to get all purchases for the specified project
+            if not projectName:
+                return {"error": "Project name is required", "status": 400}
+            
+            conditions = [
+                purchases_table.c.projectName == projectName,
+                purchases_table.c.isDelete == False
+            ]
+
+            order_by = purchases_table.c.date.desc()
+            
+            query = (
+                select(*purchases_table.c, *supplier_columns)
+                .join(suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id)
+                .where(*conditions)
+                .order_by(order_by)
+            )
+            purchases = await database.fetch_all(query)
+
+            if not purchases:
+                return {"error": "No purchases found for this project", "status": 404}
+
+            # Convert the result to a list of dictionaries
+            purchase_list = [dict(purchase) for purchase in purchases]
+            return purchase_list
+        except Exception as e:
+            log_error(f"Error fetching purchase report by project: {str(e)}")
+            return {"error": str(e), "status": 500}
+
 class PurchaseStatus(BaseModel):
     id: int  # ID of the purchase
     status: str  # Status of the purchase
-    createdAt: dt  # Creation date of the purchase
+    createdAt: d  # Creation date of the purchase
     description: str  # Description of the status
+
+    @staticmethod
+    async def create_purchase_status(status_data: dict):
+        status_query = insert(purchase_status_table).values(
+            purchaseID=status_data["purchaseID"],
+            status=status_data["status"],
+            createdAt=status_data["createdAt"],
+            description=status_data["description"],
+            createdBy=status_data["createdBy"],
+        )
+        purchase_status_id = await database.execute(status_query)
+        return purchase_status_id
+
 
 class PurchaseUpdateStatus(BaseModel):
     id: int  # ID of the purchase
@@ -71,6 +276,7 @@ purchases_table = Table(
     Column("purchaseOrderName", String(100), nullable=False),
     Column("projectName", String(100), nullable=False),
     Column("purchaseType", String(100), nullable=False),
+    Column("procurementType", String(100), nullable=False, default="goods"),
     Column("dpp", Float(), nullable=False),
     Column("ppn", Float(), nullable=False),
     Column("pbbkb", Float(), nullable=False),
@@ -90,7 +296,7 @@ purchases_table = Table(
     Column("paymentMethod", String(100), nullable=False),
     Column("isPaid", Boolean(), nullable=False, default=False),
     Column("isDelete", Boolean(), nullable=False, default=False),
-    Column("createdAt", DateTime(), nullable=False, default=dt.now()),
+    Column("createdAt", DateTime(), nullable=False, default=d.now()),
     Column("updatedAt", DateTime(), nullable=True, default=None),
     Column("deletedAt", DateTime(), nullable=True, default=None),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
@@ -107,6 +313,6 @@ purchase_status_table = Table(
     Column("purchaseID", Integer, nullable=False),
     Column("status", String(100), nullable=False),
     Column("createdBy", Integer, nullable=False),
-    Column("createdAt", DateTime(), nullable=False, default=dt.now()),
+    Column("createdAt", DateTime(), nullable=False, default=d.now()),
     Column("description", String(255), nullable=True),
 )

@@ -22,15 +22,31 @@ async def create_purchase(purchase: Purchase, current_user: Annotated[User, Depe
     
     return result
 
+@router.get("/report/project")
+async def get_purchase_report_by_project(projectName: str, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Get a report of purchases by project name. Requires a valid token.
+    """
+    result = await PurchaseController.get_purchase_report_by_project(projectName)
+    if "error" in result:
+        raise HTTPException(status_code=result["status"], detail=result["error"])
+    
+    return result
+
 @router.get("/payments/{purchase_id}")
 async def get_payments_by_purchase_id(purchase_id: int, current_user: Annotated[User, Depends(get_current_user)]):
     """
     Get payments by purchase ID. Requires a valid token.
     """
+    purchase = await PurchaseController.get_purchase_by_id(purchase_id)
     result = await PurchaseController.get_payments_by_purchase_id(purchase_id)
     if "error" in result:
         raise HTTPException(status_code=result["status"], detail=result["error"])
-    return result
+    
+    return {
+        "purchase": purchase,
+        "payments": result
+    }
 
 @router.get("/{purchase_id}")
 async def get_purchase_by_id(purchase_id: int, current_user: Annotated[User, Depends(get_current_user)]):
@@ -43,7 +59,7 @@ async def get_purchase_by_id(purchase_id: int, current_user: Annotated[User, Dep
     return result
 
 @router.get("/")
-async def get_purchases(page: int, pageSize: int, filter: int, sortBy: str, sortByDirection: str, current_user: Annotated[User, Depends(get_current_user)], isDue: bool = False, isNotDue: bool = False, isPaid: bool = False, isUnpaid: bool = False, isDraft: bool = False, isReady: bool = False):
+async def get_purchases(page: int, pageSize: int, filter: int, sortBy: str, sortByDirection: str, keyword: str | None, current_user: Annotated[User, Depends(get_current_user)], isDue: bool = False, isNotDue: bool = False, isPaid: bool = False, isUnpaid: bool = False, isDraft: bool = False, isReady: bool = False):
     """
     Get a list of purchases. Requires a valid token.
     """
@@ -71,7 +87,7 @@ async def get_purchases(page: int, pageSize: int, filter: int, sortBy: str, sort
             "isReady": isReady
         }
     try:
-        result = await PurchaseController.get_purchases(page, pageSize, filterObject, sortBy, sortByDirection)
+        result = await PurchaseController.get_purchases(page, pageSize, filterObject, sortBy, sortByDirection, keyword)
         if "error" in result:
             raise HTTPException(status_code=result["status"], detail=result["error"])
         return result

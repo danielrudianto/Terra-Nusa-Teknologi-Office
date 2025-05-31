@@ -40,6 +40,7 @@ class UserController:
                     "user_id": result.id,
                     "email": result.email,
                     "name": result.name,
+                    "authenticationLevel": result.authenticationLevel,
                 }
             else:
                 #print hashed password
@@ -48,15 +49,3 @@ class UserController:
         except Exception as e:
             log_error(e)
             return {"error": "Internal server error", "status": 500}
-            
-    @staticmethod
-    async def register(user_data: dict):
-        try:
-            hashed_password = bcrypt.hashpw(user_data["password"].encode("utf-8"), salt)
-            user_data["password"] = hashed_password.decode("utf-8")
-            query = insert(users_table).values(**user_data)
-            user_id = await database.execute(query)
-            return {"message": "User registered successfully", "user_id": user_id}
-        except Exception as e:
-            log_error("Error registering user: %s", str(e))
-            raise e

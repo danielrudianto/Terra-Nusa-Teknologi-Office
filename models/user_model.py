@@ -17,6 +17,7 @@ class User(BaseModel):
     createdAt: datetime  # Date when the user was created
     updated_at: Optional[datetime] = None  # Date when the user was last updated (optional)
     deleted_at: Optional[datetime] = None  # Date when the user was deleted (optional)
+    authenticationLevel: Optional[int] = Field(default=1, ge=1, le=5, description="Authentication level of the user, between 1 and 5")
     
 # Define the SQLAlchemy table
 users_table = Table(
@@ -31,5 +32,6 @@ users_table = Table(
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=True),
     Column("createdAt", DateTime(), nullable=False, default=datetime.now()),
     Column("updatedAt", DateTime(), nullable=True, default=None),
-    Column("deletedAt", DateTime(), nullable=True, default=None)
+    Column("deletedAt", DateTime(), nullable=True, default=None),
+    Column("authenticationLevel", Integer, default=1, nullable=False, comment="Authentication level of the user, between 1 and 5"),
 )

@@ -1,6 +1,6 @@
 from sqlalchemy import insert, select, update, delete, func
 from utils.database import database
-from models.bank_model import bank_accounts_table
+from models.bank_model import BankAccount
 from typing import Dict, List, Optional
 from utils.logger_utils import log_error, log_info
 from sqlalchemy.exc import IntegrityError
@@ -24,12 +24,18 @@ class BankController:
         log_info(userID)
         log_info(f"Creating bank account with data: {bank_data}")
         try:
+            # Create new Bank model
+
             bank_data["createdAt"] = datetime.now()
             bank_data["createdBy"] = userID
 
-            query = insert(bank_accounts_table).values(**bank_data)
-            bank_id = await database.execute(query)
-            log_info(f"Bank account created successfully with ID: {bank_id}")
+            bank = BankAccount(**bank_data)
+            result = await bank.create()
+            if "error" in result:
+                log_error(f"Error creating bank account: {result['error']}")
+                raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
+            
+            bank_id = result['bank_account_id']            
 
             # Add to redis
             r.rpush("bank_account", json.dumps({
@@ -39,7 +45,8 @@ class BankController:
                 "bankName": bank_data["bankName"],
             }))
 
-            return {"message": "Bank account created successfully", "bank_id": bank_id}
+            log_info(f"Bank account created successfully with ID: {result['bank_account_id']}")
+            return {"message": "Bank account created successfully", "bank_id": result['bank_account_id']}
         except IntegrityError as e:
             log_error(f"Integrity error: {str(e)}")
             raise HTTPException(status_code=400, detail="Bank account already exists.")
@@ -63,15 +70,12 @@ class BankController:
             return {"error": "Page number must be greater than 0", "status": 400}
         
         try:
-            offset = (page - 1) * 10
-            query = select(bank_accounts_table).offset(offset).limit(10)
-            bank_accounts = await database.fetch_all(query)
+            result = await BankAccount.get_banks(page=page, pageSize = 10)
+            if "error" in result:
+                log_error(f"Error retrieving bank accounts: {result['error']}")
+                return {"error": result["error"], "status": result["status"]}
 
-            # Count the total number of bank accounts
-            count_query = select(func.count()).select_from(bank_accounts_table)
-            count = await database.fetch_val(count_query)
-
-            return {"data": bank_accounts, "count": count}
+            return result
         except Exception as e:
             log_error(f"Error retrieving bank accounts: {str(e)}")
             return {"error": str(e), "status": 500}
@@ -87,13 +91,7 @@ class BankController:
         log_info("Getting top bank accounts")
         try:
             bank_accounts = r.lrange("bank_account", 0, -1)
-            if not bank_accounts:
-                query = select(bank_accounts_table).limit(10)
-                bank_accounts = await database.fetch_all(query)
-                r.rpush("bank_account", json.dumps(bank_accounts))
-            else:
-                bank_accounts = [json.loads(account) for account in bank_accounts]
-            return bank_accounts
+            return [json.loads(account) for account in bank_accounts]
         except Exception as e:
             log_error(f"Error retrieving top bank accounts: {str(e)}")
             return []

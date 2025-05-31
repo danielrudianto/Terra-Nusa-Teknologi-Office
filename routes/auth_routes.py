@@ -3,7 +3,6 @@ from models.auth_model import LoginData
 from controllers.user_controller import UserController
 from datetime import datetime, timedelta
 from utils.logger_utils import log_error, log_info
-import json
 from utils.auth_utils import create_access_token, validate_token
 
 router = APIRouter()
@@ -14,7 +13,7 @@ async def login(loginData: LoginData):
         
     # Check for errors in the result
     if "error" in result:
-        log_info(f"Login failed for user {loginData.email}")
+        log_error(f"Login failed for user {loginData.email}")
         raise HTTPException(status_code=400, detail="Invalid credentials")
     
     now = datetime.utcnow()
@@ -23,20 +22,26 @@ async def login(loginData: LoginData):
     payload = {
         "user_id": result["user_id"],
         "name": result["name"],
-        "exp": int((now + timedelta(hours=1)).timestamp()),  # Token expires in 1 hour
+        "exp": int((now + timedelta(hours=8)).timestamp()),  # Token expires in 1 hour
         "iat": int(now.timestamp()),  # Issued at
     }
 
     refresh_payload = {
         "user_id": result["user_id"],
-        "exp": int((now + timedelta(hours=12)).timestamp()),  # Refresh token expires in 30 days
+        "exp": int((now + timedelta(days=7)).timestamp()),  # Refresh token expires in 30 days
         "iat": int(now.timestamp())
+    }
+
+    user = {
+        "name": result["name"],
+        "email": result["email"],
+        "authenticationLevel": result["authenticationLevel"],
     }
 
     token = create_access_token(payload, timedelta(hours=1))
     refresh_token = create_access_token(refresh_payload, timedelta(hours=8))
     
-    return {"access_token": token, "refresh_token": refresh_token, "token_type": "bearer"}
+    return {"access_token": token, "refresh_token": refresh_token, "token_type": "bearer", "user": user}
     
 @router.post("/refresh")
 async def refresh_token(request: Request):

@@ -6,6 +6,7 @@ from utils.logger_utils import log_error, log_info
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from datetime import datetime
+from models.client_model import Client
 
 class ClientController:
     @staticmethod
@@ -19,33 +20,46 @@ class ClientController:
         Returns:
             Dict: A success message with the created client ID.
         """
-        log_info(userID)
         log_info(f"Creating client with data: {client_data}")
         try:
-            client_data["created_at"] = datetime.now()
-            client_data["created_by"] = userID
-
-            query = insert(clients_table).values(**client_data)
-            client_id = await database.execute(query)
-            log_info(f"Client created successfully with ID: {client_id}")
-            return {"message": "Client created successfully", "client_id": client_id}
-        except IntegrityError as e:
-            log_error(f"Integrity error: {str(e)}")
-            raise HTTPException(status_code=400, detail="Client already exists.")
+            client_data["createdAt"] = datetime.now()
+            client_data["createdBy"] = userID
+            result = await Client.create_client(client_data)  # Validate client data using Pydantic model
+            if "error" in result:
+                log_error(f"Error creating client: {result['error']}")
+                raise HTTPException(status_code=result["status"], detail=result["error"])
+            
+            return result
         except Exception as e:
             log_error(f"Unexpected error: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error.")
 
     @staticmethod
-    async def get_all_clients() -> List[Dict]:
+    async def get_clients(page: int, pageSize: int = 10, sortBy: Optional[str] = None, sortByDirection: Optional[str] = "asc", keyword: Optional[str] = None) -> Dict:
         """
-        Retrieve all clients from the database.
+        Retrieve a list of clients from the database.
+
+        Args:
+            page (int): The page number for pagination.
+            pageSize (int): The number of clients per page.
+            sortBy (Optional[str]): The field to sort by.
+            sortByDirection (Optional[str]): The direction to sort (asc/desc).
+            keyword (Optional[str]): A keyword to filter clients.
 
         Returns:
-            List[Dict]: A list of all clients.
+            Dict: A dictionary containing the list of clients and total count.
         """
-        query = select(clients_table)
-        return await database.fetch_all(query)
+        if page < 1:
+            return {"error": "Page number must be greater than 0", "status": 400}
+        
+        log_info(f"Retrieving clients with page={page}, keyword={keyword}")
+
+        clients = await Client.get_clients(page, pageSize, sortBy, sortByDirection, keyword)
+        if "error" in clients:
+            log_error(f"Error fetching clients: {clients['error']}")
+            raise HTTPException(status_code=clients["status"], detail=clients["error"])
+        
+        return clients
 
     @staticmethod
     async def get_client_by_id(client_id: int) -> Dict:

@@ -26,22 +26,22 @@ async def upload_reimbursement(request: Request, current_user: Annotated[User, D
     """
     Upload a reimbursement. Requires a valid token.
     """
-    form = await request.form()
-    # Get the file
-    attachment = form.get("file")
-    # Get the reimbursement data
-    reimbursementID  = form.get("reimbursementID")
-    # Upload the file
-    file = open("reimbursements/" + reimbursementID + ".pdf", "wb")
-    file.write(attachment.file.read())
-    file.close()
+    # form = await request.form()
+    # # Get the file
+    # attachment = form.get("file")
+    # # Get the reimbursement data
+    # reimbursementID  = form.get("reimbursementID")
+    # # Upload the file
+    # file = open("reimbursements/" + reimbursementID + ".pdf", "wb")
+    # file.write(attachment.file.read())
+    # file.close()
 
 @router.get("/")
-async def get_reimbursements(page: int):
+async def get_reimbursements(page: int, sortBy: str, sortByDirection: str, pageSize: int, current_user: Annotated[User, Depends(get_current_user)]):
     """
     Get all reimbursements. Requires a valid token.
     """
-    result = await ReimbursementController.get_reimbursements(page)
+    result = await ReimbursementController.get_reimbursements(page, pageSize, sortBy, sortByDirection)
     if "error" in result:
         log_error(f"Error during getting reimbursements: {str(result['error'])}")
         raise HTTPException(status_code=result["status"], detail=result["error"])

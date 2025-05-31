@@ -8,7 +8,6 @@ from datetime import date as dt
 class Payment(BaseModel):
     date: dt #Payment date
     amount: float #Payment amount
-    paymentMethod: str #Payment method
     purchaseID: int | None = None #Purchase ID
     expenseID: int | None = None #Expense ID
     reimbursementID: int | None = None #Reimbursement ID
@@ -21,13 +20,12 @@ payments_table = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("date", DateTime(), nullable=False),
     Column("amount", Integer, nullable=False),
-    Column("paymentMethod", String(50), nullable=False),
-    Column("purchaseID", ForeignKey("purchases.id"), Integer, nullable=True),
+    Column("purchaseID", Integer, ForeignKey("purchases.id"), nullable=True),
     Column("expenseID", Integer, nullable=True),
     Column("reimbursementID", Integer, nullable=True),
-    Column("bankAccountID", ForeignKey("bank_accounts.id"), Integer, nullable=True),
+    Column("bankAccountID", Integer, ForeignKey("bank_accounts.id"), nullable=True),
     Column("createdAt", DateTime(), nullable=False, default=dt.today()),
-    Column("createdBy", ForeignKey("users.id"), Integer, nullable=False),
+    Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
     Column("updatedAt", DateTime(), nullable=True, default=None),
     Column("updatedBy", Integer, ForeignKey("users.id"), nullable=True, default=None,),
     Column("isDelete", Boolean, default=False),

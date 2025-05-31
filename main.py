@@ -5,8 +5,9 @@ from utils.logger_utils import log_info, log_error
 from contextlib import asynccontextmanager
 from routes.routes import router
 from fastapi.middleware.cors import CORSMiddleware
-from utils.meilisearch import setup_meilisearch
+from utils.meilisearch import setup_meilisearch, sync_meilisearch
 from utils.database import database
+from utils.redis import sync_redis
 
 import asyncio
 
@@ -46,7 +47,7 @@ app.add_middleware(
 # Include the router
 app.include_router(router)
 
-# Run the application
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, workers=1)
