@@ -34,7 +34,7 @@ class SupplierController:
             client.index("suppliers").add_documents([
                 {
                     "id": supplierID,
-                    "name": f"${supplier_data['name']}, {supplier_data['prefix']}",
+                    "name": f"{supplier_data['name']}, {supplier_data['prefix']}",
                     "address": supplier_data["address"],
                     "city": supplier_data["city"],
                     "province": supplier_data["province"],

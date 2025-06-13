@@ -22,3 +22,79 @@ async def create_payment(payment: Payment, user: Annotated[dict, Depends(get_cur
         raise HTTPException(status_code=500, detail="Internal server error")
     
     return result
+
+@router.get("/{paymentID}")
+async def get_payment_by_id(paymentID: int, user: Annotated[dict, Depends(get_current_user)]):
+    """
+    Get a payment by its ID. Requires a valid token.
+    """
+    result = await PaymentController.get_payment_by_id(paymentID)
+    
+    if "error" in result:
+        log_error(f"Error fetching payment with ID {paymentID}: {result['error']}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    
+    return result
+
+@router.get("/")
+async def get_payments(
+    page: int,
+    pageSize: int,
+    user: Annotated[dict, Depends(get_current_user)],
+    sortBy: str = "createdAt",
+    sortByDirection: str = "desc",
+    isPending: bool = False, 
+    isApproved: bool = False, 
+    isRejected: bool = False, 
+):
+    """
+    Get a list of payments with pagination, filtering, and sorting.
+    """
+    filterObject = {
+        "isApproved": isApproved,
+        "isPending": isPending,
+        "isRejected": isRejected,
+    }
+    result = await PaymentController.get_payments(
+        page, pageSize, filterObject, sortBy, sortByDirection
+    )
+    
+    if "error" in result:
+        log_error(f"Error fetching payments: {result['error']}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    
+    return result
+
+@router.put("/approve/{paymentID}")
+async def update_payment_status(
+    paymentID: int,
+    user: Annotated[dict, Depends(get_current_user)]
+):
+    """
+    Approve a payment by its ID. Requires a valid token.
+    """
+    userID = user["id"]
+    result = await PaymentController.update_payment_status(paymentID, "approve", userID)
+    
+    if "error" in result:
+        log_error(f"Error approving payment with ID {paymentID}: {result['error']}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    
+    return result
+
+@router.put("/reject/{paymentID}")
+async def reject_payment_status(
+    paymentID: int,
+    user: Annotated[dict, Depends(get_current_user)]
+):
+    """
+    Reject a payment by its ID. Requires a valid token.
+    """
+    userID = user["id"]
+    result = await PaymentController.update_payment_status(paymentID, "reject", userID)
+    
+    if "error" in result:
+        log_error(f"Error rejecting payment with ID {paymentID}: {result['error']}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    
+    return result

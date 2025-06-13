@@ -100,6 +100,73 @@ class BankAccount(BaseModel):
             log_error(f"Error fetching bank accounts: {str(e)}")
             return {"error": str(e), "status": 500}
 
+    @staticmethod
+    async def get_bank_account_by_id(id: int) -> dict:
+        """
+        Retrieve a bank account by its ID.
+        
+        Args:
+            id (int): The ID of the bank account.
+        
+        Returns:
+            BankAccount: The bank account details or None if not found.
+        """
+        query = bank_accounts_table.select().where(
+            bank_accounts_table.c.id == id
+        )
+
+        try:
+            row = await database.fetch_one(query)
+            if row:
+                return BankAccount(
+                    id=row.id,
+                    bankName=row.bankName,
+                    bankAccountName=row.bankAccountName,
+                    bankAccountNumber=row.bankAccountNumber,
+                    createdBy=row.createdBy,
+                    createdAt=row.createdAt,
+                    updatedBy=row.updatedBy,
+                    updatedAt=row.updatedAt,
+                    deletedBy=row.deletedBy,
+                    deletedAt=row.deletedAt,
+                    isDelete=row.isDelete
+                )
+            else:
+                return None
+        except Exception as e:
+            log_error(f"Error fetching bank account by ID {id}: {str(e)}")
+            return {"error": str(e), "status": 500}
+    
+    @staticmethod
+    async def delete_bank_account(id: int, deletedBy: int) -> dict:
+        """
+        Delete a bank account by its ID.
+        
+        Args:
+            id (int): The ID of the bank account to delete.
+            deletedBy (int): The ID of the user who is deleting the bank account.
+        
+        Returns:
+            Dict: A success message or an error message if not found.
+        """
+        query = bank_accounts_table.update().where(
+            bank_accounts_table.c.id == id
+        ).values(
+            isDelete=True,
+            deletedBy=deletedBy,
+            deletedAt=dt.now()
+        )
+
+        try:
+            result = await database.execute(query)
+            if result:
+                return {"message": "Bank account deleted successfully."}
+            else:
+                return {"error": "Bank account not found.", "status": 404}
+        except Exception as e:
+            log_error(f"Error deleting bank account with ID {id}: {str(e)}")
+            return {"error": str(e), "status": 500}
+
 # Define the SQLAlchemy table
 bank_accounts_table = Table(
     "bank_accounts",

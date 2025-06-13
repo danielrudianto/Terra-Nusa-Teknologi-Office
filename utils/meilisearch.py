@@ -4,6 +4,7 @@ from utils.logger_utils import log_info, log_error
 from models.supplier_model import suppliers_table
 from utils.database import database
 from sqlalchemy import insert, select
+from datetime import datetime
 
 # Get master key from environment variable
 masterKey = os.getenv("MEILISEARCH_MASTER_KEY")
@@ -53,6 +54,13 @@ async def sync_meilisearch():
             #Service area
             supplier_dict["service_area"] = supplier_dict["serviceArea"].split(",") if supplier_dict["serviceArea"] else []
             
+            # Remove unnecessary fields
+            for key, value in supplier_dict.items():
+                if isinstance(value, datetime):
+                    supplier_dict[key] = value.isoformat()  # Convert datetime to ISO format
+                elif value is None:
+                    supplier_dict[key] = ""
+
             index.add_documents([supplier_dict])
             log_info(f"Document with ID '{supplier_dict['id']}' added to index '{index_name}' successfully.")
 

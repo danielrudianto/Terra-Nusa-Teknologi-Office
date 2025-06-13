@@ -9,8 +9,6 @@ from utils.meilisearch import setup_meilisearch, sync_meilisearch
 from utils.database import database
 from utils.redis import sync_redis
 
-import asyncio
-
 log_info("Testing logger functionality")
 
 # Set the lifespan of the application

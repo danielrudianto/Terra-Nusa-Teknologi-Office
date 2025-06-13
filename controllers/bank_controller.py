@@ -160,3 +160,32 @@ class BankController:
         except Exception as e:
             log_error(f"Error updating bank account with ID {bank_id}: {str(e)}")
             return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def delete_bank_account(bankID: int, userID: int):
+        """
+        Delete a bank account from the database.
+        
+        Args:
+            bankID (int): The ID of the bank account to delete.
+            userID (int): The ID of the user performing the deletion.
+        
+        Returns:
+            Dict: A success message if the deletion was successful.
+        """
+        log_info(f"Deleting bank account with ID: {bankID}")
+        try:
+            result = await BankAccount.delete_bank_account(bankID, userID)
+            if result == 0:  # Check if any rows were affected
+                return {"error": "Deletion failed or bank account not found", "status": 404}
+            # Remove from redis
+            bank_accounts = r.lrange("bank_account", 0, -1)
+            for account in bank_accounts:
+                account_data = json.loads(account)
+                if account_data["id"] == bankID:
+                    r.lrem("bank_account", 0, json.dumps(account_data))
+                    break
+            return {"message": "Bank account deleted successfully"}
+        except Exception as e:
+            log_error(f"Error deleting bank account with ID {bankID}: {str(e)}")
+            return {"error": str(e), "status": 500}

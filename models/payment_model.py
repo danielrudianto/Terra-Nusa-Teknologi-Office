@@ -1,32 +1,272 @@
-from pydantic import BaseModel, EmailStr, StringConstraints, Field
+from pydantic import BaseModel, Field
 from typing import Annotated
-from sqlalchemy import Table, Column, DateTime, Integer, String, Boolean, ForeignKey
-from utils.database import metadata
-from datetime import date as dt
+from sqlalchemy import Table, Column, DateTime, Integer, String, Boolean, ForeignKey, Date, or_, select, func, and_, update
+from utils.database import metadata, database
+from datetime import date as d, datetime as dt
+from models.supplier_model import suppliers_table
+from models.purchase_model import purchases_table
+from models.reimbursement_model import reimbursements_table
+from models.bank_model import bank_accounts_table, BankAccount
+from utils.logger_utils import log_error, log_info
+
 
 # Define the Client model
 class Payment(BaseModel):
-    date: dt #Payment date
+    date: d #Payment date
     amount: float #Payment amount
     purchaseID: int | None = None #Purchase ID
     expenseID: int | None = None #Expense ID
     reimbursementID: int | None = None #Reimbursement ID
     bankAccountID: int | None = None #Bank account ID
+    isApprove: bool = False #Whether the payment is approved
+    isDelete: bool = False #Whether the payment is deleted
+    createdAt: dt = Field(default_factory=dt.now) #Creation date and time
+    createdBy: int | None = None #ID of the user who created the payment
+    updatedBy: int | None = None #ID of the user who approved the payment
+    updatedAt: dt | None = None #Last update date and time
+    status: str = "ready" #Document status when it was created
 
+    # Constructor
+    def __init__(self, **data):
+        super().__init__(**data)
+        self.createdAt = data.get("createdAt", dt.now())
+        self.updatedAt = data.get("updatedAt", None)
+        self.isDelete = data.get("isDelete", False)
+        self.isApprove = data.get("isApprove", False)
+        self.status = data.get("status", "ready")
+
+    # Create
+    async def create(self):
+        """
+        Create a new payment in the database.
+        
+        Returns:
+            dict: A success message with the created payment ID.
+        """
+        try:
+            query = payments_table.insert().values(
+                date=self.date,
+                amount=self.amount,
+                purchaseID=self.purchaseID,
+                expenseID=self.expenseID,
+                reimbursementID=self.reimbursementID,
+                bankAccountID=self.bankAccountID,
+                isApprove=self.isApprove,
+                isDelete=self.isDelete,
+                createdAt=self.createdAt,
+                createdBy=self.createdBy,
+                updatedAt=self.updatedAt,
+                updatedBy=self.updatedBy,
+                status=self.status
+            )
+            
+            await database.execute(query)
+            return {"message": "Payment created successfully", "payment_id": self.id}
+        except Exception as e:
+            log_error(f"Error creating payment: {str(e)}")
+            return {"error": str(e), "status": 500}
+    
+    @staticmethod
+    async def get_payments(page: int, pageSize: int, filterObject: dict, sortBy: str, sortByDirection: str):
+        """
+        Get all payments with pagination, filtering, and sorting.
+        
+        Args:
+            page (int): The page number for pagination.
+            pageSize (int): The number of items per page.
+            filterObject (dict): The filter criteria for the payments.
+            sortBy (str): The field to sort by.
+            sortByDirection (str): The direction of sorting ('asc' or 'desc').
+            keyword (str | None): A keyword to search in the payments.
+        
+        Returns:
+            dict: A dictionary containing the payments and pagination info.
+        """
+        # Placeholder for actual implementation
+        # SELECT payments.*, COALESCE(purchases.invoiceName, reimbursements.name) AS documetName
+        or_conditions = []
+        if filterObject.get("isApproved"):
+            or_conditions.append(payments_table.c.isApprove == True)
+        if filterObject.get("isPending"):
+            or_conditions.append(
+                and_(
+                    payments_table.c.isApprove == False,
+                    payments_table.c.isDelete == False
+                )
+            )
+        if filterObject.get("isRejected"):
+            or_conditions.append(payments_table.c.isDelete == True)
+
+        print(or_conditions)
+        
+        query = select(
+            payments_table,
+            func.coalesce(purchases_table.c.invoiceName, reimbursements_table.c.name).label("documentName")
+        ).outerjoin(
+            purchases_table, payments_table.c.purchaseID == purchases_table.c.id
+        ).outerjoin(
+            reimbursements_table, payments_table.c.reimbursementID == reimbursements_table.c.id
+        ).where(
+            or_(*or_conditions)
+        ).limit(pageSize).offset((page - 1) * pageSize)
+        result = await database.fetch_all(query)
+        
+        #Not the count
+        total_query = select(func.count()).select_from(payments_table).where(
+            or_(*or_conditions))
+        total = await database.fetch_val(total_query)
+
+        return {
+            "data": result,
+            "count": total
+        }
+        
+
+        # or_conditions = []
+        # if(keyword is not None and keyword != ""):
+        #     or_conditions.append(purchases_table.c.purchaseOrderName.ilike(f"%{keyword}%"))
+        #     or_conditions.append(purchases_table.c.invoiceName.ilike(f"%{keyword}%"))
+        #     or_conditions.append(purchases_table.c.receiptName.ilike(f"%{keyword}%"))
+        #     or_conditions.append(purchases_table.c.taxInvoiceName.ilike(f"%{keyword}%"))
+        #     or_conditions.append(suppliers_table.c.name.ilike(f"%{keyword}%"))
+        # conditions.append(or_(*or_conditions))
+
+    @staticmethod
+    async def get_payment_by_id(id: int):
+        """
+        Get a payment by ID.
+        
+        Args:
+            id (int): The ID of the payment.
+        
+        Returns:
+            dict: The payment details or an error message if not found.
+        """
+        #Also select the bankName, bankAccountName, and bankAccountNumber from the bankAccounts table
+        log_info(f"Retrieving payment with ID: {id}")
+        query = select(
+            payments_table
+        ).where(
+            payments_table.c.id == id,
+        )
+            
+        payment = await database.fetch_one(query)
+        
+        if not payment:
+            log_info(f"No payment found with ID: {id}")
+            return {"error": "Payment not found", "status": 404}
+        
+        return Payment(
+            id=payment.id,
+            date=payment.date,
+            amount=payment.amount,
+            purchaseID=payment.purchaseID,
+            expenseID=payment.expenseID,
+            reimbursementID=payment.reimbursementID,
+            bankAccountID=payment.bankAccountID,
+            isApprove=payment.isApprove,
+            isDelete=payment.isDelete,
+            createdAt=payment.createdAt,
+            createdBy=payment.createdBy,
+            updatedAt=payment.updatedAt,
+            updatedBy=payment.updatedBy,
+            status=payment.status,
+        )
+
+    @staticmethod
+    async def get_payments_by_purchase_id(purchaseID: int):
+        """
+        Get all payments associated with a specific purchase ID.
+        
+        Args:
+            purchaseID (int): The ID of the purchase.
+        
+        Returns:
+            list: A list of payments associated with the purchase.
+        """
+        log_info(f"Retrieving payments for purchase ID: {purchaseID}")
+        query = select(payments_table).where(
+            payments_table.c.purchaseID == purchaseID,
+            payments_table.c.isDelete == False
+        )
+        
+        payments = await database.fetch_all(query)
+        
+        return [Payment(**payment) for payment in payments]
+
+    @staticmethod
+    async def get_payments_by_reimbursement_id(reimbursementID: int):
+        """
+        Get all payments associated with a specific reimbursement ID.
+        
+        Args:
+            reimbursementID (int): The ID of the reimbursement.
+        
+        Returns:
+            list: A list of payments associated with the reimbursement.
+        """
+        log_info(f"Retrieving payments for reimbursement ID: {reimbursementID}")
+        query = select(payments_table).where(
+            payments_table.c.reimbursementID == reimbursementID,
+            payments_table.c.isDelete == False
+        )
+        
+        payments = await database.fetch_all(query)
+        
+        return [Payment(**payment) for payment in payments]
+
+    @staticmethod
+    async def update_status(paymentID: int, userID: int, status: str):
+        """
+        Update the status of a payment.
+        
+        Args:
+            paymentID (int): The ID of the payment to update.
+            userID (int): The ID of the user performing the update.
+            status (str): The new status of the payment.
+        
+        Returns:
+            dict: A success message or an error message if the update fails.
+        """
+        log_info(f"Updating payment status for ID: {paymentID} to {status}")
+        
+        current_time = dt.now()
+
+        update_values = {
+            "isApprove": status == "approve",
+            "isDelete": status == "reject",
+            "updatedBy": userID,
+            "updatedAt": current_time,
+        }
+        query = (
+            payments_table.update()
+            .where(payments_table.c.id == paymentID)
+            .values(**update_values)
+        )
+        
+        try:
+            result = await database.execute(query)
+            print(result)
+            return {"message": "Payment status updated successfully"}
+        except Exception as e:
+            log_error(f"Error updating payment status: {str(e)}")
+            return {"error": str(e), "status": 500}
 # Define the payments table
 payments_table = Table(
     "payments",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("date", DateTime(), nullable=False),
+    Column("date", Date(), nullable=False),
     Column("amount", Integer, nullable=False),
     Column("purchaseID", Integer, ForeignKey("purchases.id"), nullable=True),
     Column("expenseID", Integer, nullable=True),
-    Column("reimbursementID", Integer, nullable=True),
+    Column("reimbursementID", Integer, ForeignKey('reimbursements.id'), nullable=True),
     Column("bankAccountID", Integer, ForeignKey("bank_accounts.id"), nullable=True),
-    Column("createdAt", DateTime(), nullable=False, default=dt.today()),
+    Column("createdAt", DateTime(), nullable=False, default=dt.now()),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
     Column("updatedAt", DateTime(), nullable=True, default=None),
     Column("updatedBy", Integer, ForeignKey("users.id"), nullable=True, default=None,),
     Column("isDelete", Boolean, default=False),
+    Column("isApprove", Boolean, default=False),
+    Column("status", String(50), default="ready", nullable=False, comment="Document status when it was created")
 )

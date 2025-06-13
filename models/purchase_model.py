@@ -3,7 +3,7 @@ from typing import Optional, Annotated
 from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, ForeignKey, or_, select, func, insert
 from utils.database import metadata
 from datetime import datetime as d
-from utils.logger_utils import log_error
+from utils.logger_utils import log_error, log_info
 from models.supplier_model import suppliers_table
 from utils.database import database
 
@@ -228,6 +228,24 @@ class Purchase(BaseModel):
             return purchase_list
         except Exception as e:
             log_error(f"Error fetching purchase report by project: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def update_payment_status(purchaseID: int, isPaid: bool):
+        """
+        Update the payment status of a purchase.
+        """
+        log_info(f"Updating payment status for purchase ID: {purchaseID} to {'paid' if isPaid else 'unpaid'}")
+        try:
+            query = (
+                purchases_table.update()
+                .where(purchases_table.c.id == purchaseID)
+                .values(isPaid=isPaid)
+            )
+            await database.execute(query)
+            return {"message": "Payment status updated successfully"}
+        except Exception as e:
+            log_error(f"Error updating payment status: {str(e)}")
             return {"error": str(e), "status": 500}
 
 class PurchaseStatus(BaseModel):

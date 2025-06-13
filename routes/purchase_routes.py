@@ -59,7 +59,21 @@ async def get_purchase_by_id(purchase_id: int, current_user: Annotated[User, Dep
     return result
 
 @router.get("/")
-async def get_purchases(page: int, pageSize: int, filter: int, sortBy: str, sortByDirection: str, keyword: str | None, current_user: Annotated[User, Depends(get_current_user)], isDue: bool = False, isNotDue: bool = False, isPaid: bool = False, isUnpaid: bool = False, isDraft: bool = False, isReady: bool = False):
+async def get_purchases(
+        page: int, 
+        pageSize: int, 
+        filter: int, 
+        sortBy: str, 
+        sortByDirection: str, 
+        keyword: str | None, 
+        current_user: Annotated[User, Depends(get_current_user)], 
+        isDue: bool = False, 
+        isNotDue: bool = False, 
+        isPaid: bool = False, 
+        isUnpaid: bool = False, 
+        isDraft: bool = False, 
+        isReady: bool = False
+    ):
     """
     Get a list of purchases. Requires a valid token.
     """

@@ -177,7 +177,7 @@ class Employee(BaseModel):
             employee = await database.fetch_one(query)
 
             if not employee:
-                return {"error": "Employee not found", "status": 404}
+                return None # Employee not found
 
             return Employee(
                 id=employee.id,

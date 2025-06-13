@@ -8,10 +8,10 @@ from datetime import datetime as dt
 class EmployeeController:
     async def create_employee(employee_data: Dict, userID: int) -> Dict:
         """
-        Create a new expense in the database.
+        Create a new employee in the database.
 
         Args:
-            expense_data (Dict): The data of the expense to create.
+            employee_data (Dict): The data of the expense to create.
             userID (int): The ID of the user creating the expense.
 
         Returns:
@@ -22,7 +22,7 @@ class EmployeeController:
             employee_data["createdAt"] = dt.now()
             employee_data["createdBy"] = userID
 
-            result = await Employee.create_employee(employee_data)
+            result = await Employee(**employee_data).create_employee()
             if "error" in result:
                 log_error(f"Error creating expense: {result['error']}")
                 raise HTTPException(status_code=result["status"], detail=result["error"])
@@ -97,21 +97,19 @@ class EmployeeController:
         """
         log_info(f"Updating employee with data: {employee_data}")
         try:
-            employee_data = await Employee.get_employee_by_id(employee_data["id"])
-            if "error" in employee_data:
-                log_error(f"Error fetching employee for update: {employee_data['error']}")
-                return {"error": employee_data["error"], "status": 400}
-            if not employee_data:
+            existing_employee_data = await Employee.get_employee_by_id(employee_data["id"])
+            if existing_employee_data is None:
                 log_error("Employee not found for update.")
                 return {"error": "Employee not found.", "status": 404}
-            if employee_data["isDelete"]:
+            if existing_employee_data.isDelete:
                 log_error("Cannot update a deleted employee.")
                 return {"error": "Cannot update a deleted employee.", "status": 400}
             
-            data = Employee(**employee_data)
-            data.updatedBy = userID
-            data.updatedAt = dt.now()
-            result = await data.update_employee()
+            updated_employee_data = Employee(**employee_data)
+            updated_employee_data.updatedBy = userID
+            updated_employee_data.updatedAt = dt.now()
+
+            result = await updated_employee_data.update_employee()
             if "error" in result:
                 log_error(f"Error updating employee: {result['error']}")
                 return {"error": result["error"], "status": result["status"]}

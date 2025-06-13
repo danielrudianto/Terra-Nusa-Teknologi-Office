@@ -5,14 +5,14 @@ from utils.database import metadata
 from datetime import date as d,datetime as dt
 from utils.database import database
 from utils.logger_utils import log_error
-from models.supplier_model import suppliers_table
+from models.expense_opponent_model import expense_opponents_table
 
 # Define the Purchase model
 class Expense(BaseModel):
     invoiceName: str  # Name of the invoice
     receiptName: str  # Name of the receipt
     taxInvoiceName: str | None = None  # Name of the tax invoice
-    supplierID: int  # ID of the supplier
+    opponentID: int | None # ID of the opponent (optional)
     date: d  # Date of the purchase
     dueDate: d | None = None
     purchaseType: str  # Type of the purchase
@@ -55,13 +55,10 @@ class Expense(BaseModel):
         
         try:
             offset = (page - 1) * pageSize
-            supplier_columns = [
-                suppliers_table.c.id.label("supplier_id"),
-                suppliers_table.c.name.label("supplier_name"),
-                suppliers_table.c.address.label("supplier_address"),
-                suppliers_table.c.city.label("supplier_city"),
-                suppliers_table.c.province.label("supplier_province"),
-                suppliers_table.c.prefix.label("supplier_prefix"),
+
+            opponent_columns = [
+                expense_opponents_table.c.id.label("opponentID"),
+                expense_opponents_table.c.name.label("opponentName")
             ]
 
             conditions = [expenses_table.c.isDelete == False]
@@ -71,7 +68,7 @@ class Expense(BaseModel):
                 or_conditions.append(expenses_table.c.invoiceName.ilike(f"%{keyword}%"))
                 or_conditions.append(expenses_table.c.receiptName.ilike(f"%{keyword}%"))
                 or_conditions.append(expenses_table.c.taxInvoiceName.ilike(f"%{keyword}%"))
-                or_conditions.append(suppliers_table.c.name.ilike(f"%{keyword}%"))
+                or_conditions.append(expenses_table.c.description.ilike(f"%{keyword}%"))
             conditions.append(or_(*or_conditions))
 
             or_conditions = []
@@ -97,8 +94,6 @@ class Expense(BaseModel):
                 order_by = expenses_table.c.dueDate.desc() if sortByDirection == "desc" else expenses_table.c.dueDate
             elif sortBy == "total":
                 order_by = (expenses_table.c.ppn + expenses_table.c.dpp).desc() if sortByDirection == "desc" else (expenses_table.c.ppn + expenses_table.c.dpp)
-            elif sortBy == "supplier":
-                order_by = suppliers_table.c.name.desc() if sortByDirection == "desc" else suppliers_table.c.name.asc()
             elif sortBy == "invoiceName":
                 order_by = expenses_table.c.invoiceName.desc() if sortByDirection == "desc" else expenses_table.c.invoiceName
             else:
@@ -106,8 +101,8 @@ class Expense(BaseModel):
                 
             
             query = (
-                select(*expenses_table.c, *supplier_columns)
-                .join(suppliers_table, expenses_table.c.supplierID == suppliers_table.c.id)
+                select(*expenses_table.c, *opponent_columns)
+                .select_from(expenses_table.join(expense_opponents_table, expenses_table.c.opponentID == expense_opponents_table.c.id, isouter=True))
                 .where(*conditions)
                 .order_by(order_by)
                 .offset(offset)
@@ -118,7 +113,6 @@ class Expense(BaseModel):
             #Count the total number of purchases
             count_query = (
                  select(func.count())
-                .select_from(expenses_table.join(suppliers_table, expenses_table.c.supplierID == suppliers_table.c.id))
                 .where(*conditions)
             )
             count = await database.fetch_val(count_query)
@@ -132,16 +126,17 @@ class Expense(BaseModel):
                 expense_dict["updatedAt"] = expense_dict.pop("updatedAt")
                 expense_dict["deletedAt"] = expense_dict.pop("deletedAt")
                 expense_dict["createdBy"] = expense_dict.pop("createdBy")
-                expense_dict["supplierID"] = expense_dict.pop("supplierID")
-                expense_dict["supplier"] = {
-                    "id": expense_dict.pop("supplier_id"),
-                    "name": expense_dict.pop("supplier_name"),
-                    "address": expense_dict.pop("supplier_address"),
-                    "city": expense_dict.pop("supplier_city"),
-                    "province": expense_dict.pop("supplier_province"),
-                    "prefix": expense_dict.pop("supplier_prefix"),
+                expense_dict["opponentID"] = expense_dict.pop("opponentID")
+                expense_dict["opponent"] = {
+                    "id": expense_dict.pop("opponentID"),
+                    "name": expense_dict.pop("opponentName"),
                 }
                 expense_result.append(expense_dict)
+
+            return {
+                "data": expense_result,
+                "count": count,
+            }
         except Exception as e:
             log_error(f"Error fetching expenses: {str(e)}")
             return {"error": str(e), "status": 500}
@@ -154,7 +149,7 @@ expenses_table = Table(
     Column("invoiceName", String(100), nullable=False),
     Column("receiptName", String(100), nullable=False),
     Column("taxInvoiceName", String(100), nullable=True),
-    Column("supplierID", Integer, nullable=False),
+    Column("opponentID", Integer, ForeignKey("expense_opponents.id"), nullable=True),
     Column("date", Date(), nullable=False),
     Column("dueDate", Date(), nullable=True),
     Column("purchaseType", String(100), nullable=False),

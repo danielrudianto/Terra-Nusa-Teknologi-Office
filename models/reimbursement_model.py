@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Annotated
-from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, select, insert, func
+from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, select, insert, func, ForeignKey, or_, and_
 from utils.database import metadata
 from datetime import date as d, datetime as dt
 from utils.logger_utils import log_error
@@ -19,11 +19,27 @@ class ReimbursementItems(BaseModel):
         try:
             if not reimbursement_item_data:
                 return {"message": "No reimbursement items to create."}
+            
             query = insert(reimbursement_items_table).values(reimbursement_item_data)
             await database.execute(query)
             return {"message": "Reimbursement items created successfully"}
         except Exception as e:
             log_error(f"Error creating reimbursement items: {str(e)}")
+            return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def get_reimbursement_items_by_reimbursement_id(reimbursementID: int):
+        """
+        Get reimbursement items by reimbursement ID.
+        """
+        try:
+            query = select(reimbursement_items_table).where(
+                reimbursement_items_table.c.reimbursementID == reimbursementID
+            )
+            reimbursement_items = await database.fetch_all(query)
+            return reimbursement_items
+        except Exception as e:
+            log_error(f"Error getting reimbursement items by ID: {str(e)}")
             return {"error": str(e), "status": 500}
 
 
@@ -50,6 +66,9 @@ class Reimbursement(BaseModel):
     paymentMethod: str  # Payment method
     isPaid: bool = False  # Flag to indicate if the purchase is paid
     isDelete: bool = False  # Flag to indicate if the purchase is deleted
+    isApprove: bool = False  # Flag to indicate if the reimbursement is approved
+    approvedBy: Optional[int] = None  # ID of the user who approved the reimbursement
+    approvedAt: Optional[dt] = None  # Date and time when the reimbursement was approved
     createdAt: dt = Field(default_factory=dt.now)  # Creation date
     createdBy: int | None = None  # ID of the user who created the purchase
     updatedAt: Optional[dt] = None  # Update date
@@ -123,7 +142,7 @@ class Reimbursement(BaseModel):
             return {"status": 500, "error": str(e)}
 
     @staticmethod
-    async def get_reimbursements(page: int, pageSize: int, sortBy: str = "date", sortByDirection: str = "desc"):
+    async def get_reimbursements(page: int, pageSize: int, filterObject: dict, sortBy: str, sortByDirection: str, keyword: str | None):
         """
         Get all reimbursements with pagination and sorting.
         """
@@ -136,6 +155,39 @@ class Reimbursement(BaseModel):
                 )
                 .group_by(reimbursement_items_table.c.reimbursementID)
             ).subquery()
+
+            conditions = []
+            or_conditions = []
+            if(keyword is not None and keyword != ""):
+                or_conditions.append(reimbursements_table.c.name.ilike(f"%{keyword}%"))
+                or_conditions.append(reimbursements_table.c.projectName.ilike(f"%{keyword}%"))
+                or_conditions.append(reimbursements_table.c.purchaseType.ilike(f"%{keyword}%"))
+                or_conditions.append(reimbursements_table.c.bankName.ilike(f"%{keyword}%"))
+                or_conditions.append(reimbursements_table.c.bankAccountName.ilike(f"%{keyword}%"))
+                or_conditions.append(reimbursements_table.c.bankAccountNumber.ilike(f"%{keyword}%"))
+
+            conditions.append(or_(*or_conditions))
+
+            or_conditions = []
+            if filterObject.get("isPending"):
+                or_conditions.append(reimbursements_table.c.isApprove == False and reimbursements_table.c.isDelete == False)
+            if filterObject.get("isApprove"):
+                or_conditions.append(reimbursements_table.c.isApprove == True and reimbursements_table.c.isDelete == False)
+            if filterObject.get("isDelete"):
+                and_conditions = []
+                and_conditions.append(reimbursements_table.c.isDelete == True)
+                and_conditions.append(reimbursements_table.c.isApprove == False)
+                or_conditions.append(and_(*and_conditions))
+                
+            conditions.append(or_(*or_conditions))
+
+            or_conditions = []
+            if filterObject.get("isPaid"):
+                or_conditions.append(reimbursements_table.c.isPaid == True)
+            if filterObject.get("isUnpaid"):
+                or_conditions.append(reimbursements_table.c.isPaid == False)
+
+            conditions.append(or_(*or_conditions))
 
             if sortBy == "date":
                 order_by = reimbursements_table.c.date.desc() if sortByDirection == "desc" else reimbursements_table.c.date.asc()
@@ -160,6 +212,7 @@ class Reimbursement(BaseModel):
                         amount_subq, reimbursements_table.c.id == amount_subq.c.reimbursementID
                     )
                 )
+                .where(*conditions)
                 .order_by(order_by)
                 .limit(pageSize)
                 .offset((page - 1) * pageSize)
@@ -168,12 +221,105 @@ class Reimbursement(BaseModel):
             reimbursements = await database.fetch_all(query)
 
             #Count the total number of purchases
-            count_query = select(func.count()).select_from(reimbursements_table)
+            count_query = select(func.count()).select_from(reimbursements_table).where(*conditions)
             count = await database.fetch_val(count_query)
 
             return {"data": reimbursements, "count": count}
         except Exception as e:
             log_error(f"Error getting reimbursements: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def get_reimbursement_by_id(reimbursementID: int):
+        """
+        Get a reimbursement by ID.
+        """
+        try:
+            query = select(reimbursements_table).where(
+                reimbursements_table.c.id == reimbursementID,
+                reimbursements_table.c.isDelete == False
+            )
+            reimbursement = await database.fetch_one(query)
+            if reimbursement is None:
+                return {"error": "Reimbursement not found", "status": 404}
+            return reimbursement
+        except Exception as e:
+            log_error(f"Error getting reimbursement by ID: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def approve_reimbursement_by_id(reimbursementID: int, userID: int):
+        """
+        Approve a reimbursement by ID.
+        """
+        try:
+            query = (
+                reimbursements_table.update()
+                .where(
+                    reimbursements_table.c.id == reimbursementID,
+                    reimbursements_table.c.isDelete == False
+                )
+                .values(
+                    isApprove=True,
+                    approvedBy=userID,
+                    approvedAt=dt.now(),
+                    updatedAt=dt.now(),
+                    updatedBy=userID
+                )
+            )
+            await database.execute(query)
+            return {"message": "Reimbursement approved successfully"}
+        except Exception as e:
+            log_error(f"Error approving reimbursement by ID: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def reject_reimbursement_by_id(reimbursementID: int, userID: int):
+        """
+        Reject a reimbursement by ID.
+        """
+        try:
+            query = (
+                reimbursements_table.update()
+                .where(
+                    reimbursements_table.c.id == reimbursementID,
+                    reimbursements_table.c.isDelete == False
+                )
+                .values(
+                    isDelete=True,
+                    approvedBy=userID,
+                    approvedAt=dt.now(),
+                )
+            )
+            await database.execute(query)
+            return {"message": "Reimbursement rejected successfully"}
+        except Exception as e:
+            log_error(f"Error rejecting reimbursement by ID: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def update_payment_status(reimbursementID: int, status: str, userID: int):
+        """
+        Update the payment status of a reimbursement.
+        """
+        try:
+            if status not in ["approve", "reject"]:
+                return {"error": "Invalid status", "status": 400}
+
+            isPaid = True if status == "approve" else False
+            query = (
+                reimbursements_table.update()
+                .where(
+                    reimbursements_table.c.id == reimbursementID,
+                )
+                .values(
+                    isPaid=isPaid,
+                )
+            )
+            await database.execute(query)
+            return {"message": f"Reimbursement {status}d successfully"}
+        except Exception as e:
+            log_error(f"Error updating reimbursement payment status: {str(e)}")
             return {"error": str(e), "status": 500}
 
 # Define the SQLAlchemy table
@@ -192,11 +338,14 @@ reimbursements_table = Table(
     Column("paymentMethod", String(100), nullable=False),
     Column("isPaid", Boolean(), nullable=False, default=False),
     Column("isDelete", Boolean(), nullable=False, default=False),
+    Column("isApprove", Boolean(), nullable=False, default=False),
+    Column("approvedBy", Integer, ForeignKey("users.id"), nullable=True),
+    Column("approvedAt", DateTime(), nullable=True, default=None),
     Column("createdAt", DateTime(), nullable=False, default=dt.now()),
     Column("updatedAt", DateTime(), nullable=True, default=None),
     Column("deletedAt", DateTime(), nullable=True, default=None),
-    Column("createdBy", Integer, nullable=False),
-    Column("updatedBy", Integer, nullable=True),
-    Column("deletedBy", Integer, nullable=True),
+    Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
+    Column("updatedBy", Integer, ForeignKey("users.id"), nullable=True),
+    Column("deletedBy", Integer, ForeignKey("users.id"), nullable=True),
 )
 
