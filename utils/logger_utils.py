@@ -62,7 +62,6 @@ def log_error(error: str):
     Log the error details.
     """
     logger.error(f"Error: {error}")
-    logger.error(f"Traceback: {error.__traceback__}")
     
 def log_info(message):
     """

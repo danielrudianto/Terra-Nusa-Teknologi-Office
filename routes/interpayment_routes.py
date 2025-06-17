@@ -4,6 +4,7 @@ from controllers.bank_controller import BankController
 from utils.auth_utils import get_current_user
 from models.user_model import User
 from models.interpayment_model import Interpayment
+from controllers.interpayment_controller import InterpaymentController
 from utils.logger_utils import log_error
 
 router = APIRouter()
@@ -16,10 +17,10 @@ async def create_interpayment(interpayment: Interpayment, user: Annotated[User, 
     userID = user["id"]
     interpayment_data = interpayment.model_dump()
     interpayment_data["createdBy"] = userID
-    result = await Interpayment.create_interpayment(interpayment_data)
+    result = await InterpaymentController.create_interpayment(interpayment_data)
     if "error" in result:
         log_error(f"Error creating interpayment: {result['error']}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=result["status"], detail=result["error"])
     
     return result
 
@@ -35,12 +36,12 @@ async def get_interpayments(
     Get a list of interpayments with pagination, filtering, and sorting.
     """
     filterObject = {}
-    result = await Interpayment.get_interpayments(
+    result = await InterpaymentController.get_interpayments(
         page, pageSize, filterObject, sortBy, sortByDirection
     )
     
     if "error" in result:
         log_error(f"Error fetching interpayments: {result['error']}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=result["status"], detail=result["error"])
     
     return result

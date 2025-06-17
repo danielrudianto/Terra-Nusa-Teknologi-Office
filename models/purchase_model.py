@@ -248,6 +248,23 @@ class Purchase(BaseModel):
             log_error(f"Error updating payment status: {str(e)}")
             return {"error": str(e), "status": 500}
 
+    @staticmethod
+    async def delete_purchase_by_id(purchaseID: int, userID: int):
+        """
+        Delete a purchase by ID.
+        """
+        try:
+            query = (
+                purchases_table.update()
+                .where(purchases_table.c.id == purchaseID)
+                .values(isDelete=True, deletedAt=d.now(), deletedBy=userID)
+            )
+            await database.execute(query)
+            return {"message": "Purchase deleted successfully"}
+        except Exception as e:
+            log_error(f"Error deleting purchase: {str(e)}")
+            return {"error": str(e), "status": 500}
+
 class PurchaseStatus(BaseModel):
     id: int  # ID of the purchase
     status: str  # Status of the purchase

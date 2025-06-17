@@ -79,6 +79,17 @@ class ClientController:
         return client
 
     @staticmethod
+    async def validate_client_exists(client_id: int) -> Dict:
+        try:
+            client = await ClientController.get_client_by_id(client_id)
+            if client is None:
+                return {"error": "Client not found", "status": 404}
+            return client
+        except HTTPException as e:
+            log_error("Client with ID %d not found", client_id)
+            raise e
+
+    @staticmethod
     async def update_client(client_id: int, client_data: Dict) -> Dict:
         """
         Update a client's data by its ID.

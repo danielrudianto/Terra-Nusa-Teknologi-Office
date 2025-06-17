@@ -4,13 +4,13 @@ from datetime import datetime, timedelta
 from utils.logger_utils import log_error, log_info
 import json
 from utils.auth_utils import get_current_user
-from models.payment_model import Payment
+from models.payment_outgoing_model import PaymentOutgoing
 from controllers.payment_controller import PaymentController
 
 router = APIRouter()
 
 @router.post("/")
-async def create_payment(payment: Payment, user: Annotated[dict, Depends(get_current_user)]):
+async def create_payment(payment: PaymentOutgoing, user: Annotated[dict, Depends(get_current_user)]):
     """
     Create a new payment. Requires a valid token.
     """
@@ -75,10 +75,11 @@ async def update_payment_status(
     """
     userID = user["id"]
     result = await PaymentController.update_payment_status(paymentID, "approve", userID)
+    print(result)
     
     if "error" in result:
         log_error(f"Error approving payment with ID {paymentID}: {result['error']}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=result['status'], detail=result['error'])
     
     return result
 

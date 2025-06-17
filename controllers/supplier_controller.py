@@ -127,7 +127,7 @@ class SupplierController:
             client.index("suppliers").update_documents([
                 {
                     "id": supplier_data["id"],
-                    "name": f"${supplier_data['name']}, {supplier_data['prefix']}",
+                    "name": f"{supplier_data['name']}, {supplier_data['prefix']}",
                     "address": supplier_data["address"],
                     "city": supplier_data["city"],
                     "province": supplier_data["province"],

@@ -1,7 +1,7 @@
 from sqlalchemy import insert, select, update, delete
 from utils.database import database
 from models.reimbursement_model import reimbursements_table, reimbursement_items_table, Reimbursement, ReimbursementItems
-from models.payment_model import Payment
+from models.payment_outgoing_model import PaymentOutgoing
 from utils.logger_utils import log_error, log_info
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
@@ -97,7 +97,7 @@ class ReimbursementController:
             log_error(f"Error during getting reimbursement items: {reimbursement_items['error']}")
             return {"error": reimbursement_items["error"], "status": reimbursement_items["status"]}
         
-        payments = await Payment.get_payments_by_reimbursement_id(reimbursementID)
+        payments = await PaymentOutgoing.get_payments_by_reimbursement_id(reimbursementID)
         if "error" in payments:
             log_error(f"Error during getting payments: {payments['error']}")
             return {"error": payments["error"], "status": payments["status"]}

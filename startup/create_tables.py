@@ -15,11 +15,12 @@ import models.client_model  # Import the client model to create the table
 import models.reimbursement_model  # Import the reimbursement model to create the table
 import models.bank_model # Import the bank model to create the table
 import models.expense_model # Import the expense model to create the table
-import models.payment_model  # Import the payment model to create the table
+import models.payment_outgoing_model  # Import the payment model to create the table
 import models.employee_model  # Import the employee model to create the table
 import models.expense_opponent_model  # Import the expense opponent model to create the table
 import models.salary_slip_model  # Import the salary slip model to create the table
 import models.interpayment_model  # Import the interpayment model to create the table
+import models.sales_invoice_model  # Import the sales invoice model to create the table
 
 if __name__ == "__main__":
     metadata.create_all(engine, checkfirst=True)

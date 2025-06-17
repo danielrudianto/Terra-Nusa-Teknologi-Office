@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from utils.logger_utils import log_error
 from typing import Annotated
 from utils.auth_utils import User
+from controllers.sales_invoice_controller import SalesInvoiceController
 from models.sales_invoice_model import SalesInvoice
 
 router = APIRouter()
@@ -14,9 +15,32 @@ async def create_sales_invoice(sales_invoice: SalesInvoice, current_user: Annota
     Create a new sales invoice. Requires a valid token.
     """
     userID = current_user["id"]
-    result = await SalesInvoice.create_sales_invoice(sales_invoice.model_dump(), userID)
+    result = await SalesInvoiceController.create_sales_invoice(sales_invoice.model_dump(), userID)
     if "error" in result:
         log_error(f"Error creating sales invoice: {result['error']}")
         raise HTTPException(status_code=500, detail="Internal server error")
+    
+    return result
+
+@router.get("/exists")
+async def check_sales_invoice(description: str, projectName: str, clientID: int, name: str, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Check if a sales invoice with the same description, project name, and client ID already exists.
+    Requires a valid token.
+    """
+    result = await SalesInvoiceController.check_sales_invoice(description, projectName, clientID, name)
+    if "error" in result:
+        raise HTTPException(status_code=result["status"], detail=result["error"])
+    
+    return result
+
+@router.get("/")
+async def get_sales_invocies(page: int, pageSize: int, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Get sales invoices with pagination. Requires a valid token.
+    """
+    result = await SalesInvoiceController.get_sales_invoices(page, pageSize)
+    if "error" in result:
+        raise HTTPException(status_code=result["status"], detail=result["error"])
     
     return result

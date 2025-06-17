@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Annotated
+from typing import List
 from sqlalchemy import Table, Column, DateTime, Integer, String, Boolean, ForeignKey, Date, or_, select, func, and_, update
 from utils.database import metadata, database
 from datetime import date as d, datetime as dt
@@ -11,7 +11,7 @@ from utils.logger_utils import log_error, log_info
 
 
 # Define the Client model
-class Payment(BaseModel):
+class PaymentOutgoing(BaseModel):
     date: d #Payment date
     amount: float #Payment amount
     purchaseID: int | None = None #Purchase ID
@@ -36,7 +36,8 @@ class Payment(BaseModel):
         self.status = data.get("status", "ready")
 
     # Create
-    async def create(self):
+    @staticmethod
+    async def create(payment_data: dict):
         """
         Create a new payment in the database.
         
@@ -44,24 +45,9 @@ class Payment(BaseModel):
             dict: A success message with the created payment ID.
         """
         try:
-            query = payments_table.insert().values(
-                date=self.date,
-                amount=self.amount,
-                purchaseID=self.purchaseID,
-                expenseID=self.expenseID,
-                reimbursementID=self.reimbursementID,
-                bankAccountID=self.bankAccountID,
-                isApprove=self.isApprove,
-                isDelete=self.isDelete,
-                createdAt=self.createdAt,
-                createdBy=self.createdBy,
-                updatedAt=self.updatedAt,
-                updatedBy=self.updatedBy,
-                status=self.status
-            )
-            
-            await database.execute(query)
-            return {"message": "Payment created successfully", "payment_id": self.id}
+            query = payments_outgoing_table.insert().values(payment_data)
+            result = await database.execute(query)
+            return {"message": "Payment created successfully", "payment_id": result}
         except Exception as e:
             log_error(f"Error creating payment: {str(e)}")
             return {"error": str(e), "status": 500}
@@ -86,33 +72,33 @@ class Payment(BaseModel):
         # SELECT payments.*, COALESCE(purchases.invoiceName, reimbursements.name) AS documetName
         or_conditions = []
         if filterObject.get("isApproved"):
-            or_conditions.append(payments_table.c.isApprove == True)
+            or_conditions.append(payments_outgoing_table.c.isApprove == True)
         if filterObject.get("isPending"):
             or_conditions.append(
                 and_(
-                    payments_table.c.isApprove == False,
-                    payments_table.c.isDelete == False
+                    payments_outgoing_table.c.isApprove == False,
+                    payments_outgoing_table.c.isDelete == False
                 )
             )
         if filterObject.get("isRejected"):
-            or_conditions.append(payments_table.c.isDelete == True)
+            or_conditions.append(payments_outgoing_table.c.isDelete == True)
 
         print(or_conditions)
         
         query = select(
-            payments_table,
+            payments_outgoing_table,
             func.coalesce(purchases_table.c.invoiceName, reimbursements_table.c.name).label("documentName")
         ).outerjoin(
-            purchases_table, payments_table.c.purchaseID == purchases_table.c.id
+            purchases_table, payments_outgoing_table.c.purchaseID == purchases_table.c.id
         ).outerjoin(
-            reimbursements_table, payments_table.c.reimbursementID == reimbursements_table.c.id
+            reimbursements_table, payments_outgoing_table.c.reimbursementID == reimbursements_table.c.id
         ).where(
             or_(*or_conditions)
         ).limit(pageSize).offset((page - 1) * pageSize)
         result = await database.fetch_all(query)
         
         #Not the count
-        total_query = select(func.count()).select_from(payments_table).where(
+        total_query = select(func.count()).select_from(payments_outgoing_table).where(
             or_(*or_conditions))
         total = await database.fetch_val(total_query)
 
@@ -145,33 +131,37 @@ class Payment(BaseModel):
         #Also select the bankName, bankAccountName, and bankAccountNumber from the bankAccounts table
         log_info(f"Retrieving payment with ID: {id}")
         query = select(
-            payments_table
+            payments_outgoing_table
         ).where(
-            payments_table.c.id == id,
+            payments_outgoing_table.c.id == id,
         )
             
-        payment = await database.fetch_one(query)
+        try:
+            payment = await database.fetch_one(query)
         
-        if not payment:
-            log_info(f"No payment found with ID: {id}")
-            return {"error": "Payment not found", "status": 404}
-        
-        return Payment(
-            id=payment.id,
-            date=payment.date,
-            amount=payment.amount,
-            purchaseID=payment.purchaseID,
-            expenseID=payment.expenseID,
-            reimbursementID=payment.reimbursementID,
-            bankAccountID=payment.bankAccountID,
-            isApprove=payment.isApprove,
-            isDelete=payment.isDelete,
-            createdAt=payment.createdAt,
-            createdBy=payment.createdBy,
-            updatedAt=payment.updatedAt,
-            updatedBy=payment.updatedBy,
-            status=payment.status,
-        )
+            if not payment:
+                log_info(f"No payment found with ID: {id}")
+                return {"error": "Payment not found", "status": 404}
+            
+            return PaymentOutgoing(
+                id=payment.id,
+                date=payment.date,
+                amount=payment.amount,
+                purchaseID=payment.purchaseID,
+                expenseID=payment.expenseID,
+                reimbursementID=payment.reimbursementID,
+                bankAccountID=payment.bankAccountID,
+                isApprove=payment.isApprove,
+                isDelete=payment.isDelete,
+                createdAt=payment.createdAt,
+                createdBy=payment.createdBy,
+                updatedAt=payment.updatedAt,
+                updatedBy=payment.updatedBy,
+                status=payment.status,
+            )
+        except Exception as e:
+            log_error(f"Error retrieving payment by ID {id}: {str(e)}")
+            return {"error": str(e), "status": 500}
 
     @staticmethod
     async def get_payments_by_purchase_id(purchaseID: int):
@@ -185,14 +175,14 @@ class Payment(BaseModel):
             list: A list of payments associated with the purchase.
         """
         log_info(f"Retrieving payments for purchase ID: {purchaseID}")
-        query = select(payments_table).where(
-            payments_table.c.purchaseID == purchaseID,
-            payments_table.c.isDelete == False
+        query = select(payments_outgoing_table).where(
+            payments_outgoing_table.c.purchaseID == purchaseID,
+            payments_outgoing_table.c.isDelete == False
         )
         
         payments = await database.fetch_all(query)
         
-        return [Payment(**payment) for payment in payments]
+        return [PaymentOutgoing(**payment) for payment in payments]
 
     @staticmethod
     async def get_payments_by_reimbursement_id(reimbursementID: int):
@@ -206,14 +196,14 @@ class Payment(BaseModel):
             list: A list of payments associated with the reimbursement.
         """
         log_info(f"Retrieving payments for reimbursement ID: {reimbursementID}")
-        query = select(payments_table).where(
-            payments_table.c.reimbursementID == reimbursementID,
-            payments_table.c.isDelete == False
+        query = select(payments_outgoing_table).where(
+            payments_outgoing_table.c.reimbursementID == reimbursementID,
+            payments_outgoing_table.c.isDelete == False
         )
         
         payments = await database.fetch_all(query)
         
-        return [Payment(**payment) for payment in payments]
+        return [PaymentOutgoing(**payment) for payment in payments]
 
     @staticmethod
     async def update_status(paymentID: int, userID: int, status: str):
@@ -239,8 +229,8 @@ class Payment(BaseModel):
             "updatedAt": current_time,
         }
         query = (
-            payments_table.update()
-            .where(payments_table.c.id == paymentID)
+            payments_outgoing_table.update()
+            .where(payments_outgoing_table.c.id == paymentID)
             .values(**update_values)
         )
         
@@ -251,9 +241,88 @@ class Payment(BaseModel):
         except Exception as e:
             log_error(f"Error updating payment status: {str(e)}")
             return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def delete_payment_by_purchase_id(purchaseID: int, userID: int):
+        """
+        Delete all payments associated with a specific purchase ID.
+        
+        Args:
+            purchaseID (int): The ID of the purchase.
+        
+        Returns:
+            dict: A success message or an error message if the deletion fails.
+        """
+        log_info(f"Deleting payments for purchase ID: {purchaseID}")
+        query = payments_outgoing_table.update().where(
+            payments_outgoing_table.c.purchaseID == purchaseID
+        ).values(
+            isDelete=True,
+            isApprove=False,
+            updatedAt=dt.now(),
+            updatedBy=userID
+        )
+        
+        try:
+            await database.execute(query)
+            return {"message": "Payments deleted successfully"}
+        except Exception as e:
+            log_error(f"Error deleting payments for purchase ID {purchaseID}: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def get_calendar_data(month: int, year: int, bankAccounts: List[int]):
+        try:
+            if month < 1 or month > 12:
+                return {"error": "Invalid month. Month must be between 1 and 12.", "status": 400}
+            if year < 2020:
+                return {"error": "Invalid year. Year must be 2020 or later.", "status": 400}
+            
+            if(bankAccounts is not None and len(bankAccounts) > 0):
+                query = select(
+                    payments_outgoing_table
+                ).where(
+                    func.extract('month', payments_outgoing_table.c.date) == month,
+                    func.extract('year', payments_outgoing_table.c.date) == year,
+                    payments_outgoing_table.c.isDelete == False,
+                    payments_outgoing_table.c.bankAccountID.in_(bankAccounts)
+                )
+            else:
+                # If no bank accounts are provided, fetch all payments for the specified month and year
+                query = select(
+                    payments_outgoing_table
+                ).where(
+                    func.extract('month', payments_outgoing_table.c.date) == month,
+                    func.extract('year', payments_outgoing_table.c.date) == year,
+                    payments_outgoing_table.c.isDelete == False
+                )
+                
+            payments = await database.fetch_all(query)
+            return [
+                {
+                    "id": payment.id,
+                    "date": payment.date,
+                    "amount": payment.amount,
+                    "purchaseID": payment.purchaseID,
+                    "expenseID": payment.expenseID,
+                    "reimbursementID": payment.reimbursementID,
+                    "bankAccountID": payment.bankAccountID,
+                    "isApprove": payment.isApprove,
+                    "isDelete": payment.isDelete,
+                    "createdAt": payment.createdAt,
+                    "createdBy": payment.createdBy,
+                    "updatedAt": payment.updatedAt,
+                    "updatedBy": payment.updatedBy,
+                    "status": payment.status
+                } for payment in payments
+            ]
+        except Exception as e:
+            log_error(f"Error retrieving calendar data: {str(e)}")
+            return {"error": str(e), "status": 500}
+        
 # Define the payments table
-payments_table = Table(
-    "payments",
+payments_outgoing_table = Table(
+    "payment_outgoing",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("date", Date(), nullable=False),

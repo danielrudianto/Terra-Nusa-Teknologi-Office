@@ -13,6 +13,7 @@ from routes.expense_opponent_routes import router as expense_opponent_router
 from routes.salary_slip_routes import router as salary_slip_router
 from routes.calendar_routes import router as calendar_router
 from routes.interpayment_routes import router as interpayment_router
+from routes.sales_invoice_routes import router as sales_invoice_router
 
 # Create a router instance
 router = APIRouter()
@@ -31,3 +32,4 @@ router.include_router(expense_opponent_router, prefix="/expense-opponents", tags
 router.include_router(salary_slip_router, prefix="/salary-slips", tags=["Salary Slips"])
 router.include_router(calendar_router, prefix="/calendar", tags=["Calendar"])
 router.include_router(interpayment_router, prefix="/interpayments", tags=["Interpayments"])
+router.include_router(sales_invoice_router, prefix="/sales-invoices", tags=["Sales Invoices"])

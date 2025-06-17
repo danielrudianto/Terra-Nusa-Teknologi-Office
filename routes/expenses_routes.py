@@ -13,7 +13,7 @@ async def create_expense(expense: Expense, current_user: Annotated[User, Depends
         userID = current_user["id"]
         result = await ExpenseController.create_expense(expense.model_dump(), userID)
         if "error" in result:
-            raise HTTPException(status_code=500, detail="Internal server error")
+            raise HTTPException(status_code=result["status"], detail=result["error"])
         return result
     except HTTPException as e:
         raise e

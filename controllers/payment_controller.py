@@ -1,11 +1,13 @@
 from sqlalchemy import func, insert, select, update, delete, or_
 from utils.database import database
-from models.payment_model import payments_table, Payment
+from models.payment_outgoing_model import PaymentOutgoing
 from models.purchase_model import Purchase
 from models.reimbursement_model import Reimbursement, ReimbursementItems
 from models.bank_model import BankAccount
 from utils.logger_utils import log_error, log_info
 from datetime import datetime as dt
+from fastapi import HTTPException
+from typing import List, Dict, Optional
 
 class PaymentController:
     @staticmethod
@@ -25,11 +27,11 @@ class PaymentController:
         log_info(f"Creating payment with data: {payment_data}")
         
         try:
-            query = insert(payments_table).values(**payment_data)
-            payment_id = await database.execute(query)
-            log_info(f"Payment created successfully with ID: {payment_id}")
-
-            return {"message": "Payment created successfully", "payment_id": payment_id}
+            result = await PaymentOutgoing.create(payment_data)
+            if "error" in result:
+                log_error(f"Error creating payment: {result['error']}")
+                return {"error": result["error"], "status": result.get("status", 500)}
+            return result
         except Exception as e:
             log_error(f"Error creating payment: {str(e)}")
             return {"error": str(e), "status": 500}
@@ -48,7 +50,7 @@ class PaymentController:
         log_info(f"Retrieving payments for purchase ID: {purchase_id}")
         
         try:
-            payments = await Payment.get_payments_by_purchase_id(purchase_id)
+            payments = await PaymentOutgoing.get_payments_by_purchase_id(purchase_id)
             if "error" in payments:
                 log_error(f"Error fetching payments for purchase ID {purchase_id}: {payments['error']}")
                 return {"error": payments["error"], "status": payments.get("status", 500)}
@@ -73,7 +75,7 @@ class PaymentController:
         log_info(f"Retrieving payment with ID: {id}")
         
         try:
-            payment = await Payment.get_payment_by_id(id)
+            payment = await PaymentOutgoing.get_payment_by_id(id)
             if "error" in payment:
                 log_error(f"Error fetching payment with ID {id}: {payment['error']}")
                 return {"error": payment["error"], "status": payment.get("status")}
@@ -137,7 +139,7 @@ class PaymentController:
         log_info(f"Retrieving payments with pagination: page={page}, pageSize={pageSize}, filter={filterObject}, sortBy={sortBy}, sortByDirection={sortByDirection}")
         
         try:
-            result = await Payment.get_payments(page, pageSize, filterObject, sortBy, sortByDirection)
+            result = await PaymentOutgoing.get_payments(page, pageSize, filterObject, sortBy, sortByDirection)
             if "error" in result:
                 log_error(f"Error fetching payments: {result['error']}")
                 return {"error": result["error"], "status": result.get("status", 500)}
@@ -163,51 +165,53 @@ class PaymentController:
         
         try:
             # First get the payment by ID to ensure it exists
-            payment = await Payment.get_payment_by_id(id)
+            payment = await PaymentOutgoing.get_payment_by_id(id)
             if "error" in payment:
                 log_error(f"Error fetching payment with ID {id}: {payment['error']}")
-                return {"error": payment["error"], "status": payment.get("status", 500)}
+                raise HTTPException(status_code=payment.get("status", 500), detail=payment["error"])
             if not payment:
                 log_info(f"No payment found with ID: {id}")
+                #raise HTTPException(status_code=404, detail="Payment not found")
                 return {"error": "Payment not found", "status": 404}
             
             #If the payment is already approved or deleted, return an error
-            if payment["isApprove"] or payment["isDelete"]:
+            if payment.isApprove or payment.isDelete:
                 log_info(f"Payment with ID: {id} is already approved or deleted")
+                #raise HTTPException(status_code=400, detail="Payment is already approved or deleted")
                 return {"error": "Payment is already approved or deleted", "status": 400}
             
-            result = await Payment.update_status(id, userID, status)
+            result = await PaymentOutgoing.update_status(id, userID, status)
             if "error" in result:
                 log_error(f"Error updating payment status: {result['error']}")
                 return {"error": result["error"], "status": result.get("status", 500)}
             
             # Update the payment status in the database for the purchase
             if status == "approve":
-                if payment["purchaseID"] is not None:
-                    current_payments = await Payment.get_payments_by_purchase_id(payment["purchaseID"])
+                if payment.purchaseID is not None:
+                    current_payments = await PaymentOutgoing.get_payments_by_purchase_id(payment.purchaseID)
                     if "error" in current_payments:
-                        log_error(f"Error fetching payments for purchase ID {payment['purchaseID']}: {current_payments['error']}")
+                        log_error(f"Error fetching payments for purchase ID {payment.purchaseID}: {current_payments['error']}")
                         return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
                     total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
                     
-                    if total_paid >= payment["amount"]:
-                        await Purchase.update_payment_status(payment["purchaseID"], True)
+                    if total_paid >= payment.amount:
+                        await Purchase.update_payment_status(payment.purchaseID, True)
                 
-                if payment["reimbursementID"] is not None:
-                    current_payments = await Payment.get_payments_by_reimbursement_id(payment["reimbursementID"])
+                if payment.reimbursementID is not None:
+                    current_payments = await PaymentOutgoing.get_payments_by_reimbursement_id(payment.reimbursementID)
                     if "error" in current_payments:
-                        log_error(f"Error fetching payments for reimbursement ID {payment['reimbursementID']}: {current_payments['error']}")
+                        log_error(f"Error fetching payments for reimbursement ID {payment.reimbursementID}: {current_payments['error']}")
                         return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
                     total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
                     
-                    if total_paid >= payment["amount"]:
-                        await Reimbursement.update_payment_status(payment["reimbursementID"], True)
+                    if total_paid >= payment.amount:
+                        await Reimbursement.update_payment_status(payment.reimbursementID, True)
             
             log_info(f"Payment with ID: {id} updated successfully")
             return {"message": "Payment updated successfully"}
         except Exception as e:
-            log_error(f"Error updating payment: {str(e)}")
-            return {"error": str(e), "status": 500}
+            log_error(f"Error updating payment: {e}")
+            return {"error": "Internal Server Error", "status": 500}
 
     @staticmethod
     async def delete_payment_by_id(id: int):
@@ -223,21 +227,19 @@ class PaymentController:
         log_info(f"Deleting payment with ID: {id}")
         
         try:
-            query = delete(payments_table).where(payments_table.c.id == id)
-            result = await database.execute(query)
-            
-            if result == 0:
-                log_info(f"No payment found with ID: {id}")
-                return {"error": "No payment found to delete", "status": 404}
+            payment = await PaymentOutgoing.get_payment_by_id(id)
+            if "error" in payment:
+                log_error(f"Error fetching payment with ID {id}: {payment['error']}")
+                return {"error": payment["error"], "status": payment.get("status", 500)}
             
             log_info(f"Payment with ID: {id} deleted successfully")
             return {"message": "Payment deleted successfully"}
         except Exception as e:
-            log_error(f"Error deleting payment: {str(e)}")
-            return {"error": str(e), "status": 500}
+            log_error(f"Error deleting payment: {e}")
+            return {"error": "Internal server error", "status": 500}
         
     @staticmethod
-    async def get_calendar_data(month: int, year: int):
+    async def get_calendar_data(month: int, year: int, bankAccounts: List[int]):
         """
         Get calendar data for payments in a specific month and year.
         
@@ -251,21 +253,13 @@ class PaymentController:
         log_info(f"Retrieving calendar data for payments for month: {month}, year: {year}")
         
         try:
-            query = select(
-                payments_table
-            ).where(
-                func.extract('month', payments_table.c.date) == month,
-                func.extract('year', payments_table.c.date) == year,
-                payments_table.c.isDelete == False
-            )
-            payments = await database.fetch_all(query)
-            
-            if not payments:
-                log_info("No payments found for the specified month and year")
-                return {"message": "No payments found", "payments": []}
-            
-            log_info(f"Retrieved {len(payments)} payments for month: {month}, year: {year}")
-            return {"payments": payments}
+            result = await PaymentOutgoing.get_calendar_data(month, year, bankAccounts)
+            if "error" in result:
+                log_error(f"Error fetching calendar data: {result['error']}")
+                return {"error": result["error"], "status": result.get("status", 500)}
+            return {
+                "payments": result,
+            }
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")
             return {"error": str(e), "status": 500}

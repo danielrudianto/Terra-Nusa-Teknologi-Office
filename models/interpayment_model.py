@@ -28,6 +28,9 @@ class Interpayment(BaseModel):
                 return {"message": "No interpayment data to create."}
             query = insert(interpayment_table).values(interpayment_data)
             result = await database.execute(query)
+            if not result:
+                return {"error": "Failed to create interpayment", "status": 500}
+            
             return {"message": "Interpayment created successfully", "interpaymentID": result}
         except Exception as e:
             log_error(f"Error creating interpayment: {str(e)}")

@@ -119,3 +119,15 @@ async def update_status(purchaseStatus: PurchaseUpdateStatus, current_user: Anno
         raise HTTPException(status_code=result["status"], detail=result["error"])
     
     return result
+
+@router.delete("/{purchase_id}")
+async def delete_purchase(purchase_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Delete a purchase by ID. Requires a valid token.
+    """
+    userID = current_user["id"]
+    result = await PurchaseController.delete_purchase(purchase_id, userID)
+    if "error" in result:
+        raise HTTPException(status_code=result["status"], detail=result["error"])
+    
+    return result
