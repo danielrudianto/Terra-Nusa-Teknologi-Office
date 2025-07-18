@@ -109,8 +109,7 @@ class BankController:
         """
         log_info(f"Getting bank account with ID: {bank_id}")
         try:
-            query = select(bank_accounts_table).where(bank_accounts_table.c.id == bank_id)
-            bank_account = await database.fetch_one(query)
+            bank_account = await BankAccount.get_bank_account_by_id(bank_id)
             return bank_account
         except Exception as e:
             log_error(f"Error retrieving bank account with ID {bank_id}: {str(e)}")

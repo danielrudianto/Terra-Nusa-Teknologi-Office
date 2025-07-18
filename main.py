@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from routes.routes import router
 from fastapi.middleware.cors import CORSMiddleware
 from utils.meilisearch import setup_meilisearch, sync_meilisearch
+from utils.redis import sync_redis
 from utils.database import database
 from utils.redis import sync_redis
 
@@ -22,6 +23,9 @@ async def lifespan(app: FastAPI):
 
         await setup_meilisearch()
         log_info("Meilisearch setup completed successfully!")
+        
+        await sync_redis()
+        log_info("Redis setup completed successfully!")
     except Exception as e:
         log_error(f"Error connecting to database: {e}")
     yield  # This is where the application runs
