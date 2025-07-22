@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List
-from sqlalchemy import Table, Column, DateTime, Integer, String, Boolean, ForeignKey, Date, or_, select, func, and_, update
+from sqlalchemy import Table, Column, DateTime, Integer, String, Boolean, ForeignKey, Date, or_, select, func, and_
 from utils.database import metadata, database
 from datetime import date as d, datetime as dt
 from models.supplier_model import suppliers_table
@@ -94,7 +94,9 @@ class PaymentOutgoing(BaseModel):
             reimbursements_table, payments_outgoing_table.c.reimbursementID == reimbursements_table.c.id
         ).where(
             or_(*or_conditions)
+        ).order_by(payments_outgoing_table.c.date.desc()
         ).limit(pageSize).offset((page - 1) * pageSize)
+        
         result = await database.fetch_all(query)
         
         #Not the count

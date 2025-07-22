@@ -14,6 +14,7 @@ class ExpenseOpponentController:
         try:
             expense_opponent_data["createdAt"] = dt.now()
             expense_opponent_data["createdBy"] = userID
+            expense_opponent_data["isDelete"] = False
             result = await ExpenseOpponent.create_expense_opponent(expense_opponent_data)
             if "error" in result:
                 return {"error": result["error"], "status": result["status"]}

@@ -24,6 +24,7 @@ class ClientController:
         try:
             client_data["createdAt"] = datetime.now()
             client_data["createdBy"] = userID
+            client_data["isDelete"] = False
             result = await Client.create_client(client_data)  # Validate client data using Pydantic model
             if "error" in result:
                 log_error(f"Error creating client: {result['error']}")

@@ -205,7 +205,7 @@ class PaymentController:
                     total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
                     
                     if total_paid >= payment.amount:
-                        await Reimbursement.update_payment_status(payment.reimbursementID, True)
+                        await Reimbursement.update_payment_status(payment.reimbursementID, True, userID)
             
             log_info(f"Payment with ID: {id} updated successfully")
             return {"message": "Payment updated successfully"}

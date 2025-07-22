@@ -17,9 +17,6 @@ class InterpaymentController:
             if "error" in result:
                 return {"error": result["error"], "status": result["status"]}
             
-            #Insert to mutation table
-            Mutation.create()
-            
             return {"message": "Interpayment created successfully", "interpaymentID": result.get("interpaymentID")}
         except Exception as e:
             return {"error": str(e), "status": 500}

@@ -108,6 +108,18 @@ class PurchaseController:
             if purchase["lastStatus"] == "ready":
                 return {"error": "Purchase is already ready", "status": 400}
             
+            invoiceName = purchaseStatus["invoiceName"]
+            receiptName = purchaseStatus["receiptName"]
+            taxInvoiceName = purchaseStatus["taxInvoiceName"]
+            date = purchaseStatus["date"]
+            dueDate = purchaseStatus["dueDate"]
+            
+            isCopAttached = purchaseStatus["isCopAttached"]
+            isCopyPurchaseOrderAttached = purchaseStatus["isCopyPurchaseOrderAttached"]
+            isInvoiceAttached = purchaseStatus["isInvoiceAttached"]
+            isReceiptAttached = purchaseStatus["isReceiptAttached"]
+            isTaxInvoiceAttached = purchaseStatus["isTaxInvoiceAttached"]
+            
             # First update the purchase status
             update_query = (
                 update(purchases_table)
@@ -116,6 +128,16 @@ class PurchaseController:
                     lastStatus="ready",
                     updatedAt=datetime.now(),
                     updatedBy=userID,
+                    invoiceName=invoiceName,
+                    receiptName=receiptName,
+                    taxInvoiceName=taxInvoiceName,
+                    date=date,
+                    dueDate=dueDate,
+                    isCopAttached=isCopAttached,
+                    isCopyPurchaseOrderAttached=isCopyPurchaseOrderAttached,
+                    isInvoiceAttached=isInvoiceAttached,
+                    isReceiptAttached=isReceiptAttached,
+                    isTaxInvoiceAttached=isTaxInvoiceAttached
                 )
             )
 
