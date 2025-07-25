@@ -3,9 +3,10 @@ from utils.database import database
 from models.payment_outgoing_model import PaymentOutgoing
 from models.purchase_model import Purchase
 from models.reimbursement_model import Reimbursement, ReimbursementItems
+from models.expense_model import Expense
 from models.bank_model import BankAccount
 from utils.logger_utils import log_error, log_info
-from datetime import datetime as dt
+from datetime import datetime as dt, date as d
 from fastapi import HTTPException
 from typing import List, Dict, Optional
 
@@ -89,6 +90,7 @@ class PaymentController:
             
             purchase = None
             reimbursement = None
+            expense = None
 
             if payment.reimbursementID is not None:
                 result = await Reimbursement.get_reimbursement_by_id(payment.reimbursementID)
@@ -110,12 +112,20 @@ class PaymentController:
                 if "error" in purchase:
                     log_error(f"Error fetching purchase with ID {payment.purchaseID}: {purchase['error']}")
                     return {"error": purchase["error"], "status": purchase.get("status")}
+                
+            if payment.expenseID is not None:
+                expense = await Expense.get_expense_by_id(payment.expenseID)
+                
+                if "error" in expense:
+                    log_error(f"Error fetching expense with ID {payment.expenseID}: {payment['error']}")
+                    return {"error": expense["error"], "status": expense.get('status')}
             
             return {
                 "payment": payment,
                 "bankAccount": bankAccount,
                 "purchase": purchase,
-                "reimbursement": reimbursement
+                "reimbursement": reimbursement,
+                "expense": expense
             }
         except Exception as e:
             log_error(f"Error retrieving payment: {str(e)}")
@@ -206,6 +216,16 @@ class PaymentController:
                     
                     if total_paid >= payment.amount:
                         await Reimbursement.update_payment_status(payment.reimbursementID, True, userID)
+                
+                if payment.expenseID is not None:
+                    current_payments = await PaymentOutgoing.get_payments_by_expense_id(payment.expenseID)
+                    if "error" in current_payments:
+                        log_error(f"Error fetching payments for expenseID ID {payment.expenseID}: {current_payments['error']}")
+                        return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
+                    total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
+                    
+                    if total_paid >= payment.amount:
+                        await Expense.update_payment_status(payment.expenseID, True, userID)
             
             log_info(f"Payment with ID: {id} updated successfully")
             return {"message": "Payment updated successfully"}
@@ -260,6 +280,24 @@ class PaymentController:
             return {
                 "payments": result,
             }
+        except Exception as e:
+            log_error(f"Error retrieving calendar data: {str(e)}")
+            return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def get_calendar_data_by_date(date: d, bankAccountID: List[int]):
+        log_info(f"Retrieving calendar data for payments for date {str(d)}")
+
+        day = date.day
+        month = date.month
+        year = date.year
+
+        try:
+            result = await PaymentOutgoing.get_calendar_data_by_date(day, month, year, bankAccountID)
+            if "error" in result:
+                log_error(f"Error fetching calendar data: {result['error']}")
+                return {"error": result["error"], "status": result.get('status', 500)}
+            return result
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")
             return {"error": str(e), "status": 500}

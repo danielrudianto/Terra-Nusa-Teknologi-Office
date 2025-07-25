@@ -298,15 +298,11 @@ class Reimbursement(BaseModel):
             return {"error": str(e), "status": 500}
 
     @staticmethod
-    async def update_payment_status(reimbursementID: int, status: str, userID: int):
+    async def update_payment_status(reimbursementID: int, isPaid: bool, userID: int):
         """
         Update the payment status of a reimbursement.
         """
         try:
-            if status not in ["approve", "reject"]:
-                return {"error": "Invalid status", "status": 400}
-
-            isPaid = True if status == "approve" else False
             query = (
                 reimbursements_table.update()
                 .where(
@@ -317,7 +313,7 @@ class Reimbursement(BaseModel):
                 )
             )
             await database.execute(query)
-            return {"message": f"Reimbursement {status}d successfully"}
+            return {"message": f"Reimbursement updated successfully"}
         except Exception as e:
             log_error(f"Error updating reimbursement payment status: {str(e)}")
             return {"error": str(e), "status": 500}

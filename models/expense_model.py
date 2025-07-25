@@ -141,6 +141,53 @@ class Expense(BaseModel):
             log_error(f"Error fetching expenses: {str(e)}")
             return {"error": str(e), "status": 500}
 
+    @staticmethod
+    async def get_expense_by_id(id: int):
+        try:
+            expense_opponent_columns = [
+                expense_opponents_table.c.id.label("expense_opponent_id"),
+                expense_opponents_table.c.name.label("expense_opponent_name"),
+                expense_opponents_table.c.type.label("expense_opponent_type"),
+                expense_opponents_table.c.description.label("expense_opponent_description"),
+                expense_opponents_table.c.paymentNumber.label("expense_opponent_payment_number"),
+            ]
+            query = (
+                select(*expenses_table.c, *expense_opponent_columns)
+                .join(expense_opponents_table, expenses_table.c.opponentID == expense_opponents_table.c.id)
+                .where(expenses_table.c.id == id)
+            )
+            expense = await database.fetch_one(query)
+
+            if not expense:
+                return {"error": "Expense not found", "status": 404}
+
+            return expense
+        except Exception as e:
+            log_error(f"Error fetching expense by ID: {str(e)}")
+            return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def update_payment_status(expenseID: int, isPaid: bool, userID: int):
+        """
+        Update the payment status of a expense.
+        """
+        try:
+            query = (
+                expenses_table.update()
+                .where(
+                    expenses_table.c.id == expenseID,
+                )
+                .values(
+                    isPaid=isPaid,
+                )
+            )
+            await database.execute(query)
+            return {"message": f"Expense updated successfully"}
+        except Exception as e:
+            log_error(f"Error updating expense payment status: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+
 # Define the SQLAlchemy table
 expenses_table = Table(
     "expenses",

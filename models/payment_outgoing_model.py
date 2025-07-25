@@ -6,7 +6,7 @@ from datetime import date as d, datetime as dt
 from models.supplier_model import suppliers_table
 from models.purchase_model import purchases_table
 from models.reimbursement_model import reimbursements_table
-from models.bank_model import bank_accounts_table, BankAccount
+from models.expense_model import expenses_table
 from utils.logger_utils import log_error, log_info
 
 
@@ -206,6 +206,27 @@ class PaymentOutgoing(BaseModel):
         payments = await database.fetch_all(query)
         
         return [PaymentOutgoing(**payment) for payment in payments]
+    
+    @staticmethod
+    async def get_payments_by_expense_id(expenseID: int):
+        """
+        Get all payments associated with a specific purchase ID.
+        
+        Args:
+            expenseID (int): The ID of the expense.
+        
+        Returns:
+            list: A list of payments associated with the purchase.
+        """
+        log_info(f"Retrieving payments for expense ID: {expenseID}")
+        query = select(payments_outgoing_table).where(
+            payments_outgoing_table.c.expenseID == expenseID,
+            payments_outgoing_table.c.isDelete == False
+        )
+        
+        payments = await database.fetch_all(query)
+        
+        return [PaymentOutgoing(**payment) for payment in payments]
 
     @staticmethod
     async def update_status(paymentID: int, userID: int, status: str):
@@ -238,7 +259,6 @@ class PaymentOutgoing(BaseModel):
         
         try:
             result = await database.execute(query)
-            print(result)
             return {"message": "Payment status updated successfully"}
         except Exception as e:
             log_error(f"Error updating payment status: {str(e)}")
@@ -322,6 +342,64 @@ class PaymentOutgoing(BaseModel):
             log_error(f"Error retrieving calendar data: {str(e)}")
             return {"error": str(e), "status": 500}
         
+    @staticmethod
+    async def get_calendar_data_by_date(date: int, month: int, year: int, bankAccounts: List[int]):
+        try:
+            if month < 1 or month > 12:
+                return {"error": "Invalid month. Month must be between 1 and 12.", "status": 400}
+            if year < 2020:
+                return {"error": "Invalid year. Year must be 2020 or later.", "status": 400}
+            
+            select_columns = [
+                payments_outgoing_table,  # Selects all columns from interpayment_table
+                purchases_table.c.invoiceName.label("purchase_invoiceName"),
+                purchases_table.c.date.label("purchase_date"),
+                purchases_table
+            ]
+            
+            if(bankAccounts is not None and len(bankAccounts) > 0):
+                query = select(
+                    payments_outgoing_table
+                ).where(
+                    func.extract('day', payments_outgoing_table.c.date) == date,
+                    func.extract('month', payments_outgoing_table.c.date) == month,
+                    func.extract('year', payments_outgoing_table.c.date) == year,
+                    payments_outgoing_table.c.isDelete == False,
+                    payments_outgoing_table.c.bankAccountID.in_(bankAccounts)
+                )
+            else:
+                # If no bank accounts are provided, fetch all payments for the specified month and year
+                query = select(
+                    payments_outgoing_table
+                ).where(
+                    func.extract('day', payments_outgoing_table.c.date) == date,
+                    func.extract('month', payments_outgoing_table.c.date) == month,
+                    func.extract('year', payments_outgoing_table.c.date) == year,
+                    payments_outgoing_table.c.isDelete == False
+                )
+                
+            payments = await database.fetch_all(query)
+            return [
+                {
+                    "id": payment.id,
+                    "date": payment.date,
+                    "amount": payment.amount,
+                    "purchaseID": payment.purchaseID,
+                    "expenseID": payment.expenseID,
+                    "reimbursementID": payment.reimbursementID,
+                    "bankAccountID": payment.bankAccountID,
+                    "isApprove": payment.isApprove,
+                    "isDelete": payment.isDelete,
+                    "createdAt": payment.createdAt,
+                    "createdBy": payment.createdBy,
+                    "updatedAt": payment.updatedAt,
+                    "updatedBy": payment.updatedBy,
+                    "status": payment.status
+                } for payment in payments
+            ]
+        except Exception as e:
+            log_error(f"Error retrieving calendar data: {str(e)}")
+            return {"error": str(e), "status": 500}
 # Define the payments table
 payments_outgoing_table = Table(
     "payment_outgoing",

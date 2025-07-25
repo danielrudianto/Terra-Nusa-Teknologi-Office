@@ -51,3 +51,18 @@ async def get_expenses(page: int, pageSize: int, filter: int, sortBy: str, sortB
         return result
     except HTTPException as e:
         raise e
+    
+@router.get("/payments/{purchase_id}")
+async def get_payments_by_purchase_id(purchase_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Get payments by purchase ID. Requires a valid token.
+    """
+    expense = await ExpenseController.get_expense_by_id(purchase_id)
+    result = await ExpenseController.get_payments_by_expense_id(purchase_id)
+    if "error" in result:
+        raise HTTPException(status_code=result["status"], detail=result["error"])
+    
+    return {
+        "expense": expense,
+        "payments": result
+    }

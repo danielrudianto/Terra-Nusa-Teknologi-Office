@@ -4,6 +4,7 @@ from controllers.payment_controller import PaymentController
 from models.bank_model import BankAccount
 from utils.auth_utils import get_current_user
 from models.user_model import User
+from datetime import datetime
 
 router = APIRouter()
 
@@ -22,14 +23,15 @@ async def get_calendar_data(month: int, year: int, current_user: Annotated[User,
         # Optionally log the error or handle it differently
         raise e # Re-raise to return the HTTPException response
 
-@router.get("/date")    
+@router.get("/daily")    
 async def get_calendar_data_by_date(date: str, current_user: Annotated[User, Depends(get_current_user)], bankAccounts: List[int] = Query(None)):
     """
     Get calendar data for a specific date.
     """
     try:
         userID = current_user["id"]
-        result = await PaymentController.get_calendar_data_by_date(date, bankAccounts)
+        dt = datetime.strptime(date, "%Y-%m-%d").date()
+        result = await PaymentController.get_calendar_data_by_date(dt, bankAccounts)
         if "error" in result:
             raise HTTPException(status_code=result["status"], detail=result["error"])
         return result
