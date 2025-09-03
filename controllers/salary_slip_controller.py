@@ -3,32 +3,45 @@ from utils.logger_utils import log_error, log_info
 from fastapi import HTTPException
 from models.salary_slip_model import SalarySlip, SalarySlipAllowance, SalarySlipDeduction
 from datetime import datetime as dt
+from models.employee_model import Employee
 
 class SalarySlipController:
     @staticmethod
+    async def fetch(page: int, pageSize: int, keyword: str):
+        try:
+            result = await SalarySlip.fetch(page, pageSize, keyword)
+            if "error" in result:
+                raise HTTPException(status_code=result["status"], detail=result["error"])
+            
+            return result
+        except Exception as e:
+            log_error(f"Unexpected error during fetch: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error.")
+    
+    @staticmethod
     async def check(userID: int, month: int, year: int):
         try:
-            validation = await SalarySlip.validate(userID = userID, month=month, year=year)
+            validation = await SalarySlip.validate(userID, month, year)
             if "error" in validation:
-                raise HTTPException(status_code=validation["status"], detail=validation["error"])
+                return validation
             
             return {"message": "Validation successful."}
         except Exception as e:
-            # log_error(f"Unexpected error during validation: {str(e)}")
-            # raise HTTPException(status_code=500, detail="Internal server error.")
-            print("Hi")
+            log_error(f"Unexpected error during validation: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error.")
         
     @staticmethod
     async def create(userID: int, salarySlip: dict):
         try:
             month = salarySlip.get('month')
             year = salarySlip.get('year')
+            employeeID = salarySlip.get('userID')
 
             if not month or not year:
                 return {"error": "Month and year are required.", "status": 400}
             
             # Validate the salary slip data
-            validation = await SalarySlip.validate(userID=userID, month=month, year=year)
+            validation = await SalarySlip.validate(employeeID, month, year)
             if "error" in validation:
                 return {"error": validation["error"], "status": validation["status"]}
             
@@ -45,6 +58,19 @@ class SalarySlipController:
             await SalarySlipDeduction.create_deductions(created_slip, salarySlip['deductions'])
             log_info(f"Salary slip created successfully for user {userID} for month {month} and year {year}.")
             
+            log_info(f"Updating user {userID} taxCategory, position, and department")
+            department = salarySlip.get('department')
+            position = salarySlip.get('position')
+            taxCategory = salarySlip.get('taxCategory')
+            userID = salarySlip.get('userID')
+            
+            
+            updated_employee = await Employee.update_detail(userID, taxCategory, position, department)
+            if "error" in updated_employee:
+                log_error(f"Error updating employee {userID}: {updated_employee['error']}")
+                return {"error": updated_employee["error"], "status": updated_employee["status"]}
+            
+            log_info(f"Successfully updated employee {userID} taxCategory, position, and department")
             return {"message": "Salary slip created successfully.", "salarySlipID": created_slip}
         except HTTPException as e:
             log_error(f"HTTPException during creation: {str(e.detail)}")

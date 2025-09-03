@@ -1,6 +1,6 @@
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from utils.logger_utils import log_error, log_info
 import json
 from utils.auth_utils import get_current_user
@@ -8,6 +8,32 @@ from models.payment_outgoing_model import PaymentOutgoing
 from controllers.payment_controller import PaymentController
 
 router = APIRouter()
+
+@router.post("/mutation")
+async def create_payment(filterData: dict, user: Annotated[dict, Depends(get_current_user)]):
+    """
+    Retrieve bank mutation data. Requires a valid token.
+    """
+    bankAccountID = filterData['bankAccountID']
+    page = filterData['page']
+    pageSize = filterData['pageSize']
+    startDate = filterData['startDate']
+    endDate = filterData['endDate']
+    
+    userID = user["id"]
+    result = await PaymentController.get_mutation_data(
+        startDate,
+        endDate,
+        page,
+        pageSize,
+        bankAccountID
+    )
+    
+    if "error" in result:
+        log_error(f"Error creating payment: {result['error']}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    
+    return result
 
 @router.post("/")
 async def create_payment(payment: PaymentOutgoing, user: Annotated[dict, Depends(get_current_user)]):

@@ -231,6 +231,44 @@ class Purchase(BaseModel):
             return {"error": str(e), "status": 500}
 
     @staticmethod
+    async def get_ppn_report(month: int, year: int):
+        try:
+            supplier_columns = [
+                suppliers_table.c.id.label("supplier_id"),
+                suppliers_table.c.name.label("supplier_name"),
+                suppliers_table.c.address.label("supplier_address"),
+                suppliers_table.c.city.label("supplier_city"),
+                suppliers_table.c.province.label("supplier_province"),
+                suppliers_table.c.prefix.label("supplier_prefix"),
+            ]
+            
+            conditions = [
+                purchases_table.c.isDelete == False,
+                func.extract('month', purchases_table.c.date) == month,
+                func.extract('year', purchases_table.c.date) == year
+            ]
+
+            order_by = purchases_table.c.date.desc()
+            
+            query = (
+                select(*purchases_table.c, *supplier_columns)
+                .join(suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id)
+                .where(*conditions)
+                .order_by(order_by)
+            )
+            purchases = await database.fetch_all(query)
+
+            if not purchases:
+                return {"error": "No purchases found for this project", "status": 404}
+
+            # Convert the result to a list of dictionaries
+            purchase_list = [dict(purchase) for purchase in purchases]
+            return purchase_list
+        except Exception as e:
+            log_error(f"Error fetching purchase report by project: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
     async def update_payment_status(purchaseID: int, isPaid: bool):
         """
         Update the payment status of a purchase.

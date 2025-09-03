@@ -34,11 +34,11 @@ client.index(index_name).update_synonyms({
 async def sync_meilisearch():
     try:
         client.create_index(index_name, {"primaryKey": "id"})
-        log_info(f"Index '{index_name}' created successfully.")
+        print(f"Index '{index_name}' created successfully.")
 
         # Clear all the data
         index.delete_all_documents()
-        log_info(f"All documents in index '{index_name}' deleted successfully.")
+        print(f"All documents in index '{index_name}' deleted successfully.")
 
         # Add existing supplier to the index
         query = select(suppliers_table)
@@ -62,7 +62,7 @@ async def sync_meilisearch():
                     supplier_dict[key] = ""
 
             index.add_documents([supplier_dict])
-            log_info(f"Document with ID '{supplier_dict['id']}' added to index '{index_name}' successfully.")
+            print(f"Document with ID '{supplier_dict['id']}' added to index '{index_name}' successfully.")
 
     except Exception as e:
         raise e

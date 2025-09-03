@@ -1,12 +1,13 @@
 from pydantic import BaseModel, Field
 from typing import List
-from sqlalchemy import Table, Column, DateTime, Integer, String, Boolean, ForeignKey, Date, or_, select, func, and_
+from sqlalchemy import Table, Column, DateTime, Integer, String, Boolean, ForeignKey, Date, or_, select, func, and_, outerjoin
 from utils.database import metadata, database
 from datetime import date as d, datetime as dt
-from models.supplier_model import suppliers_table
 from models.purchase_model import purchases_table
-from models.reimbursement_model import reimbursements_table
-from models.expense_model import expenses_table
+from models.reimbursement_model import reimbursement_items_table, reimbursements_table
+from models.expense_model import expenses_table, expense_opponents_table
+from models.supplier_model import suppliers_table
+from models.bank_model import bank_accounts_table
 from utils.logger_utils import log_error, log_info
 
 
@@ -82,8 +83,6 @@ class PaymentOutgoing(BaseModel):
             )
         if filterObject.get("isRejected"):
             or_conditions.append(payments_outgoing_table.c.isDelete == True)
-
-        print(or_conditions)
         
         query = select(
             payments_outgoing_table,
@@ -300,43 +299,32 @@ class PaymentOutgoing(BaseModel):
             if year < 2020:
                 return {"error": "Invalid year. Year must be 2020 or later.", "status": 400}
             
-            if(bankAccounts is not None and len(bankAccounts) > 0):
-                query = select(
-                    payments_outgoing_table
-                ).where(
-                    func.extract('month', payments_outgoing_table.c.date) == month,
-                    func.extract('year', payments_outgoing_table.c.date) == year,
-                    payments_outgoing_table.c.isDelete == False,
-                    payments_outgoing_table.c.bankAccountID.in_(bankAccounts)
-                )
-            else:
-                # If no bank accounts are provided, fetch all payments for the specified month and year
-                query = select(
-                    payments_outgoing_table
-                ).where(
-                    func.extract('month', payments_outgoing_table.c.date) == month,
-                    func.extract('year', payments_outgoing_table.c.date) == year,
-                    payments_outgoing_table.c.isDelete == False
-                )
-                
-            payments = await database.fetch_all(query)
+            #Base query
+            query = select(
+                func.extract('day', payments_outgoing_table.c.date).label('day'),
+                func.sum(payments_outgoing_table.c.amount).label('total_amount')
+            ).where(
+                func.extract('month', payments_outgoing_table.c.date) == month,
+                func.extract('year', payments_outgoing_table.c.date) == year,
+                payments_outgoing_table.c.isDelete == False
+            )
+            
+            # If bank accounts are provided, filter by bank account ID
+            if bankAccounts is not None and len(bankAccounts) > 0:
+                query = query.where(payments_outgoing_table.c.bankAccountID.in_(bankAccounts))
+            
+            # Group by day
+            query = query.group_by('day')
+            
+            # Fetch results
+            daily_sums = await database.fetch_all(query)
+            
+            # Format the results
             return [
                 {
-                    "id": payment.id,
-                    "date": payment.date,
-                    "amount": payment.amount,
-                    "purchaseID": payment.purchaseID,
-                    "expenseID": payment.expenseID,
-                    "reimbursementID": payment.reimbursementID,
-                    "bankAccountID": payment.bankAccountID,
-                    "isApprove": payment.isApprove,
-                    "isDelete": payment.isDelete,
-                    "createdAt": payment.createdAt,
-                    "createdBy": payment.createdBy,
-                    "updatedAt": payment.updatedAt,
-                    "updatedBy": payment.updatedBy,
-                    "status": payment.status
-                } for payment in payments
+                    "day": day['day'],
+                    "total_amount": day['total_amount']
+                } for day in daily_sums
             ]
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")
@@ -354,31 +342,45 @@ class PaymentOutgoing(BaseModel):
                 payments_outgoing_table,  # Selects all columns from interpayment_table
                 purchases_table.c.invoiceName.label("purchase_invoiceName"),
                 purchases_table.c.date.label("purchase_date"),
-                purchases_table
+                purchases_table.c.projectName.label("purchase_project_name"),
+                reimbursements_table.c.name.label("reimbursement_name"),
+                reimbursements_table.c.date.label("reimbursement_date"),
+                reimbursements_table.c.projectName.label("reimbursement_project_name"),
+                expenses_table.c.invoiceName.label("expense_invoiceName"),
+                expenses_table.c.date.label("expense_date"),
+                expenses_table.c.description.label("expense_description"),
+                suppliers_table.c.name.label("purchase_account_name"),
+                expense_opponents_table.c.name.label("expense_account_name"),
+                reimbursements_table.c.bankAccountName.label("reimbursement_account_name")
             ]
             
-            if(bankAccounts is not None and len(bankAccounts) > 0):
-                query = select(
-                    payments_outgoing_table
-                ).where(
-                    func.extract('day', payments_outgoing_table.c.date) == date,
-                    func.extract('month', payments_outgoing_table.c.date) == month,
-                    func.extract('year', payments_outgoing_table.c.date) == year,
-                    payments_outgoing_table.c.isDelete == False,
-                    payments_outgoing_table.c.bankAccountID.in_(bankAccounts)
-                )
-            else:
-                # If no bank accounts are provided, fetch all payments for the specified month and year
-                query = select(
-                    payments_outgoing_table
-                ).where(
-                    func.extract('day', payments_outgoing_table.c.date) == date,
-                    func.extract('month', payments_outgoing_table.c.date) == month,
-                    func.extract('year', payments_outgoing_table.c.date) == year,
-                    payments_outgoing_table.c.isDelete == False
-                )
-                
+            #Base query
+            query = select(
+                *select_columns
+            ).select_from(
+                payments_outgoing_table
+            ).outerjoin(
+                purchases_table, payments_outgoing_table.c.purchaseID == purchases_table.c.id,
+            ).outerjoin(
+                suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id    
+            ).outerjoin(
+                reimbursements_table, payments_outgoing_table.c.reimbursementID == reimbursements_table.c.id
+            ).outerjoin(
+                expenses_table, payments_outgoing_table.c.expenseID == expenses_table.c.id
+            ).outerjoin(
+                expense_opponents_table, expenses_table.c.opponentID == expense_opponents_table.c.id    
+            ).where(
+                func.extract('day', payments_outgoing_table.c.date) == date,
+                func.extract('month', payments_outgoing_table.c.date) == month,
+                func.extract('year', payments_outgoing_table.c.date) == year,
+                payments_outgoing_table.c.isDelete == False
+            )
+            
+            if bankAccounts is not None and len(bankAccounts) > 0:
+                query = query.where(payments_outgoing_table.c.bankAccountID.in_(bankAccounts))
+            
             payments = await database.fetch_all(query)
+                
             return [
                 {
                     "id": payment.id,
@@ -394,12 +396,111 @@ class PaymentOutgoing(BaseModel):
                     "createdBy": payment.createdBy,
                     "updatedAt": payment.updatedAt,
                     "updatedBy": payment.updatedBy,
-                    "status": payment.status
+                    "status": payment.status,
+                    "purchase": None if payment.purchaseID is None else  {
+                        "date": payment.purchase_date,
+                        "invoiceName": payment.purchase_invoiceName,
+                        "accountName": payment.purchase_account_name,
+                        "projectName": payment.purchase_project_name
+                    },
+                    "reimbursement": None if payment.reimbursementID is None else {
+                        "date": payment.reimbursement_date,
+                        "name": payment.reimbursement_name,
+                        "accountName": payment.reimbursement_account_name,
+                        "projectName": payment.reimbursement_project_name
+                    },
+                    "expense": None if payment.expenseID is None else {
+                        "date": payment.expense_date,
+                        "invoiceName": payment.expense_invoiceName,
+                        "accountName": payment.expense_account_name,
+                        "description": payment.expense_description
+                    }
                 } for payment in payments
             ]
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")
             return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def get_mutation(startDate: d, endDate: d, page: int, pageSize: int, bankAccountID: int):
+        select_columns = [
+            payments_outgoing_table,  # Selects all columns from interpayment_table
+            purchases_table.c.invoiceName.label("purchase_invoiceName"),
+            purchases_table.c.date.label("purchase_date"),
+            purchases_table.c.projectName.label("purchase_project_name"),
+            reimbursements_table.c.name.label("reimbursement_name"),
+            reimbursements_table.c.date.label("reimbursement_date"),
+            reimbursements_table.c.projectName.label("reimbursement_project_name"),
+            expenses_table.c.invoiceName.label("expense_invoiceName"),
+            expenses_table.c.date.label("expense_date"),
+            expenses_table.c.description.label("expense_description"),
+            suppliers_table.c.name.label("purchase_account_name"),
+            expense_opponents_table.c.name.label("expense_account_name"),
+            reimbursements_table.c.bankAccountName.label("reimbursement_account_name")
+        ]
+        
+        #Base query
+        query = select(
+            *select_columns
+        ).select_from(
+            payments_outgoing_table
+        ).outerjoin(
+            purchases_table, payments_outgoing_table.c.purchaseID == purchases_table.c.id,
+        ).outerjoin(
+            suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id    
+        ).outerjoin(
+            reimbursements_table, payments_outgoing_table.c.reimbursementID == reimbursements_table.c.id
+        ).outerjoin(
+            expenses_table, payments_outgoing_table.c.expenseID == expenses_table.c.id
+        ).outerjoin(
+            expense_opponents_table, expenses_table.c.opponentID == expense_opponents_table.c.id    
+        ).where(
+            payments_outgoing_table.c.bankAccountID == bankAccountID,
+            payments_outgoing_table.c.date >= startDate,
+            payments_outgoing_table.c.date <= endDate,
+            payments_outgoing_table.c.isDelete == False
+        ).limit(pageSize).offset((page - 1) * pageSize)
+        
+        payments = await database.fetch_all(query)
+            
+        return {
+            "data": [
+                {
+                    "id": payment.id,
+                    "date": payment.date,
+                    "amount": payment.amount,
+                    "purchaseID": payment.purchaseID,
+                    "expenseID": payment.expenseID,
+                    "reimbursementID": payment.reimbursementID,
+                    "bankAccountID": payment.bankAccountID,
+                    "isApprove": payment.isApprove,
+                    "isDelete": payment.isDelete,
+                    "createdAt": payment.createdAt,
+                    "createdBy": payment.createdBy,
+                    "updatedAt": payment.updatedAt,
+                    "updatedBy": payment.updatedBy,
+                    "status": payment.status,
+                    "purchase": None if payment.purchaseID is None else  {
+                        "date": payment.purchase_date,
+                        "invoiceName": payment.purchase_invoiceName,
+                        "accountName": payment.purchase_account_name,
+                        "projectName": payment.purchase_project_name
+                    },
+                    "reimbursement": None if payment.reimbursementID is None else {
+                        "date": payment.reimbursement_date,
+                        "name": payment.reimbursement_name,
+                        "accountName": payment.reimbursement_account_name,
+                        "projectName": payment.reimbursement_project_name
+                    },
+                    "expense": None if payment.expenseID is None else {
+                        "date": payment.expense_date,
+                        "invoiceName": payment.expense_invoiceName,
+                        "accountName": payment.expense_account_name,
+                        "description": payment.expense_description
+                    }
+                } for payment in payments
+            ]
+        }
 # Define the payments table
 payments_outgoing_table = Table(
     "payment_outgoing",

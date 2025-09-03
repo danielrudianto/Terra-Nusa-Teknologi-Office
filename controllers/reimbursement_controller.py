@@ -141,7 +141,7 @@ class ReimbursementController:
             return {"error": str(e), "status": 500}
         
     @staticmethod
-    async def reject_reimbursement(reimbursementID: int):
+    async def reject_reimbursement(reimbursementID: int, userID: int):
         """
         Delete a reimbursement.
         """
@@ -157,7 +157,7 @@ class ReimbursementController:
             if reimbursement["isDelete"]:
                 return {"message": "Reimbursement already deleted", "status": 400}
         
-            result = await Reimbursement.delete_reimbursement_by_id(reimbursementID)
+            result = await Reimbursement.reject_reimbursement_by_id(reimbursementID, userID)
             if "error" in result:
                 log_error(f"Error during deleting reimbursement: {result['error']}")
                 return {"error": result["error"], "status": result["status"]}

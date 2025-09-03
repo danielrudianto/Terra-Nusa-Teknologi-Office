@@ -15,16 +15,16 @@ class EmployeeController:
             userID (int): The ID of the user creating the expense.
 
         Returns:
-            Dict: A success message with the created expense ID.
+            Dict: A success message with the created employee ID.
         """
-        log_info(f"Creating expense with data: {employee_data}")
+        log_info(f"Creating employee with data: {employee_data}")
         try:
             employee_data["createdAt"] = dt.now()
             employee_data["createdBy"] = userID
 
             result = await Employee(**employee_data).create_employee()
             if "error" in result:
-                log_error(f"Error creating expense: {result['error']}")
+                log_error(f"Error creating employee: {result['error']}")
                 raise HTTPException(status_code=result["status"], detail=result["error"])
             
             return result

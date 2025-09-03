@@ -9,8 +9,11 @@ from utils.meilisearch import setup_meilisearch, sync_meilisearch
 from utils.redis import sync_redis
 from utils.database import database
 from utils.redis import sync_redis
+import sqlalchemy
 
 log_info("Testing logger functionality")
+
+log_info(f"Currently using {sqlalchemy.__version__}")
 
 # Set the lifespan of the application
 @asynccontextmanager
@@ -20,14 +23,20 @@ async def lifespan(app: FastAPI):
     try:
         await database.connect()
         log_info("Database connected successfully!")
-
+    except Exception as e:
+        log_error(f"Error connecting to database: {e}")
+        
+    try:
         await setup_meilisearch()
         log_info("Meilisearch setup completed successfully!")
+    except Exception as e:
+        log_error(f"Error connecting to meilisearch: {e}")
         
+    try:
         await sync_redis()
         log_info("Redis setup completed successfully!")
     except Exception as e:
-        log_error(f"Error connecting to database: {e}")
+        log_error(f"Error connecting to redis: {e}")
     yield  # This is where the application runs
     # Shutdown logic
     await database.disconnect()

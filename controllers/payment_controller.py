@@ -9,6 +9,12 @@ from utils.logger_utils import log_error, log_info
 from datetime import datetime as dt, date as d
 from fastapi import HTTPException
 from typing import List, Dict, Optional
+from functools import reduce
+from datetime import date
+
+
+def add(x, y):
+    return x + y.amount
 
 class PaymentController:
     @staticmethod
@@ -159,6 +165,25 @@ class PaymentController:
             return {"error": str(e), "status": 500}
 
     @staticmethod
+    async def get_mutation_data(startDate: date, endDate: date, page: int, pageSize: int, bankAccountID: int):
+        log_info(f"Retrieving payments with pagination: page={page}, pageSize={pageSize}, bankAccountID={bankAccountID}")
+        try:
+            result = await PaymentOutgoing.get_mutation(
+                startDate,
+                endDate,
+                page,
+                pageSize,
+                bankAccountID
+            )
+            if "error" in result:
+                log_error(f"Error fetching payments: {result['error']}")
+                return {"error": result["error"], "status": result.get("status", 500)}
+            return result
+        except Exception as e:
+            log_error(f"Error retrieving payments: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
     async def update_payment_status(id: int, status: str, userID: int):
         """
         Update the status of a payment.
@@ -198,23 +223,32 @@ class PaymentController:
             # Update the payment status in the database for the purchase
             if status == "approve":
                 if payment.purchaseID is not None:
+                    purchases = await Purchase.get_purchase_by_id(payment.purchaseID)
+                    purchase_value = round(purchases["dpp"] + (purchases["ppn"] * purchases["dpp"] / 100) + purchases["pbbkb"] + purchases["otherValue"] - (purchases["pphPercentage"] * purchases["dpp"] / 100), 2)
+                    
+                    print(purchase_value)
+                    
                     current_payments = await PaymentOutgoing.get_payments_by_purchase_id(payment.purchaseID)
                     if "error" in current_payments:
                         log_error(f"Error fetching payments for purchase ID {payment.purchaseID}: {current_payments['error']}")
                         return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
                     total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
                     
-                    if total_paid >= payment.amount:
+                    if purchase_value == total_paid:
                         await Purchase.update_payment_status(payment.purchaseID, True)
                 
                 if payment.reimbursementID is not None:
+                    
+                    reimbursements = await ReimbursementItems.get_reimbursement_items_by_reimbursement_id(payment.reimbursementID)
+                    reimbursement_value = sum(r.amount for r in reimbursements)
+                                        
                     current_payments = await PaymentOutgoing.get_payments_by_reimbursement_id(payment.reimbursementID)
                     if "error" in current_payments:
                         log_error(f"Error fetching payments for reimbursement ID {payment.reimbursementID}: {current_payments['error']}")
                         return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
                     total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
                     
-                    if total_paid >= payment.amount:
+                    if reimbursement_value == total_paid:
                         await Reimbursement.update_payment_status(payment.reimbursementID, True, userID)
                 
                 if payment.expenseID is not None:
@@ -277,6 +311,7 @@ class PaymentController:
             if "error" in result:
                 log_error(f"Error fetching calendar data: {result['error']}")
                 return {"error": result["error"], "status": result.get("status", 500)}
+            
             return {
                 "payments": result,
             }

@@ -8,6 +8,21 @@ from models.salary_slip_model import SalarySlipCheck, SalarySlip
 
 router = APIRouter()
 
+@router.get("/")
+async def fetch(page: int, pageSize: int, keyword: str, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Fetch salary slips with pagination and optional keyword filtering.
+    """
+    try:
+        result = await SalarySlipController.fetch(page, pageSize, keyword)
+        if "error" in result:
+            raise HTTPException(status_code=result["status"], detail=result["error"])
+        
+        return result
+    except HTTPException as e:
+        log_error(f"HTTPException during fetch: {str(e.detail)}")
+        raise e
+
 @router.post("/check")
 async def check(salarySlipCheck: SalarySlipCheck, current_user: Annotated[User, Depends(get_current_user)]):
     """
@@ -18,6 +33,8 @@ async def check(salarySlipCheck: SalarySlipCheck, current_user: Annotated[User, 
         month = salarySlipCheck.month  
         year = salarySlipCheck.year
         checkResult = await SalarySlipController.check(userID, month, year)
+        if "error" in checkResult:
+            raise HTTPException(status_code=checkResult["status"], detail=checkResult["error"])
         
         return checkResult
     except HTTPException as e:

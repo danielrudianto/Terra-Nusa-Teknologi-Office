@@ -1,0 +1,17 @@
+from fastapi import APIRouter, HTTPException, Depends
+from controllers.user_controller import UserController
+from models.purchase_model import Purchase
+from utils.logger_utils import log_error
+from models.user_model import User
+from typing import Annotated
+from utils.auth_utils import get_current_user
+
+router = APIRouter()
+
+@router.get("/ppn")
+async def fetch_ppn_report(month: int, year: int, current_user: Annotated[User, Depends(get_current_user)]):
+    result = await Purchase.get_ppn_report(month, year)
+    if "error" in result:
+        log_error(f"Error during fetching ppn report: {str(result['error'])}")
+        raise HTTPException(status_code=result["status"], detail=result["error"])
+    return result

@@ -100,6 +100,25 @@ class Employee(BaseModel):
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    async def update_detail(id: int, taxCategory: str, position: str, department: str):
+        query = (
+            update(employees_table)
+            .where(employees_table.c.id == id)
+            .values(
+                position=position,
+                department=department,
+                taxCategory=taxCategory,
+            )
+        )
+        
+        try:
+            await database.execute(query)
+            return {"message": "Employee updated successfully", "employee_id": id}
+        except Exception as e:
+            log_error(f"Unexpected error while updating employee: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def get_employees(keyword: str, page: int, pageSize: int = 10, sortBy: str = None, sortByDirection: str = "asc"):
         """
         Retrieve a list of employees from the database.

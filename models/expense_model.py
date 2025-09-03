@@ -69,6 +69,8 @@ class Expense(BaseModel):
                 or_conditions.append(expenses_table.c.receiptName.ilike(f"%{keyword}%"))
                 or_conditions.append(expenses_table.c.taxInvoiceName.ilike(f"%{keyword}%"))
                 or_conditions.append(expenses_table.c.description.ilike(f"%{keyword}%"))
+                or_conditions.append(expense_opponents_table.c.name.ilike(f"%{keyword}%"))
+                or_conditions.append(expense_opponents_table.c.description.ilike(f"%{keyword}%"))
             conditions.append(or_(*or_conditions))
 
             or_conditions = []

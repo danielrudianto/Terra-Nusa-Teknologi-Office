@@ -1,8 +1,9 @@
 from pydantic import BaseModel
 from datetime import datetime as dt, date as d
 from utils.database import metadata, database
-from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, ForeignKey, Float
+from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, ForeignKey, Float, select, func
 from utils.logger_utils import log_error
+from models.employee_model import employees_table
 
 class SalarySlip(BaseModel):
     userID: int  # ID of the user
@@ -25,6 +26,8 @@ class SalarySlip(BaseModel):
     deletedAt: dt | None = None  # Deletion date and time of the salary slip in ISO format, can be None if not deleted
     deletedBy: int | None = None  # ID of the user who deleted the salary slip, can be None if not deleted
     taxCategory: str # Category of tax applied to the salary slip, e.g., "TK/0", "TK/1", etc.
+    position: str # Position of the employee
+    department: str # Department of the employee
 
     #Constructor
     def __init__(self, **data):
@@ -70,6 +73,8 @@ class SalarySlip(BaseModel):
             isPaid=data.isPaid,
             isDelete=data.isDelete,
             taxCategory=data.taxCategory,
+            position=data.position,
+            department=data.department
         )
 
         try:
@@ -104,6 +109,70 @@ class SalarySlip(BaseModel):
             return {"error": "Salary slip already exists for this user, month, and year.", "status": 400}
 
         return {"message": "Validation successful."}
+
+    @staticmethod
+    async def fetch(page: int, pageSize: int, keyword: str):
+        allowance_subq = (
+            select(
+                salary_slips_allowance_table.c.salarySlipID,
+                func.coalesce(func.sum(salary_slips_allowance_table.c.amount), 0).label("allowance")
+            )
+            .group_by(salary_slips_allowance_table.c.salarySlipID)
+        ).subquery()
+
+        # Deduction subquery
+        deduction_subq = (
+            select(
+                salary_slips_allowance_table.c.salarySlipID,
+                func.coalesce(func.sum(salary_slips_deduction_table.c.amount), 0).label("deduction")
+            )
+            .group_by(salary_slips_deduction_table.c.salarySlipID)
+        ).subquery()
+        
+        query = select(
+            salary_slips_table.c.id,
+            salary_slips_table.c.userID,
+            salary_slips_table.c.month,
+            salary_slips_table.c.year,
+            salary_slips_table.c.taxCategory,
+            salary_slips_table.c.position,
+            salary_slips_table.c.department,
+            salary_slips_table.c.basicSalary,
+            (salary_slips_table.c.transportationAllowanceRate * salary_slips_table.c.transportationAllowanceQuantity).label("transportation"),
+            (salary_slips_table.c.mealAllowanceRate * salary_slips_table.c.mealAllowanceQuantity).label("meal"),
+            (salary_slips_table.c.overtimeRate * salary_slips_table.c.overtimeQuantity).label("overtime"),
+            allowance_subq.c.allowance,
+            deduction_subq.c.deduction,
+            salary_slips_table.c.taxAmount,
+            employees_table.c.name,
+        ).join(
+            employees_table, salary_slips_table.c.userID == employees_table.c.id
+        ).outerjoin(
+            allowance_subq, salary_slips_table.c.id == allowance_subq.c.salarySlipID
+        ).outerjoin(
+            deduction_subq, salary_slips_table.c.id == deduction_subq.c.salarySlipID
+        ).where(
+            employees_table.c.name.ilike(f"%{keyword}%")
+        ).order_by(
+            salary_slips_table.c.year.desc(), salary_slips_table.c.month.desc(), employees_table.c.name.asc()
+        ).offset((page - 1) * pageSize).limit(pageSize)
+        
+        try:
+            result = await database.fetch_all(query)
+        
+            countQuery = select(func.count()).select_from(
+                salary_slips_table
+            )
+            
+            count = await database.fetch_one(countQuery)
+            
+            return {
+                "data": [dict(row) for row in result],
+                "count": count[0] if count else 0,
+            }
+        except Exception as e:
+            log_error(f"Error fetching salary slips: {str(e)}")
+            return {"error": str(e), "status": 500}
 
 class SalarySlipCheck(BaseModel):
     userID: int  # ID of the user
@@ -146,7 +215,7 @@ salary_slips_table = Table(
     "salary_slips",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("userID", Integer, ForeignKey("users.id"), nullable=False),
+    Column("userID", Integer, ForeignKey("employee.id"), nullable=False),
     Column("month", Integer, nullable=False),
     Column("year", Integer, nullable=False),
     Column("isPaid", Boolean, default=False, nullable=False),
@@ -166,6 +235,8 @@ salary_slips_table = Table(
     Column("isDelete", Boolean, default=False, nullable=False),
     Column("deletedAt", DateTime, nullable=True),
     Column("deletedBy", Integer, nullable=True),
+    Column("position", String(50), nullable=False),
+    Column("department", String(50), nullable=False),
     
 )
 
@@ -202,9 +273,9 @@ class SalarySlipAllowance(BaseModel):
         query = salary_slips_allowance_table.insert().values([
             {
                 "salarySlipID": salarySlipID,
-                "name": allowance.name,
-                "description": allowance.description,
-                "amount": allowance.amount
+                "name": allowance['name'],
+                "description": allowance['description'],
+                "amount": allowance['amount']
             } for allowance in allowances
         ])
 
@@ -249,9 +320,9 @@ class SalarySlipDeduction(BaseModel):
         query = salary_slips_deduction_table.insert().values([
             {
                 "salarySlipID": salarySlipID,
-                "name": deduction.name,
-                "description": deduction.description,
-                "amount": deduction.amount
+                "name": deduction['name'],
+                "description": deduction['description'],
+                "amount": deduction['amount']
             } for deduction in deductions
         ])
 

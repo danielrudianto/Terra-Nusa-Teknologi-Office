@@ -23,6 +23,9 @@ class UserService:
         query = select(users_table).where(users_table.c.email == email)
         try:
             result = await database.fetch_one(query)
+            if(result is None):
+                log_error(f"No user found with email: {email}")
+            
             return result
         except ProgrammingError as e:
             log_error(str(e))
