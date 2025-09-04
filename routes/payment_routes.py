@@ -10,7 +10,7 @@ from controllers.payment_controller import PaymentController
 router = APIRouter()
 
 @router.post("/mutation")
-async def create_payment(filterData: dict, user: Annotated[dict, Depends(get_current_user)]):
+async def fetch_mutation(filterData: dict, user: Annotated[dict, Depends(get_current_user)]):
     """
     Retrieve bank mutation data. Requires a valid token.
     """

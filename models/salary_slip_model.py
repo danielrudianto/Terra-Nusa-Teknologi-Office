@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from datetime import datetime as dt, date as d
 from utils.database import metadata, database
-from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, ForeignKey, Float, select, func
+from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, ForeignKey, Float, select, func, update
 from utils.logger_utils import log_error
 from models.employee_model import employees_table
 
@@ -144,6 +144,8 @@ class SalarySlip(BaseModel):
             allowance_subq.c.allowance,
             deduction_subq.c.deduction,
             salary_slips_table.c.taxAmount,
+            salary_slips_table.c.isDelete,
+            salary_slips_table.c.isPaid,
             employees_table.c.name,
         ).join(
             employees_table, salary_slips_table.c.userID == employees_table.c.id
@@ -173,6 +175,67 @@ class SalarySlip(BaseModel):
         except Exception as e:
             log_error(f"Error fetching salary slips: {str(e)}")
             return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def fetch_salary_slip_by_id(id: int):
+        try:
+            query = select(
+                salary_slips_table.c.id,
+                salary_slips_table.c.userID,
+                salary_slips_table.c.month,
+                salary_slips_table.c.year,
+                salary_slips_table.c.taxCategory,
+                salary_slips_table.c.position,
+                salary_slips_table.c.department,
+                salary_slips_table.c.basicSalary,
+                salary_slips_table.c.transportationAllowanceRate,
+                salary_slips_table.c.transportationAllowanceQuantity,
+                salary_slips_table.c.mealAllowanceRate,
+                salary_slips_table.c.mealAllowanceQuantity,
+                salary_slips_table.c.overtimeRate,
+                salary_slips_table.c.overtimeQuantity,
+                salary_slips_table.c.taxAmount,
+                salary_slips_table.c.isDelete,
+                employees_table.c.name,
+            ).join(
+                employees_table, salary_slips_table.c.userID == employees_table.c.id
+            ).where(
+                salary_slips_table.c.id == id
+            )
+            result = await database.fetch_one(query)
+            result = dict(result)
+
+            allowanceQuery = select(salary_slips_allowance_table).where(salary_slips_allowance_table.c.salarySlipID == id)
+            allowances = await database.fetch_all(allowanceQuery)
+
+            deductionQuery = select(salary_slips_deduction_table).where(salary_slips_deduction_table.c.salarySlipID == id)
+            deductions = await database.fetch_all(deductionQuery)
+
+            result['otherAllowances'] = allowances
+            result['otherDeductions'] = deductions
+
+            return result
+        except Exception as e:
+            log_error(f"Error fetching salary slips: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def deleteByID(id: int, userID: int):
+        query = (
+            update(salary_slips_table)
+            .where(salary_slips_table.c.id == id)
+            .values({
+                "isDelete": True,
+                "deletedBy": userID,
+                'deletedAt': dt.now()
+            })
+        )
+
+        result = await database.execute(query)
+        if result == 0:  # Check if any rows were affected
+            return {"error": "Update failed or salary slip not found", "status": 404}
+        
+        return {"message": "Salary slip updated successfully"}
 
 class SalarySlipCheck(BaseModel):
     userID: int  # ID of the user

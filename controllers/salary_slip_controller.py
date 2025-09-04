@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from models.salary_slip_model import SalarySlip, SalarySlipAllowance, SalarySlipDeduction
 from datetime import datetime as dt
 from models.employee_model import Employee
+from models.payment_outgoing_model import PaymentOutgoing
 
 class SalarySlipController:
     @staticmethod
@@ -18,6 +19,44 @@ class SalarySlipController:
             log_error(f"Unexpected error during fetch: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error.")
     
+    @staticmethod
+    async def fetchByID(id: int):
+        try:
+            result = await SalarySlip.fetch_salary_slip_by_id(id)
+            if "error" in result:
+                raise HTTPException(status_code=result["status"], detail=result["error"])
+            
+            payments = await PaymentOutgoing.get_payments_by_salary_slip_id(id)
+            if "error" in payments:
+                raise HTTPException(status_code=payments["status"], detail=payments["error"])
+
+            return {
+                "data": result,
+                "payments": payments
+            }
+        except Exception as e:
+            log_error(f"Unexpected error during fetching by ID {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error.")
+
+    @staticmethod
+    async def delete(id: int, userID: int):
+        try:
+            result = await SalarySlip.fetch_salary_slip_by_id(id)
+            if "error" in result:
+                raise HTTPException(status_code=result["status"], detail=result["error"])
+
+            if result is None or result['isDelete'] is True:
+                raise HTTPException(status_code=404, detail="Salary slip not found")
+            
+            deleteResult = await SalarySlip.deleteByID(id, userID)
+            if "error" in deleteResult:
+                raise HTTPException(status_code=deleteResult["status"], detail=deleteResult["error"])
+            
+            return deleteResult
+        except Exception as e:
+            log_error(f"Unexpected error during validation: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error.")
+
     @staticmethod
     async def check(userID: int, month: int, year: int):
         try:

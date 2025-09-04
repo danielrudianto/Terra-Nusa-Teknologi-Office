@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from datetime import datetime
 from utils.redis import r
 import json
+from models.bank_model import bank_accounts_table
 
 class BankController:
     @staticmethod 

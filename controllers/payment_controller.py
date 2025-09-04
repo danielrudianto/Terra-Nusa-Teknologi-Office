@@ -4,11 +4,12 @@ from models.payment_outgoing_model import PaymentOutgoing
 from models.purchase_model import Purchase
 from models.reimbursement_model import Reimbursement, ReimbursementItems
 from models.expense_model import Expense
+from models.salary_slip_model import SalarySlip
 from models.bank_model import BankAccount
 from utils.logger_utils import log_error, log_info
 from datetime import datetime as dt, date as d
 from fastapi import HTTPException
-from typing import List, Dict, Optional
+from typing import List
 from functools import reduce
 from datetime import date
 
@@ -87,6 +88,8 @@ class PaymentController:
                 log_error(f"Error fetching payment with ID {id}: {payment['error']}")
                 return {"error": payment["error"], "status": payment.get("status")}
             log_info(f"Payment with ID: {id} retrieved successfully")
+
+            print(payment)
             
             bankAccountID = payment.bankAccountID
             bankAccount = await BankAccount.get_bank_account_by_id(bankAccountID)
@@ -97,6 +100,7 @@ class PaymentController:
             purchase = None
             reimbursement = None
             expense = None
+            salarySlip = None
 
             if payment.reimbursementID is not None:
                 result = await Reimbursement.get_reimbursement_by_id(payment.reimbursementID)
@@ -126,12 +130,20 @@ class PaymentController:
                     log_error(f"Error fetching expense with ID {payment.expenseID}: {payment['error']}")
                     return {"error": expense["error"], "status": expense.get('status')}
             
+            if payment.salarySlipID is not None:
+                salarySlip = await SalarySlip.fetch_salary_slip_by_id(payment.salarySlipID)
+                
+                if "error" in salarySlip:
+                    log_error(f"Error fetching salarySlip with ID {payment.salarySlipID}: {payment['error']}")
+                    return {"error": expense["error"], "status": expense.get('status')}
+
             return {
                 "payment": payment,
                 "bankAccount": bankAccount,
                 "purchase": purchase,
                 "reimbursement": reimbursement,
-                "expense": expense
+                "expense": expense,
+                "salarySlip": salarySlip
             }
         except Exception as e:
             log_error(f"Error retrieving payment: {str(e)}")
