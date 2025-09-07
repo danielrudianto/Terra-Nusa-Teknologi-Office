@@ -40,6 +40,7 @@ class Purchase(BaseModel):
     isDelete: bool = False  # Flag to indicate if the purchase is deleted
     lastStatus: str  # Last status of the purchase
     lastStatusDescription: str | None
+    isInternal: bool = False
 
     @staticmethod
     async def get_purchases(page: int, pageSize: int, filterObject: dict, sortBy: str, sortByDirection: str, keyword: str | None):
@@ -376,6 +377,7 @@ purchases_table = Table(
     Column("updatedBy", Integer, ForeignKey("users.id"), nullable=True),
     Column("deletedBy", Integer, ForeignKey("users.id"), nullable=True),
     Column("lastStatus", String(100), nullable=False, default="Waiting"),
+    Column("isInternal", Boolean(), nullable=False, default=False)
 )
 
 # Define the PurchaseStatus SQLAlchemy table

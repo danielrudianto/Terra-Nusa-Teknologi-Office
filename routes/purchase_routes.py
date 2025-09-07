@@ -107,7 +107,11 @@ async def get_purchases(
         return result
     except HTTPException as e:
         raise e
-    
+
+@router.put("/update")
+async def update_internal_purchase(purchase: Purchase, current_user: Annotated[User, Depends(get_current_user)]):
+    print(purchase)
+
 @router.put("/update-status")
 async def update_status(purchaseStatus: PurchaseUpdateStatus, current_user: Annotated[User, Depends(get_current_user)]):
     """
