@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Annotated
-from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float
+from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, select, func
 from utils.database import metadata
 from datetime import date as d, datetime as dt
 from utils.database import database
@@ -94,7 +94,7 @@ class Asset(BaseModel):
                     )
                 )
 
-            count_query = asset_table.select()
+            count_query = select(func.count()).select_from(asset_table)
             count = await database.fetch_val(count_query)
             
             return {"data": response, "count": count if count is not None else 0}

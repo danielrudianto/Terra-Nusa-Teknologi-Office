@@ -22,7 +22,7 @@ class SalarySlipController:
     @staticmethod
     async def fetchByID(id: int):
         try:
-            result = await SalarySlip.fetch_salary_slip_by_id(id)
+            result = await SalarySlip.get_salary_slip_by_id(id)
             if "error" in result:
                 raise HTTPException(status_code=result["status"], detail=result["error"])
             
@@ -41,7 +41,7 @@ class SalarySlipController:
     @staticmethod
     async def delete(id: int, userID: int):
         try:
-            result = await SalarySlip.fetch_salary_slip_by_id(id)
+            result = await SalarySlip.get_salary_slip_by_id(id)
             if "error" in result:
                 raise HTTPException(status_code=result["status"], detail=result["error"])
 

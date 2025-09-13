@@ -6,6 +6,7 @@ from models.reimbursement_model import Reimbursement, ReimbursementItems
 from models.expense_model import Expense
 from models.salary_slip_model import SalarySlip
 from models.bank_model import BankAccount
+from models.interpayment_model import Interpayment
 from utils.logger_utils import log_error, log_info
 from datetime import datetime as dt, date as d
 from fastapi import HTTPException
@@ -131,7 +132,7 @@ class PaymentController:
                     return {"error": expense["error"], "status": expense.get('status')}
             
             if payment.salarySlipID is not None:
-                salarySlip = await SalarySlip.fetch_salary_slip_by_id(payment.salarySlipID)
+                salarySlip = await SalarySlip.get_salary_slip_by_id(payment.salarySlipID)
                 
                 if "error" in salarySlip:
                     log_error(f"Error fetching salarySlip with ID {payment.salarySlipID}: {payment['error']}")
@@ -238,8 +239,6 @@ class PaymentController:
                     purchases = await Purchase.get_purchase_by_id(payment.purchaseID)
                     purchase_value = round(purchases["dpp"] + (purchases["ppn"] * purchases["dpp"] / 100) + purchases["pbbkb"] + purchases["otherValue"] - (purchases["pphPercentage"] * purchases["dpp"] / 100), 2)
                     
-                    print(purchase_value)
-                    
                     current_payments = await PaymentOutgoing.get_payments_by_purchase_id(payment.purchaseID)
                     if "error" in current_payments:
                         log_error(f"Error fetching payments for purchase ID {payment.purchaseID}: {current_payments['error']}")
@@ -249,8 +248,7 @@ class PaymentController:
                     if purchase_value == total_paid:
                         await Purchase.update_payment_status(payment.purchaseID, True)
                 
-                if payment.reimbursementID is not None:
-                    
+                if payment.reimbursementID is not None:   
                     reimbursements = await ReimbursementItems.get_reimbursement_items_by_reimbursement_id(payment.reimbursementID)
                     reimbursement_value = sum(r.amount for r in reimbursements)
                                         
@@ -264,14 +262,40 @@ class PaymentController:
                         await Reimbursement.update_payment_status(payment.reimbursementID, True, userID)
                 
                 if payment.expenseID is not None:
+                    expense = await Expense.get_expense_by_id(payment.expenseID)
+                    expense_value = round(expense["dpp"] + expense["pbbkb"] - (expense["pphPercentage"] * expense["dpp"] / 100), 2)
+                    
                     current_payments = await PaymentOutgoing.get_payments_by_expense_id(payment.expenseID)
                     if "error" in current_payments:
                         log_error(f"Error fetching payments for expenseID ID {payment.expenseID}: {current_payments['error']}")
                         return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
                     total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
                     
-                    if total_paid >= payment.amount:
+                    if expense_value == total_paid:
                         await Expense.update_payment_status(payment.expenseID, True, userID)
+
+                if payment.salarySlipID is not None:
+                    salarySlip = await SalarySlip.get_salary_slip_by_id(payment.salarySlipID)
+                    
+                    salary_value = (
+                        salarySlip["basicSalary"] + 
+                        salarySlip["transportationAllowanceRate"] * salarySlip["transportationAllowanceQuantity"] + 
+                        salarySlip["mealAllowanceRate"] * salarySlip["mealAllowanceQuantity"] + 
+                        salarySlip["overtimeRate"] * salarySlip["overtimeQuantity"] + 
+                        reduce(lambda x, y: x + y["amount"], salarySlip["otherAllowances"], 0) -
+                        reduce(lambda x, y: x + y["amount"], salarySlip["otherDeductions"], 0) - 
+                        salarySlip["taxAmount"]
+                    )
+
+                    current_payments = await PaymentOutgoing.get_payments_by_salary_slip_id(payment.salarySlipID)
+                    if "error" in current_payments:
+                        log_error(f"Error fetching payments for expenseID ID {payment.expenseID}: {current_payments['error']}")
+                        return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
+                    total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
+                    
+                    if salary_value == total_paid:
+                        print("masuk sini pak bos")
+                        await SalarySlip.update_payment_status(payment.salarySlipID, True, userID)
             
             log_info(f"Payment with ID: {id} updated successfully")
             return {"message": "Payment updated successfully"}
@@ -324,8 +348,15 @@ class PaymentController:
                 log_error(f"Error fetching calendar data: {result['error']}")
                 return {"error": result["error"], "status": result.get("status", 500)}
             
+            interpayments = await Interpayment.get_interpayment_calendar_data(month, year, bankAccounts)
+            if "error" in interpayments:
+                log_error(f"Error fetching interpayment calendar data: {result['error']}")
+                return {"error": result["error"], "status": result.get("status", 500)}
+
+            
             return {
                 "payments": result,
+                "interpayments": interpayments,
             }
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")
@@ -345,6 +376,27 @@ class PaymentController:
                 log_error(f"Error fetching calendar data: {result['error']}")
                 return {"error": result["error"], "status": result.get('status', 500)}
             return result
+        except Exception as e:
+            log_error(f"Error retrieving calendar data: {str(e)}")
+            return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def get_pph_report(month: int, year: int):
+        try:
+            purchase = await PaymentOutgoing.get_purchase_pph_report(month, year)
+            if "error" in purchase:
+                log_error(f"Error fetching purchase PPH report data: {purchase['error']}")
+                return {"error": purchase["error"], "status": purchase.get('status', 500)}
+            
+            expense = await PaymentOutgoing.get_expense_pph_report(month, year)
+            if "error" in expense:
+                log_error(f"Error fetching expense PPH report data: {expense['error']}")
+                return {"error": expense["error"], "status": expense.get('status', 500)}
+
+            return {
+                "purchase": purchase,
+                "expense": expense
+            }
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")
             return {"error": str(e), "status": 500}

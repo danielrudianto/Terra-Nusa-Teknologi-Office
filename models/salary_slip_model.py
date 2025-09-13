@@ -18,6 +18,10 @@ class SalarySlip(BaseModel):
     overtimeQuantity: float = 0.0  # Quantity of overtime
     overtimeRate: float = 0.0  # Rate of overtime
     taxAmount: float = 0.0  # Amount of tax deducted
+    bankName: str  # Name of the bank
+    bankAccountName: str  # Name of the bank account
+    bankAccountNumber: str  # Bank account number
+    paymentMethod: str  # Payment method
     createdAt: dt = dt.now()  # Creation date and time of the salary slip in ISO format
     updatedAt: dt | None = None  # Last update date and time of the salary slip in ISO format
     createdBy: int | None = None  # ID of the user who created the salary slip
@@ -48,7 +52,7 @@ class SalarySlip(BaseModel):
     
     # Create
     @staticmethod
-    async def create(data: dict):
+    async def create(self):
         """
         Create a new salary slip in the database.
         
@@ -56,25 +60,29 @@ class SalarySlip(BaseModel):
             dict: A success message with the created salary slip ID.
         """
         query = salary_slips_table.insert().values(
-            userID=data.userID,
-            month=data.month,
-            year=data.year,
-            basicSalary=data.basicSalary,
-            mealAllowanceQuantity=data.mealAllowanceQuantity,
-            mealAllowanceRate=data.mealAllowanceRate,
-            transportationAllowanceQuantity=data.transportationAllowanceQuantity,
-            transportationAllowanceRate=data.transportationAllowanceRate,
-            overtimeQuantity=data.overtimeQuantity,
-            overtimeRate=data.overtimeRate,
-            taxAmount=data.taxAmount,
-            createdAt=data.createdAt,
-            updatedAt=data.updatedAt,
-            createdBy=data.createdBy,
-            isPaid=data.isPaid,
-            isDelete=data.isDelete,
-            taxCategory=data.taxCategory,
-            position=data.position,
-            department=data.department
+            userID=self.userID,
+            month=self.month,
+            year=self.year,
+            basicSalary=self.basicSalary,
+            mealAllowanceQuantity=self.mealAllowanceQuantity,
+            mealAllowanceRate=self.mealAllowanceRate,
+            transportationAllowanceQuantity=self.transportationAllowanceQuantity,
+            transportationAllowanceRate=self.transportationAllowanceRate,
+            overtimeQuantity=self.overtimeQuantity,
+            overtimeRate=self.overtimeRate,
+            taxAmount=self.taxAmount,
+            createdAt=self.createdAt,
+            updatedAt=self.updatedAt,
+            createdBy=self.createdBy,
+            isPaid=self.isPaid,
+            isDelete=self.isDelete,
+            taxCategory=self.taxCategory,
+            position=self.position,
+            department=self.department,
+            bankAccountName=self.bankAccountName,
+            bankAccountNumber=self.bankAccountNumber,
+            bankName=self.bankName,
+            paymentMethod=self.paymentMethod
         )
 
         try:
@@ -123,7 +131,7 @@ class SalarySlip(BaseModel):
         # Deduction subquery
         deduction_subq = (
             select(
-                salary_slips_allowance_table.c.salarySlipID,
+                salary_slips_deduction_table.c.salarySlipID,
                 func.coalesce(func.sum(salary_slips_deduction_table.c.amount), 0).label("deduction")
             )
             .group_by(salary_slips_deduction_table.c.salarySlipID)
@@ -167,6 +175,9 @@ class SalarySlip(BaseModel):
             )
             
             count = await database.fetch_one(countQuery)
+
+            for row in result:
+                print(dict(row))
             
             return {
                 "data": [dict(row) for row in result],
@@ -177,7 +188,7 @@ class SalarySlip(BaseModel):
             return {"error": str(e), "status": 500}
 
     @staticmethod
-    async def fetch_salary_slip_by_id(id: int):
+    async def get_salary_slip_by_id(id: int):
         try:
             query = select(
                 salary_slips_table.c.id,
@@ -196,6 +207,10 @@ class SalarySlip(BaseModel):
                 salary_slips_table.c.overtimeQuantity,
                 salary_slips_table.c.taxAmount,
                 salary_slips_table.c.isDelete,
+                salary_slips_table.c.bankName,
+                salary_slips_table.c.bankAccountName,
+                salary_slips_table.c.bankAccountNumber,
+                salary_slips_table.c.paymentMethod,
                 employees_table.c.name,
             ).join(
                 employees_table, salary_slips_table.c.userID == employees_table.c.id
@@ -232,6 +247,27 @@ class SalarySlip(BaseModel):
         )
 
         result = await database.execute(query)
+        if result == 0:  # Check if any rows were affected
+            return {"error": "Update failed or salary slip not found", "status": 404}
+        
+        return {"message": "Salary slip updated successfully"}
+
+    @staticmethod
+    async def update_payment_status(id: int, isPaid: bool, userID: int):
+        query = (
+            update(salary_slips_table)
+            .where(salary_slips_table.c.id == id)
+            .values({
+                "isPaid": isPaid,
+                "updatedBy": userID,
+                "updatedAt": dt.now()
+            })
+        )
+
+        print(query)
+
+        result = await database.execute(query)
+        print(result)
         if result == 0:  # Check if any rows were affected
             return {"error": "Update failed or salary slip not found", "status": 404}
         
@@ -291,6 +327,10 @@ salary_slips_table = Table(
     Column("overtimeRate", Float, default=0.0, nullable=False),
     Column("taxAmount", Float, default=0.0, nullable=False),
     Column("taxCategory", String(50), nullable=False),  # Default tax category
+    Column("bankName", String(100), nullable=False),
+    Column("bankAccountName", String(100), nullable=False),
+    Column("bankAccountNumber", String(100), nullable=False),
+    Column("paymentMethod", String(100), nullable=False),
     Column("createdAt", DateTime, default=dt.utcnow, nullable=False),
     Column("updatedAt", DateTime, default=dt.utcnow, onupdate=dt.utcnow, nullable=True),
     Column("createdBy", Integer, nullable=False),

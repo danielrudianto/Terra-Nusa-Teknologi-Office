@@ -51,7 +51,17 @@ async def get_expenses(page: int, pageSize: int, filter: int, sortBy: str, sortB
         return result
     except HTTPException as e:
         raise e
-    
+
+@router.put("/approve")
+async def approve_expense_by_id(expense_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Approve payments by ID. Requires a valid token.
+    """
+    userID = current_user["id"]
+    expense = await ExpenseController.approve_expense_by_id(expense_id, userID)
+    if expense is None:
+        raise 
+
 @router.get("/payments/{purchase_id}")
 async def get_payments_by_purchase_id(purchase_id: int, current_user: Annotated[User, Depends(get_current_user)]):
     """

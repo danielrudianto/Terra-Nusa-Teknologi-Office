@@ -237,7 +237,6 @@ class Reimbursement(BaseModel):
         try:
             query = select(reimbursements_table).where(
                 reimbursements_table.c.id == reimbursementID,
-                reimbursements_table.c.isDelete == False
             )
             reimbursement = await database.fetch_one(query)
             if reimbursement is None:

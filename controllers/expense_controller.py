@@ -25,12 +25,12 @@ class ExpenseController:
             expense_data["createdAt"] = datetime.now()
             expense_data["createdBy"] = userID
 
-            result = await Expense.create_expense(expense_data)
-            if "error" in result:
-                log_error(f"Error creating expense: {result['error']}")
-                raise HTTPException(status_code=result["status"], detail=result["error"])
+            expense_id = await Expense.create_expense(expense_data)
+            if not isinstance(expense_id, int) and "error" in expense_id:
+                log_error(f"Error creating expense: {expense_id['error']}")
+                raise HTTPException(status_code=expense_id["status"], detail=expense_id["error"])
             
-            return result
+            return {"message": "Expense created successfully", "expense_id": expense_id}
         except Exception as e:
             log_error(f"Unexpected error: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error.")
@@ -102,3 +102,23 @@ class ExpenseController:
             log_error(f"Error retrieving payments: {str(e)}")
             return {"error": str(e), "status": 500}
 
+    @staticmethod
+    async def approve_expense_by_id(expense_id: int, userID: int):
+        try:
+            expense = await Expense.get_expense_by_id(expense_id)
+            if expense is None or expense["isDelete"] is True:
+                log_error(f"Error fetching expense for expense ID {expense_id}: {expense['error']}")
+                return {"error": "Expense not found", "status":  404}
+            if "error" in expense:
+                log_error(f"Error fetching expense for expense ID {expense_id}: {expense['error']}")
+                return {"error": expense["error"], "status": expense.get("status", 500)}
+            
+            await Expense.approve_expense_by_id(expense_id)
+
+            return {
+                "message": "Successfully approve expense",
+                "expense_id":expense_id
+            }
+        except Exception as e:
+            log_error(f"Error retrieving payments: {str(e)}")
+            return {"error": str(e), "status": 500}

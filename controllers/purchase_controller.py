@@ -12,6 +12,7 @@ class PurchaseController:
     async def create_purchase(purchase_data: dict, userID: int):
         purchase_data["createdBy"] = userID
         purchase_data["createdAt"] = datetime.now()
+        purchase_data["isPaid"] = True if purchase_data["isInternal"] == True else False
         lastStatusDescription =  purchase_data.pop("lastStatusDescription")
         try:
             purchase_id = await Purchase.create_purchase(purchase_data)

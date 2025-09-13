@@ -7,7 +7,8 @@ from models.purchase_model import purchases_table
 from models.reimbursement_model import reimbursements_table
 from models.salary_slip_model import salary_slips_table
 from models.employee_model import employees_table
-from models.expense_model import expenses_table
+from models.expense_model import expenses_table, expense_opponents_table
+from models.supplier_model import suppliers_table
 from utils.logger_utils import log_error, log_info
 
 
@@ -147,6 +148,91 @@ class PaymentOutgoing(BaseModel):
         #     or_conditions.append(purchases_table.c.taxInvoiceName.ilike(f"%{keyword}%"))
         #     or_conditions.append(suppliers_table.c.name.ilike(f"%{keyword}%"))
         # conditions.append(or_(*or_conditions))
+
+    @staticmethod
+    async def get_mutation(startDate: d, endDate: d, page: int, pageSize: int, bankAccountID: int):
+        select_columns = [
+            payments_outgoing_table,  # Selects all columns from interpayment_table
+            purchases_table.c.invoiceName.label("purchase_invoiceName"),
+            purchases_table.c.date.label("purchase_date"),
+            purchases_table.c.projectName.label("purchase_project_name"),
+            reimbursements_table.c.name.label("reimbursement_name"),
+            reimbursements_table.c.date.label("reimbursement_date"),
+            reimbursements_table.c.projectName.label("reimbursement_project_name"),
+            expenses_table.c.invoiceName.label("expense_invoiceName"),
+            expenses_table.c.date.label("expense_date"),
+            expenses_table.c.description.label("expense_description"),
+            suppliers_table.c.name.label("purchase_account_name"),
+            expense_opponents_table.c.name.label("expense_account_name"),
+            reimbursements_table.c.bankAccountName.label("reimbursement_account_name")
+        ]
+        
+        #Base query
+        query = select(
+            *select_columns
+        ).select_from(
+            payments_outgoing_table
+        ).outerjoin(
+            purchases_table, payments_outgoing_table.c.purchaseID == purchases_table.c.id,
+        ).outerjoin(
+            suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id    
+        ).outerjoin(
+            reimbursements_table, payments_outgoing_table.c.reimbursementID == reimbursements_table.c.id
+        ).outerjoin(
+            expenses_table, payments_outgoing_table.c.expenseID == expenses_table.c.id
+        ).outerjoin(
+            expense_opponents_table, expenses_table.c.opponentID == expense_opponents_table.c.id    
+        ).where(
+            payments_outgoing_table.c.bankAccountID == bankAccountID,
+            payments_outgoing_table.c.date >= startDate,
+            payments_outgoing_table.c.date <= endDate,
+            payments_outgoing_table.c.isDelete == False
+        ).limit(
+            pageSize
+        ).offset(
+            (page - 1) * pageSize
+        ).order_by(payments_outgoing_table.c.date.asc())
+        
+        payments = await database.fetch_all(query)
+            
+        return {
+            "data": [
+                {
+                    "id": payment.id,
+                    "date": payment.date,
+                    "amount": payment.amount,
+                    "purchaseID": payment.purchaseID,
+                    "expenseID": payment.expenseID,
+                    "reimbursementID": payment.reimbursementID,
+                    "bankAccountID": payment.bankAccountID,
+                    "isApprove": payment.isApprove,
+                    "isDelete": payment.isDelete,
+                    "createdAt": payment.createdAt,
+                    "createdBy": payment.createdBy,
+                    "updatedAt": payment.updatedAt,
+                    "updatedBy": payment.updatedBy,
+                    "status": payment.status,
+                    "purchase": None if payment.purchaseID is None else  {
+                        "date": payment.purchase_date,
+                        "invoiceName": payment.purchase_invoiceName,
+                        "accountName": payment.purchase_account_name,
+                        "projectName": payment.purchase_project_name
+                    },
+                    "reimbursement": None if payment.reimbursementID is None else {
+                        "date": payment.reimbursement_date,
+                        "name": payment.reimbursement_name,
+                        "accountName": payment.reimbursement_account_name,
+                        "projectName": payment.reimbursement_project_name
+                    },
+                    "expense": None if payment.expenseID is None else {
+                        "date": payment.expense_date,
+                        "invoiceName": payment.expense_invoiceName,
+                        "accountName": payment.expense_account_name,
+                        "description": payment.expense_description
+                    }
+                } for payment in payments
+            ]
+        }
 
     @staticmethod
     async def get_payment_by_id(id: int):
@@ -353,41 +439,34 @@ class PaymentOutgoing(BaseModel):
             
             if(bankAccounts is not None and len(bankAccounts) > 0):
                 query = select(
-                    payments_outgoing_table
+                    func.sum(payments_outgoing_table.c.amount).label("amount"),
+                    payments_outgoing_table.c.date
                 ).where(
                     func.extract('month', payments_outgoing_table.c.date) == month,
                     func.extract('year', payments_outgoing_table.c.date) == year,
                     payments_outgoing_table.c.isDelete == False,
                     payments_outgoing_table.c.bankAccountID.in_(bankAccounts)
+                ).group_by(
+                    payments_outgoing_table.c.date
                 )
             else:
                 # If no bank accounts are provided, fetch all payments for the specified month and year
                 query = select(
-                    payments_outgoing_table
+                    func.sum(payments_outgoing_table.c.amount).label("amount"),
+                    payments_outgoing_table.c.date
                 ).where(
                     func.extract('month', payments_outgoing_table.c.date) == month,
                     func.extract('year', payments_outgoing_table.c.date) == year,
                     payments_outgoing_table.c.isDelete == False
+                ).group_by(
+                    payments_outgoing_table.c.date
                 )
                 
             payments = await database.fetch_all(query)
             return [
-                {
-                    "id": payment.id,
+                {   
                     "date": payment.date,
-                    "amount": payment.amount,
-                    "purchaseID": payment.purchaseID,
-                    "expenseID": payment.expenseID,
-                    "reimbursementID": payment.reimbursementID,
-                    "salarySlipID": payment.salarySlipID,
-                    "bankAccountID": payment.bankAccountID,
-                    "isApprove": payment.isApprove,
-                    "isDelete": payment.isDelete,
-                    "createdAt": payment.createdAt,
-                    "createdBy": payment.createdBy,
-                    "updatedAt": payment.updatedAt,
-                    "updatedBy": payment.updatedBy,
-                    "status": payment.status
+                    "amount": payment.amount
                 } for payment in payments
             ]
         except Exception as e:
@@ -406,31 +485,45 @@ class PaymentOutgoing(BaseModel):
                 payments_outgoing_table,  # Selects all columns from interpayment_table
                 purchases_table.c.invoiceName.label("purchase_invoiceName"),
                 purchases_table.c.date.label("purchase_date"),
-                purchases_table
+                purchases_table.c.projectName.label("purchase_project_name"),
+                reimbursements_table.c.name.label("reimbursement_name"),
+                reimbursements_table.c.date.label("reimbursement_date"),
+                reimbursements_table.c.projectName.label("reimbursement_project_name"),
+                expenses_table.c.invoiceName.label("expense_invoiceName"),
+                expenses_table.c.date.label("expense_date"),
+                expenses_table.c.description.label("expense_description"),
+                suppliers_table.c.name.label("purchase_account_name"),
+                expense_opponents_table.c.name.label("expense_account_name"),
+                reimbursements_table.c.bankAccountName.label("reimbursement_account_name")
             ]
             
-            if(bankAccounts is not None and len(bankAccounts) > 0):
-                query = select(
-                    payments_outgoing_table
-                ).where(
-                    func.extract('day', payments_outgoing_table.c.date) == date,
-                    func.extract('month', payments_outgoing_table.c.date) == month,
-                    func.extract('year', payments_outgoing_table.c.date) == year,
-                    payments_outgoing_table.c.isDelete == False,
-                    payments_outgoing_table.c.bankAccountID.in_(bankAccounts)
-                )
-            else:
-                # If no bank accounts are provided, fetch all payments for the specified month and year
-                query = select(
-                    payments_outgoing_table
-                ).where(
-                    func.extract('day', payments_outgoing_table.c.date) == date,
-                    func.extract('month', payments_outgoing_table.c.date) == month,
-                    func.extract('year', payments_outgoing_table.c.date) == year,
-                    payments_outgoing_table.c.isDelete == False
-                )
-                
+            #Base query
+            query = select(
+                *select_columns
+            ).select_from(
+                payments_outgoing_table
+            ).outerjoin(
+                purchases_table, payments_outgoing_table.c.purchaseID == purchases_table.c.id,
+            ).outerjoin(
+                suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id    
+            ).outerjoin(
+                reimbursements_table, payments_outgoing_table.c.reimbursementID == reimbursements_table.c.id
+            ).outerjoin(
+                expenses_table, payments_outgoing_table.c.expenseID == expenses_table.c.id
+            ).outerjoin(
+                expense_opponents_table, expenses_table.c.opponentID == expense_opponents_table.c.id    
+            ).where(
+                func.extract('day', payments_outgoing_table.c.date) == date,
+                func.extract('month', payments_outgoing_table.c.date) == month,
+                func.extract('year', payments_outgoing_table.c.date) == year,
+                payments_outgoing_table.c.isDelete == False
+            )
+            
+            if bankAccounts is not None and len(bankAccounts) > 0:
+                query = query.where(payments_outgoing_table.c.bankAccountID.in_(bankAccounts))
+            
             payments = await database.fetch_all(query)
+                
             return [
                 {
                     "id": payment.id,
@@ -439,7 +532,6 @@ class PaymentOutgoing(BaseModel):
                     "purchaseID": payment.purchaseID,
                     "expenseID": payment.expenseID,
                     "reimbursementID": payment.reimbursementID,
-                    "salarySlipID": payment.salarySlipID,
                     "bankAccountID": payment.bankAccountID,
                     "isApprove": payment.isApprove,
                     "isDelete": payment.isDelete,
@@ -447,12 +539,163 @@ class PaymentOutgoing(BaseModel):
                     "createdBy": payment.createdBy,
                     "updatedAt": payment.updatedAt,
                     "updatedBy": payment.updatedBy,
-                    "status": payment.status
+                    "status": payment.status,
+                    "purchase": None if payment.purchaseID is None else  {
+                        "date": payment.purchase_date,
+                        "invoiceName": payment.purchase_invoiceName,
+                        "accountName": payment.purchase_account_name,
+                        "projectName": payment.purchase_project_name
+                    },
+                    "reimbursement": None if payment.reimbursementID is None else {
+                        "date": payment.reimbursement_date,
+                        "name": payment.reimbursement_name,
+                        "accountName": payment.reimbursement_account_name,
+                        "projectName": payment.reimbursement_project_name
+                    },
+                    "expense": None if payment.expenseID is None else {
+                        "date": payment.expense_date,
+                        "invoiceName": payment.expense_invoiceName,
+                        "accountName": payment.expense_account_name,
+                        "description": payment.expense_description
+                    }
                 } for payment in payments
             ]
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")
             return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def get_purchase_pph_report(month: int, year: int):
+        try:
+            supplier_columns = [
+                payments_outgoing_table.c.date.label("date"),
+                payments_outgoing_table.c.amount.label("amount"),
+                suppliers_table.c.id.label("supplier_id"),
+                suppliers_table.c.name.label("supplier_name"),
+                suppliers_table.c.address.label("supplier_address"),
+                suppliers_table.c.city.label("supplier_city"),
+                suppliers_table.c.province.label("supplier_province"),
+                suppliers_table.c.prefix.label("supplier_prefix"),
+                suppliers_table.c.npwp.label("supplier_npwp")
+            ]
+
+            # Alias for payments_outgoing_table to use in subquery
+            po_alias = payments_outgoing_table.alias("po_alias")
+
+            # Create a datetime object for the first day of the month
+            first_day_of_month = dt(year, month, 1)
+
+            # Subquery to sum previous payments for the same purchase before current payment date
+            previous_amount_subquery = (
+                select(func.coalesce(func.sum(po_alias.c.amount), 0))
+                .where(
+                    and_(
+                        po_alias.c.purchaseID == payments_outgoing_table.c.purchaseID,
+                        po_alias.c.date < first_day_of_month,
+                        po_alias.c.isApprove == True
+                    )
+                )
+                .correlate(payments_outgoing_table)
+                .scalar_subquery()
+            )
+            
+            conditions = [
+                payments_outgoing_table.c.isApprove == True,
+                purchases_table.c.isDelete == False,
+                purchases_table.c.pphPercentage > 0,
+                func.extract('month', payments_outgoing_table.c.date) == month,
+                func.extract('year', payments_outgoing_table.c.date) == year
+            ]
+
+            order_by = payments_outgoing_table.c.date.asc()
+            
+            query = (
+                select(
+                    *purchases_table.c,
+                    *supplier_columns,
+                    previous_amount_subquery.label("previous_amount")
+                )
+                .join(purchases_table, payments_outgoing_table.c.purchaseID == purchases_table.c.id)
+                .join(suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id)
+                .where(*conditions)
+                .order_by(order_by)
+            )
+            purchases = await database.fetch_all(query)
+
+            if not purchases:
+                return []
+
+            # Convert the result to a list of dictionaries
+            purchase_list = [dict(purchase) for purchase in purchases]
+            return purchase_list
+        except Exception as e:
+            log_error(f"Error fetching PPN report: {str(e)}")
+            return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def get_expense_pph_report(month: int, year: int):
+        try:
+            opponent_columns = [
+                payments_outgoing_table.c.date.label("date"),
+                payments_outgoing_table.c.amount.label("amount"),
+                expense_opponents_table.c.id.label("opponent_id"),
+                expense_opponents_table.c.name.label("opponent_name"),
+                expense_opponents_table.c.npwp.label("opponent_npwp")
+            ]
+
+            # Alias for payments_outgoing_table to use in subquery
+            po_alias = payments_outgoing_table.alias("po_alias")
+
+            # Create a datetime object for the first day of the month
+            first_day_of_month = dt(year, month, 1)
+
+            # Subquery to sum previous payments for the same purchase before current payment date
+            previous_amount_subquery = (
+                select(func.coalesce(func.sum(po_alias.c.amount), 0))
+                .where(
+                    and_(
+                        po_alias.c.expenseID == payments_outgoing_table.c.expenseID,
+                        po_alias.c.date < first_day_of_month,
+                        po_alias.c.isApprove == True
+                    )
+                )
+                .correlate(payments_outgoing_table)
+                .scalar_subquery()
+            )
+            
+            conditions = [
+                payments_outgoing_table.c.isApprove == True,
+                expenses_table.c.isDelete == False,
+                expenses_table.c.pphPercentage > 0,
+                func.extract('month', payments_outgoing_table.c.date) == month,
+                func.extract('year', payments_outgoing_table.c.date) == year
+            ]
+
+            order_by = payments_outgoing_table.c.date.asc()
+            
+            query = (
+                select(
+                    *expenses_table.c,
+                    *opponent_columns,
+                    previous_amount_subquery.label("previous_amount")
+                )
+                .join(expenses_table, payments_outgoing_table.c.expenseID == expenses_table.c.id)
+                .join(expense_opponents_table, expenses_table.c.opponentID == expense_opponents_table.c.id)
+                .where(*conditions)
+                .order_by(order_by)
+            )
+            purchases = await database.fetch_all(query)
+
+            if not purchases:
+                return []
+
+            # Convert the result to a list of dictionaries
+            purchase_list = [dict(purchase) for purchase in purchases]
+            return purchase_list
+        except Exception as e:
+            log_error(f"Error fetching purchase report by project: {str(e)}")
+            return {"error": str(e), "status": 500}
+
 # Define the payments table
 payments_outgoing_table = Table(
     "payment_outgoing",

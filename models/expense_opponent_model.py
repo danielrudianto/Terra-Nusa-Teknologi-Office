@@ -13,6 +13,7 @@ class ExpenseOpponent(BaseModel):
     type: str # Type of expense opponent (e.g., individual, company)
     description: str  # Description of the expense opponent
     paymentNumber: str  # Payment number associated with the expense opponent
+    npwp: str | None = None
     
     @staticmethod
     async def create_expense_opponent(opponent_data: dict):
@@ -83,6 +84,7 @@ expense_opponents_table = Table(
     Column('type', String(50), nullable=False),
     Column('description', String(500), nullable=True),
     Column('paymentNumber', String(50), nullable=True),
+    Column("npwp", String(16), nullable=True, default=None),
     Column('createdAt', DateTime(), nullable=False, default=dt.today()),
     Column('createdBy', Integer, ForeignKey('users.id'), nullable=False),
     Column('updatedAt', DateTime(), nullable=True, default=None),

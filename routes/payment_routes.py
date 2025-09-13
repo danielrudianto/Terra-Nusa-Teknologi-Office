@@ -101,7 +101,6 @@ async def update_payment_status(
     """
     userID = user["id"]
     result = await PaymentController.update_payment_status(paymentID, "approve", userID)
-    print(result)
     
     if "error" in result:
         log_error(f"Error approving payment with ID {paymentID}: {result['error']}")

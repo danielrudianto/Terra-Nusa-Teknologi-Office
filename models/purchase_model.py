@@ -241,15 +241,17 @@ class Purchase(BaseModel):
                 suppliers_table.c.city.label("supplier_city"),
                 suppliers_table.c.province.label("supplier_province"),
                 suppliers_table.c.prefix.label("supplier_prefix"),
+                suppliers_table.c.npwp.label("supplier_npwp")
             ]
             
             conditions = [
                 purchases_table.c.isDelete == False,
+                purchases_table.c.ppn > 0,
                 func.extract('month', purchases_table.c.date) == month,
                 func.extract('year', purchases_table.c.date) == year
             ]
 
-            order_by = purchases_table.c.date.desc()
+            order_by = purchases_table.c.date.asc()
             
             query = (
                 select(*purchases_table.c, *supplier_columns)

@@ -11,13 +11,11 @@ from models.expense_opponent_model import expense_opponents_table
 class Expense(BaseModel):
     invoiceName: str  # Name of the invoice
     receiptName: str  # Name of the receipt
-    taxInvoiceName: str | None = None  # Name of the tax invoice
     opponentID: int | None # ID of the opponent (optional)
     date: d  # Date of the purchase
     dueDate: d | None = None
     purchaseType: str  # Type of the purchase
     dpp: Annotated[float, Field(ge=0)]  # DPP value (greater than or equal to 0)
-    ppn: Annotated[float, Field(ge=0)]  # PPN value (optional)
     pbbkb: Annotated[float, Field(ge=0)]  # PBBKB value (optional)
     pphCode: str | None  # PPH code
     pphTaxObject: str | None  # PPH tax object
@@ -39,8 +37,8 @@ class Expense(BaseModel):
             if not expense_data:
                 return {"message": "No expense data to create."}
             query = insert(expenses_table).values(expense_data)
-            await database.execute(query)
-            return {"message": "Expense created successfully"}
+            expense_id = await database.execute(query)
+            return expense_id
         except Exception as e:
             log_error(f"Error creating expense: {str(e)}")
             return {"error": str(e), "status": 500}
@@ -67,7 +65,6 @@ class Expense(BaseModel):
             if(keyword is not None and keyword != ""):
                 or_conditions.append(expenses_table.c.invoiceName.ilike(f"%{keyword}%"))
                 or_conditions.append(expenses_table.c.receiptName.ilike(f"%{keyword}%"))
-                or_conditions.append(expenses_table.c.taxInvoiceName.ilike(f"%{keyword}%"))
                 or_conditions.append(expenses_table.c.description.ilike(f"%{keyword}%"))
                 or_conditions.append(expense_opponents_table.c.name.ilike(f"%{keyword}%"))
                 or_conditions.append(expense_opponents_table.c.description.ilike(f"%{keyword}%"))
@@ -167,6 +164,30 @@ class Expense(BaseModel):
         except Exception as e:
             log_error(f"Error fetching expense by ID: {str(e)}")
             return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def approve_expense_by_id(id: int, userID: int):
+        """
+        Update expense status to approve
+        """
+        try:
+            query = (
+                expenses_table.update()
+                .where(
+                    expenses_table.c.id == id,
+                )
+                .values(
+                    isApprove=True,
+                    approvedBy=userID,
+                    approvedAt=dt.now()
+                )
+            )
+            await database.execute(query)
+            return {"message": f"Expense updated successfully"}
+        
+        except Exception as e:
+            log_error(f"Error updating expense payment status: {str(e)}")
+            return {"error": str(e), "status": 500}
         
     @staticmethod
     async def update_payment_status(expenseID: int, isPaid: bool, userID: int):
@@ -197,13 +218,11 @@ expenses_table = Table(
     Column("id", Integer, primary_key=True),
     Column("invoiceName", String(100), nullable=False),
     Column("receiptName", String(100), nullable=False),
-    Column("taxInvoiceName", String(100), nullable=True),
     Column("opponentID", Integer, ForeignKey("expense_opponents.id"), nullable=True),
     Column("date", Date(), nullable=False),
     Column("dueDate", Date(), nullable=True),
     Column("purchaseType", String(100), nullable=False),
     Column("dpp", Float(), nullable=False),
-    Column("ppn", Float(), nullable=False),
     Column("pbbkb", Float(), nullable=False),
     Column("pphCode", String(100), nullable=True),
     Column("pphTaxObject", String(500), nullable=True),
@@ -219,6 +238,6 @@ expenses_table = Table(
     Column("updatedAt", DateTime(), nullable=True, default=None),
     Column("deletedAt", DateTime(), nullable=True, default=None),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
-    Column("updatedBy", Integer, ForeignKey("users.id"), nullable=True),
-    Column("deletedBy", Integer, ForeignKey("users.id"), nullable=True),
+    Column("updatedBy", Integer, ForeignKey("users.id"), nullable=True, default=None),
+    Column("deletedBy", Integer, ForeignKey("users.id"), nullable=True, default=None),
 )
