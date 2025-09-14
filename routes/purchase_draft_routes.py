@@ -10,3 +10,7 @@ router = APIRouter()
 @router.get("/")
 async def get_purchae_draft(page: int, pageSize: int, current_user: Annotated[User, Depends(get_current_user)]):
     return "Hi"
+
+@router.post("/")
+async def create_purchase_draft(page: int, pageSize: int, current_user: Annotated[User, Depends(get_current_user)]):
+    return "Hi"
