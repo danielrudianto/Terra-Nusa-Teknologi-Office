@@ -18,6 +18,7 @@ from routes.sales_invoice_routes import router as sales_invoice_router
 from routes.asset_routes import router as asset_router
 from routes.tax_routes import router as tax_router
 from routes.purchase_draft_routes import router as purchase_draft_router
+from routes.income_routes import router as income_router
 
 # Create a router instance
 router = APIRouter()
@@ -41,3 +42,4 @@ router.include_router(sales_invoice_router, prefix="/sales-invoices", tags=["Sal
 router.include_router(asset_router, prefix="/assets", tags=["Assets"])
 router.include_router(tax_router, prefix="/taxes", tags=["Taxes"])
 router.include_router(purchase_draft_router, prefix="/purchase-draft", tags=["Purchase draft"])
+router.include_router(income_router, prefix="/income", tags=["Income"])

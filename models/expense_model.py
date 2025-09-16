@@ -210,7 +210,6 @@ class Expense(BaseModel):
             log_error(f"Error updating expense payment status: {str(e)}")
             return {"error": str(e), "status": 500}
 
-
 # Define the SQLAlchemy table
 expenses_table = Table(
     "expenses",

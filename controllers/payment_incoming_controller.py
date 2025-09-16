@@ -26,11 +26,13 @@ class PaymentIncomingController:
             dict: A success message with the created payment ID.
         """
         payment_data["createdBy"] = userID
-        payment_data["createdAt"] = dt.now()
+        payment_data['createdAt'] = dt.now()
+        
+        payment = PaymentIncoming(**payment_data)
         log_info(f"Creating payment with data: {payment_data}")
         
         try:
-            result = await PaymentIncoming.create(payment_data)
+            result = await payment.create()
             if "error" in result:
                 log_error(f"Error creating payment: {result['error']}")
                 return {"error": result["error"], "status": result.get("status", 500)}

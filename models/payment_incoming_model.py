@@ -32,11 +32,10 @@ class PaymentIncoming(BaseModel):
         self.createdAt = data.get("createdAt", dt.now())
         self.updatedAt = data.get("updatedAt", None)
         self.isDelete = data.get("isDelete", False)
-        self.isApprove = data.get("isApprove", False)
+        self.isApprove = data.get("isApprove", True)
 
     # Create
-    @staticmethod
-    async def create(payment_data: dict):
+    async def create(self):
         """
         Create a new payment in the database.
         
@@ -44,7 +43,20 @@ class PaymentIncoming(BaseModel):
             dict: A success message with the created payment ID.
         """
         try:
-            query = payments_incoming_table.insert().values(payment_data)
+            query = payments_incoming_table.insert().values(
+                date=self.date,
+                amount=self.amount,
+                salesInvoiceID=self.salesInvoiceID,
+                incomeID=self.incomeID,
+                loanID=self.loanID,
+                bankAccountID=self.bankAccountID,
+                createdAt=self.createdAt,
+                createdBy=self.createdBy,
+                updatedAt=self.updatedAt,
+                updatedBy=self.updatedBy,
+                isDelete=self.isDelete,
+                isApprove=self.isApprove,
+            )
             result = await database.execute(query)
             return {"message": "Payment created successfully", "payment_id": result}
         except Exception as e:

@@ -22,7 +22,6 @@ class BankController:
         Returns:
             Dict: A success message with the created bank account ID.
         """
-        log_info(userID)
         log_info(f"Creating bank account with data: {bank_data}")
         try:
             # Create new Bank model
