@@ -18,7 +18,7 @@ from datetime import date
 def add(x, y):
     return x + y.amount
 
-class PaymentController:
+class PaymentOutgoingController:
     @staticmethod
     async def create_payment(payment_data: dict, userID: int):
         """
@@ -363,7 +363,7 @@ class PaymentController:
             return {"error": str(e), "status": 500}
         
     @staticmethod
-    async def get_calendar_data_by_date(date: d, bankAccountID: List[int]):
+    async def get_calendar_data_by_date(date: d, bankAccounts: List[int] | None):
         log_info(f"Retrieving calendar data for payments for date {str(d)}")
 
         day = date.day
@@ -371,11 +371,59 @@ class PaymentController:
         year = date.year
 
         try:
-            result = await PaymentOutgoing.get_calendar_data_by_date(day, month, year, bankAccountID)
+            accounts = await BankAccount.get_bank_accounts_by_ids(bankAccounts)
+            if "error" in accounts:
+                log_error(f"Error fetching bank accounts in calendar data: {accounts['error']}")
+                return {"error": accounts["error"], "status": accounts.get('status', 500)}
+
+            result = await PaymentOutgoing.get_calendar_data_by_date(day, month, year, bankAccounts)
             if "error" in result:
-                log_error(f"Error fetching calendar data: {result['error']}")
+                log_error(f"Error fetching payment outgoing in calendar data: {result['error']}")
                 return {"error": result["error"], "status": result.get('status', 500)}
-            return result
+
+            interpayments = await Interpayment.get_interpayment_calendar_data_by_date(day, month, year,bankAccounts)
+            if "error" in interpayments:
+                log_error(f"Error fetching interpayments in calendar data: {interpayments['error']}")
+                return {"error": interpayments["error"], "status": interpayments.get('status', 500)}
+            
+            return {
+                "data": result,
+                "bankAccounts": accounts,
+                "interpayments": interpayments
+            }
+        except Exception as e:
+            log_error(f"Error retrieving calendar data: {str(e)}")
+            return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def get_calendar_selector_by_date(date: d, bankAccounts: List[int] | None):
+        log_info(f"Retrieving calendar data for payments for date {str(d)}")
+
+        day = date.day
+        month = date.month
+        year = date.year
+
+        try:
+            accounts = await BankAccount.get_bank_accounts_by_ids(bankAccounts)
+            if "error" in accounts:
+                log_error(f"Error fetching bank accounts in calendar data: {accounts['error']}")
+                return {"error": accounts["error"], "status": accounts.get('status', 500)}
+
+            result = await PaymentOutgoing.get_calendar_data_by_date(day, month, year, bankAccounts)
+            if "error" in result:
+                log_error(f"Error fetching payment outgoing in calendar data: {result['error']}")
+                return {"error": result["error"], "status": result.get('status', 500)}
+
+            interpayments = await Interpayment.get_interpayment_calendar_data_by_date(day, month, year,bankAccounts)
+            if "error" in interpayments:
+                log_error(f"Error fetching interpayments in calendar data: {interpayments['error']}")
+                return {"error": interpayments["error"], "status": interpayments.get('status', 500)}
+            
+            return {
+                "data": result,
+                "bankAccounts": accounts,
+                "interpayments": interpayments
+            }
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")
             return {"error": str(e), "status": 500}

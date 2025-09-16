@@ -378,7 +378,8 @@ purchases_table = Table(
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
     Column("updatedBy", Integer, ForeignKey("users.id"), nullable=True),
     Column("deletedBy", Integer, ForeignKey("users.id"), nullable=True),
-    Column("lastStatus", String(100), nullable=False, default="Waiting"),
+    Column("lastStatus", String(100), nullable=False, default="draft"),
+    Column("lastStatusDescription", String(100), nullable=True, default=None),
     Column("isInternal", Boolean(), nullable=False, default=False)
 )
 

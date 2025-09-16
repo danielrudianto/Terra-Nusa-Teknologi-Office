@@ -58,6 +58,64 @@ class SalesInvoice(BaseModel):
             return {"error": str(e), "status": 500}
 
     @staticmethod
+    async def get_sales_invoice_by_id(id: int):
+        """
+        Fetch sales invoice by ID
+        """
+        try:
+            client_column = [
+                clients_table.c.name.label("client_name"),
+                clients_table.c.id.label("client_id"),
+                clients_table.c.address.label("client_address"),
+                clients_table.c.city.label("client_city"),
+                clients_table.c.province.label("client_province"),
+                clients_table.c.prefix.label("client_prefix"),
+            ]
+            query = select(
+                *sales_invoice_tables.c,
+                *client_column
+            ).join(clients_table, sales_invoice_tables.c.clientID == clients_table.c.id
+            ).where(sales_invoice_tables.c.id == id)
+            result = await database.fetch_one(query)
+            return result
+        except Exception as e:
+            log_error(f"Error fetching sales invoices: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def reject_sales_invoice_by_id(id: int, userID: int):
+        try:
+            query = (
+                sales_invoice_tables.update()
+                .where(sales_invoice_tables.c.id == id)
+                .values(isDelete=True, updatedAt=dt.now(), updatedBy=userID)
+            )
+            await database.execute(query)
+            return {"message": "Sales invoice deleted successfully"}
+        except Exception as e:
+            log_error(f"Error deleting sales invoice: {str(e)}")
+            return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def approve_sales_invoice_id(id: int, taxInvoiceName: str | None, userID: int):
+        try:
+            query = (
+                sales_invoice_tables.update()
+                .where(sales_invoice_tables.c.id == id)
+                .values(
+                    isApprove=True, 
+                    updatedAt=dt.now(), 
+                    updatedBy=userID, 
+                    taxInvoiceName=taxInvoiceName
+                )
+            )
+            await database.execute(query)
+            return {"message": "Sales invoice approved successfully"}
+        except Exception as e:
+            log_error(f"Error deleting sales invoice: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
     async def check_sales_invoice(description: str, projectName: str, clientID: int):
         """
         Check if a sales invoice with the same description, project name, and client ID already exists.
@@ -126,6 +184,7 @@ sales_invoice_tables = Table(
     Column("pphPercentage", Float, nullable=False, default=0.0),
     Column("ppn", Float, nullable=False, default=0.0),
     Column("spkNumber", String(100), nullable=False),
+    Column("taxInvoiceName", String(100), nullable=True, default=None),
     Column("description", String(100), nullable=True),
     Column("bankAccountID", Integer, ForeignKey("bank_accounts.id"), nullable=False),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False, default=1),

@@ -1,7 +1,7 @@
 from datetime import datetime as dt
 from typing import Optional
 from pydantic import BaseModel, Field
-from sqlalchemy import Table, Column, Integer, Boolean, DateTime, Float, insert, select, func, and_
+from sqlalchemy import Table, Column, Integer, Boolean, DateTime, Float, insert, select, func, and_, or_
 from utils.database import metadata, database
 from utils.logger_utils import log_error
 from models.bank_model import bank_accounts_table
@@ -98,8 +98,7 @@ class Interpayment(BaseModel):
         """
         Retrieve a list of interpayments from the database.
         """
-        
-        # #Bank account table
+        #Bank account table
         origin_bank_alias = bank_accounts_table.alias("origin_bank")
         destination_bank_alias = bank_accounts_table.alias("destination_bank")
 
@@ -118,6 +117,62 @@ class Interpayment(BaseModel):
             func.extract('month', interpayment_table.c.date) == month,
             func.extract('year', interpayment_table.c.date) == year,
         ]
+        
+        try:
+            query = (
+                select(*select_columns)
+                .join(
+                    origin_bank_alias,
+                    interpayment_table.c.bankAccountIDOrigin == origin_bank_alias.c.id,
+                    isouter=True  # Use LEFT OUTER JOIN if origin bank might not exist (though FK implies it should)
+                )
+                .join(
+                    destination_bank_alias,
+                    interpayment_table.c.bankAccountIDDestination == destination_bank_alias.c.id,
+                    isouter=True  # Use LEFT OUTER JOIN for destination bank as well
+                )
+                .where(and_(*conditions)) # Use and_() to combine conditions
+            )
+            result = await database.fetch_all(query)
+
+            return [dict(row) for row in result]
+        except Exception as e:
+            log_error(f"Error fetching interpayments: {str(e)}")
+            return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def get_interpayment_calendar_data_by_date(date: int, month: int, year: int, bankAccountID: list[int] | None):
+        """
+        Retrieve a list of interpayments from the database.
+        """
+        #Bank account table
+        origin_bank_alias = bank_accounts_table.alias("origin_bank")
+        destination_bank_alias = bank_accounts_table.alias("destination_bank")
+
+        select_columns = [
+            interpayment_table,  # Selects all columns from interpayment_table
+            origin_bank_alias.c.bankName.label("originBankName"),
+            origin_bank_alias.c.bankAccountName.label("originBankAccountName"),
+            origin_bank_alias.c.bankAccountNumber.label("originBankAccountNumber"),
+            destination_bank_alias.c.bankName.label("destinationBankName"),
+            destination_bank_alias.c.bankAccountName.label("destinationBankAccountName"),
+            destination_bank_alias.c.bankAccountNumber.label("destinationBankAccountNumber"),
+        ]
+
+        conditions = [
+            interpayment_table.c.isDelete == False, 
+            func.extract('day', interpayment_table.c.date) == date,
+            func.extract('month', interpayment_table.c.date) == month,
+            func.extract('year', interpayment_table.c.date) == year,
+        ]
+        
+        if bankAccountID is not None:
+            conditions.append(
+                or_(
+                    interpayment_table.c.bankAccountIDOrigin.in_(bankAccountID),
+                    interpayment_table.c.bankAccountIDDestination.in_(bankAccountID)
+                )
+            )
         
         try:
             query = (

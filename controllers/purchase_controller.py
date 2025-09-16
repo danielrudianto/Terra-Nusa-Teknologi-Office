@@ -13,7 +13,9 @@ class PurchaseController:
         purchase_data["createdBy"] = userID
         purchase_data["createdAt"] = datetime.now()
         purchase_data["isPaid"] = True if purchase_data["isInternal"] == True else False
-        lastStatusDescription =  purchase_data.pop("lastStatusDescription")
+        
+        lastStatus = purchase_data["lastStatus"]
+        lastStatusDescription =  purchase_data["lastStatusDescription"]
         try:
             purchase_id = await Purchase.create_purchase(purchase_data)
             if not isinstance(purchase_id, int) and "error" in purchase_id:
@@ -21,7 +23,7 @@ class PurchaseController:
                 return {"error": purchase_id["error"], "status": purchase_id["status"]}
             log_info(f"Purchase created successfully with ID: {purchase_id}")
             # Insert the initial status if the lastStatus is "draft"
-            if lastStatusDescription == "draft":
+            if lastStatus == "draft":
                 purchase_status_id = await PurchaseStatus.create_purchase_status({
                     "purchaseID": purchase_id,
                     "status": "draft",
@@ -29,7 +31,7 @@ class PurchaseController:
                     "description": lastStatusDescription,
                     "createdBy": userID
                 })
-                if "error" in purchase_status_id:
+                if not isinstance(purchase_status_id, int) and "error" in purchase_status_id:
                     log_error(f"Error creating purchase status: {purchase_status_id['error']}")
                     return {"error": purchase_status_id["error"], "status": purchase_status_id["status"]}
             
@@ -127,6 +129,7 @@ class PurchaseController:
                 .where(purchases_table.c.id == purchase_id)
                 .values(
                     lastStatus="ready",
+                    lastStatusDescription=None,
                     updatedAt=datetime.now(),
                     updatedBy=userID,
                     invoiceName=invoiceName,

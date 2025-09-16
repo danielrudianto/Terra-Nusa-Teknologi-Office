@@ -1,6 +1,4 @@
 from fastapi import APIRouter, HTTPException, Depends
-from controllers.user_controller import UserController
-from controllers.payment_controller import PaymentController
 from controllers.tax_controller import TaxController
 from utils.logger_utils import log_error
 from models.user_model import User

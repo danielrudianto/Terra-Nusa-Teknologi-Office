@@ -1,4 +1,5 @@
 from models.sales_invoice_model import SalesInvoice
+from models.payment_incoming_model import PaymentIncoming
 from datetime import datetime as dt
 
 class SalesInvoiceController:
@@ -46,6 +47,67 @@ class SalesInvoiceController:
         """
         try:
             result = await SalesInvoice.get_sales_invoices(page, pageSize)
+            if "error" in result:
+                return {"error": result["error"], "status": result["status"]}  
+            return result
+        except Exception as e:
+            return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def get_sales_invoice_by_id(id):
+        """
+        Get sales invoice by ID
+        """
+        try:
+            result = await SalesInvoice.get_sales_invoice_by_id(id)
+            if "error" in result:
+                return {"error": result["error"], "status": result["status"]} 
+            
+            payments = await PaymentIncoming.get_payments_by_sales_invoice_id(id) 
+            if "error" in payments:
+                return {"error": payments["error"], "status": payments["status"]} 
+            
+            
+            sales_invoice = dict(result)
+            sales_invoice["payments"] = payments
+            return sales_invoice
+        except Exception as e:
+            return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def reject_sales_invoice_by_id(id, userID):
+        """
+        Reject sales invoice by ID
+        """
+        try:
+            salesInvoice = await SalesInvoice.get_sales_invoice_by_id(id)
+            if "error" in salesInvoice:
+                return {"error": salesInvoice["error"], "status": salesInvoice["status"]}
+            
+            if salesInvoice.isApprove or salesInvoice.isDelete:
+                return {"error": "Sales invoice has been confirmed or deleted", "status": "404"}
+            
+            result = await SalesInvoice.reject_sales_invoice_by_id(id, userID)
+            if "error" in result:
+                return {"error": result["error"], "status": result["status"]}  
+            return result
+        except Exception as e:
+            return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def approve_sales_invoice_by_id(id, taxInvoiceName, userID):
+        """
+        Reject sales invoice by ID
+        """
+        try:
+            salesInvoice = await SalesInvoice.get_sales_invoice_by_id(id)
+            if "error" in salesInvoice:
+                return {"error": salesInvoice["error"], "status": salesInvoice["status"]}
+            
+            if salesInvoice.isApprove or salesInvoice.isDelete:
+                return {"error": "Sales invoice has been confirmed or deleted", "status": "404"}
+            
+            result = await SalesInvoice.approve_sales_invoice_id(id, taxInvoiceName, userID)
             if "error" in result:
                 return {"error": result["error"], "status": result["status"]}  
             return result

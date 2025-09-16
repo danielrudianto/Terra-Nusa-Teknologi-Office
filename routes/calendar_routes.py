@@ -1,6 +1,6 @@
 from typing import Annotated, List
 from fastapi import APIRouter, Depends, HTTPException, Query
-from controllers.payment_controller import PaymentController
+from controllers.payment_outgoing_controller import PaymentOutgoingController
 from models.bank_model import BankAccount
 from utils.auth_utils import get_current_user
 from models.user_model import User
@@ -15,7 +15,7 @@ async def get_calendar_data(month: int, year: int, current_user: Annotated[User,
     """
     try:
         userID = current_user["id"]
-        result = await PaymentController.get_calendar_data(month, year, bankAccounts)
+        result = await PaymentOutgoingController.get_calendar_data(month, year, bankAccounts)
         if "error" in result:
             raise HTTPException(status_code=result["status"], detail=result["error"])
         return result
@@ -31,7 +31,7 @@ async def get_calendar_data_by_date(date: str, current_user: Annotated[User, Dep
     try:
         userID = current_user["id"]
         dt = datetime.strptime(date, "%Y-%m-%d").date()
-        result = await PaymentController.get_calendar_data_by_date(dt, bankAccounts)
+        result = await PaymentOutgoingController.get_calendar_data_by_date(dt, bankAccounts)
         if "error" in result:
             raise HTTPException(status_code=result["status"], detail=result["error"])
         return result

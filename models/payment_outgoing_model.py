@@ -519,7 +519,7 @@ class PaymentOutgoing(BaseModel):
                 payments_outgoing_table.c.isDelete == False
             )
             
-            if bankAccounts is not None and len(bankAccounts) > 0:
+            if bankAccounts is not None:
                 query = query.where(payments_outgoing_table.c.bankAccountID.in_(bankAccounts))
             
             payments = await database.fetch_all(query)
@@ -561,8 +561,30 @@ class PaymentOutgoing(BaseModel):
                 } for payment in payments
             ]
         except Exception as e:
-            log_error(f"Error retrieving calendar data: {str(e)}")
+            log_error(f"Error retrieving payment outgoing calendar data: {str(e)}")
             return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def get_calendar_selector_data_by_date(date: int, month: int, year: int, bankAccounts: List[int]):
+        try:
+            if month < 1 or month > 12:
+                return {"error": "Invalid month. Month must be between 1 and 12.", "status": 400}
+            if year < 2020:
+                return {"error": "Invalid year. Year must be 2020 or later.", "status": 400}
+            
+            total_query = select(func.count()).select_from(payments_outgoing_table).where(
+                func.extract('day', payments_outgoing_table.c.date) == date,
+                func.extract('month', payments_outgoing_table.c.date) == month,
+                func.extract('year', payments_outgoing_table.c.date) == year,
+                payments_outgoing_table.c.isDelete == False
+            ).group_by(payments_outgoing_table.c.bankAccountID)
+            
+            total = await database.fetch_val(total_query)
+            return total
+        except Exception as e:
+            log_error(f"Error retrieving payment outgoing calendar data: {str(e)}")
+            return {"error": str(e), "status": 500}
+
 
     @staticmethod
     async def get_purchase_pph_report(month: int, year: int):
@@ -704,7 +726,7 @@ payments_outgoing_table = Table(
     Column("date", Date(), nullable=False),
     Column("amount", Integer, nullable=False),
     Column("purchaseID", Integer, ForeignKey("purchases.id"), nullable=True),
-    Column("expenseID", Integer, nullable=True),
+    Column("expenseID", Integer, ForeignKey('expenses.id'), nullable=True),
     Column("reimbursementID", Integer, ForeignKey('reimbursements.id'), nullable=True),
     Column("salarySlipID", Integer, ForeignKey('salary_slips.id'), nullable=True),
     Column("bankAccountID", Integer, ForeignKey("bank_accounts.id"), nullable=True),

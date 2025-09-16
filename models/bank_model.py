@@ -138,6 +138,36 @@ class BankAccount(BaseModel):
             return {"error": str(e), "status": 500}
     
     @staticmethod
+    async def get_bank_accounts_by_ids(ids: list[int] | None):
+        """
+        Fetch bank account IDs
+        """
+        if ids is None:
+            query = bank_accounts_table.select().where(bank_accounts_table.c.isDelete == False)
+        else:
+            query = bank_accounts_table.select().where(bank_accounts_table.c.id.in_(ids))
+        
+        result = await database.fetch_all(query)
+        response = []
+        for row in result:
+            response.append(
+                BankAccount(
+                    id=row.id,
+                    bankName=row.bankName,
+                    bankAccountName=row.bankAccountName,
+                    bankAccountNumber=row.bankAccountNumber,
+                    createdBy=row.createdBy,
+                    createdAt=row.createdAt,
+                    updatedBy=row.updatedBy,
+                    updatedAt=row.updatedAt,
+                    deletedBy=row.deletedBy,
+                    deletedAt=row.deletedAt,
+                    isDelete=row.isDelete
+                )
+            )
+        return response
+        
+    @staticmethod
     async def delete_bank_account(id: int, deletedBy: int) -> dict:
         """
         Delete a bank account by its ID.

@@ -12,7 +12,6 @@ from utils.logger_utils import log_info, log_error
 import asyncio
 
 async def main():
-    print("Masuk")
     try:
         await database.connect()
         print("Database connected successfully!")

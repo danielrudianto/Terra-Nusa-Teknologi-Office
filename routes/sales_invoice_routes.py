@@ -34,12 +34,48 @@ async def check_sales_invoice(description: str, projectName: str, clientID: int,
     
     return result
 
+@router.get("/{salesInvoiceID}")
+async def get_sales_invoice_by_id(salesInvoiceID: int, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Get sales invoice by salesInvoiceID
+    """
+    result = await SalesInvoiceController.get_sales_invoice_by_id(salesInvoiceID)
+    if "error" in result:
+        raise HTTPException(status_code=result["status"], detail=result["error"])
+    
+    return result
+
 @router.get("/")
-async def get_sales_invocies(page: int, pageSize: int, current_user: Annotated[User, Depends(get_current_user)]):
+async def get_sales_invoices(page: int, pageSize: int, current_user: Annotated[User, Depends(get_current_user)]):
     """
     Get sales invoices with pagination. Requires a valid token.
     """
     result = await SalesInvoiceController.get_sales_invoices(page, pageSize)
+    if "error" in result:
+        raise HTTPException(status_code=result["status"], detail=result["error"])
+    
+    return result
+
+@router.put("/reject/{salesInvoiceID}")
+async def reject_sales_invoice(salesInvoiceID: int, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Reject sales invoice by ID.
+    """
+    userID = current_user["id"]
+    result = await SalesInvoiceController.reject_sales_invoice_by_id(salesInvoiceID, userID)
+    if "error" in result:
+        raise HTTPException(status_code=result["status"], detail=result["error"])
+    
+    return result
+
+@router.put("/approve/{salesInvoiceID}")
+async def reject_sales_invoice(salesInvoiceID: int, data: dict, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Approve sales invoice by ID.
+    """
+    userID = current_user["id"]
+    taxInvoiceName = data["taxInvoiceName"]
+    result = await SalesInvoiceController.approve_sales_invoice_by_id(salesInvoiceID, taxInvoiceName, userID)
     if "error" in result:
         raise HTTPException(status_code=result["status"], detail=result["error"])
     
