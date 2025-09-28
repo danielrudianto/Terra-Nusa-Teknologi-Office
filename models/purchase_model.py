@@ -153,6 +153,19 @@ class Purchase(BaseModel):
             return {"error": str(e), "status": 500}
 
     @staticmethod
+    async def check_purchase(invoiceName: str, purchaseOrderName: str):
+        conditions = [purchases_table.c.isDelete == False and purchases_table.c.invoiceName == invoiceName and purchases_table.c.purchaseOrderName == purchaseOrderName]
+        query = (
+            select(func.count())
+            .select_from(purchases_table.join(suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id))
+            .where(*conditions)
+        )
+        count = await database.fetch_val(query)
+        return {
+            "exists": count > 0
+        }
+
+    @staticmethod
     async def create_purchase(purchase_data: dict):
         """
         Create a new purchase in the database.

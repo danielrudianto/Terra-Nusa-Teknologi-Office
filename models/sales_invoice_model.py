@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from datetime import datetime as dt, date as d
-from sqlalchemy import Table, Column, Integer, ForeignKey, Float, Date, String, select, func, Boolean, DateTime
+from sqlalchemy import Table, Column, Integer, ForeignKey, Float, Date, String, select, func, Boolean, DateTime, or_
 from utils.database import metadata, database
 from utils.logger_utils import log_error
 from models.client_model import clients_table  # Assuming client_ is defined in client_model
@@ -15,6 +15,7 @@ class SalesInvoice(BaseModel):
     pphTaxObject: str | None
     pphPercentage: float
     ppn: float
+    bpjs: float
     spkNumber: str
     description: str
     bankAccountID: int
@@ -133,11 +134,12 @@ class SalesInvoice(BaseModel):
             return {"error": str(e), "status": 500}
 
     @staticmethod
-    async def get_sales_invoices(page: int, pageSize: int):
+    async def get_sales_invoices(page: int, pageSize: int, sortBy: str, sortByDirection: str, keyword: str | None):
         """
         Get sales invoices with pagination.
         """
         try:
+            offset = (page - 1) * pageSize
             client_column = [
                 clients_table.c.name.label("client_name"),
                 clients_table.c.id.label("client_id"),
@@ -146,14 +148,42 @@ class SalesInvoice(BaseModel):
                 clients_table.c.province.label("client_province"),
                 clients_table.c.prefix.label("client_prefix"),
             ]
-            offset = (page - 1) * pageSize
-            query = select(
+
+            conditions = []
+
+            or_conditions = []
+            if(keyword is not None and keyword != ""):
+                or_conditions.append(sales_invoice_tables.c.projectName.ilike(f"%{keyword}%"))
+                or_conditions.append(sales_invoice_tables.c.name.ilike(f"%{keyword}%"))
+                or_conditions.append(clients_table.c.name.ilike(f"%{keyword}%"))
+            conditions.append(or_(*or_conditions))
+
+            # Sort by, using switch case
+            if sortBy == "date":
+                order_by = sales_invoice_tables.c.date.desc() if sortByDirection == "desc" else sales_invoice_tables.c.date
+            elif sortBy == "name":
+                order_by = sales_invoice_tables.c.name.desc() if sortByDirection == "desc" else sales_invoice_tables.c.name
+            elif sortBy == "dpp":
+                order_by = (sales_invoice_tables.c.dpp).desc() if sortByDirection == "desc" else (sales_invoice_tables.c.dpp)
+            elif sortBy == "client":
+                order_by = clients_table.c.name.desc() if sortByDirection == "desc" else clients_table.c.name.asc()
+            elif sortBy == "spkNumber":
+                order_by = sales_invoice_tables.c.spkNumber.desc() if sortByDirection == "desc" else sales_invoice_tables.c.spkNumber.asc()
+            elif sortBy == "project":
+                order_by = sales_invoice_tables.c.projectName.desc() if sortByDirection == "desc" else sales_invoice_tables.c.projectName.asc()
+            else:
+                order_by = sales_invoice_tables.c.date.desc()
+
+            query = (
+                select(
                     *sales_invoice_tables.c,
                     *client_column
-                ).join(clients_table, sales_invoice_tables.c.clientID == clients_table.c.id
-                ).order_by(
-                    sales_invoice_tables.c.date.desc()
-                ).offset(offset).limit(pageSize)
+                )
+                .join(clients_table, sales_invoice_tables.c.clientID == clients_table.c.id)
+                .where(*conditions)
+                .order_by(order_by)
+                .offset(offset).limit(pageSize)
+            )
 
             result = await database.fetch_all(query)
 
@@ -161,11 +191,11 @@ class SalesInvoice(BaseModel):
             count_query = (
                     select(func.count())
                 .select_from(sales_invoice_tables)
+                .where(*conditions)
             )
             count = await database.fetch_val(count_query)
-            total_count = await database.fetch_val(count_query)
             
-            return {"data": result, "count": total_count}
+            return {"data": result, "count": count}
         except Exception as e:
             log_error(f"Error fetching sales invoices: {str(e)}")
             return {"error": str(e), "status": 500}
@@ -183,6 +213,7 @@ sales_invoice_tables = Table(
     Column("pphTaxObject", String(500), nullable=True),
     Column("pphPercentage", Float, nullable=False, default=0.0),
     Column("ppn", Float, nullable=False, default=0.0),
+    Column("bpjs", Float, nullable=False, default=0.0),
     Column("spkNumber", String(100), nullable=False),
     Column("taxInvoiceName", String(100), nullable=True, default=None),
     Column("description", String(100), nullable=True),

@@ -1,14 +1,16 @@
 from sqlalchemy import insert, select, update, delete, func
 from utils.database import database
 from models.bank_model import BankAccount
+from models.mutation_model import Mutation
 from typing import Dict, List, Optional
 from utils.logger_utils import log_error, log_info
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
-from datetime import datetime
+from datetime import datetime as dt, date as d
 from utils.redis import r
 import json
 from models.bank_model import bank_accounts_table
+from models.balance_model import Balance
 
 class BankController:
     @staticmethod 
@@ -26,7 +28,7 @@ class BankController:
         try:
             # Create new Bank model
 
-            bank_data["createdAt"] = datetime.now()
+            bank_data["createdAt"] = dt.now()
             bank_data["createdBy"] = userID
 
             bank = BankAccount(**bank_data)
@@ -74,8 +76,18 @@ class BankController:
             if "error" in result:
                 log_error(f"Error retrieving bank accounts: {result['error']}")
                 return {"error": result["error"], "status": result["status"]}
-
-            return result
+            
+            ids = [item['id'] if isinstance(item, dict) else item.id for item in result['data']]
+            balances = await Balance.fetch_by_bank_account_ids(ids)
+            if isinstance(balances, dict) and "error" in balances:
+                log_error(f"Error retrieving balances: {balances['error']}")
+                return {"error": balances["error"], "status": balances["status"]}
+            
+            return {
+                "data": result["data"],
+                "count": result["count"],
+                "balances": balances
+            }
         except Exception as e:
             log_error(f"Error retrieving bank accounts: {str(e)}")
             return {"error": str(e), "status": 500}
@@ -91,10 +103,14 @@ class BankController:
         log_info("Getting top bank accounts")
         try:
             bank_accounts = r.lrange("bank_account", 0, -1)
-            return [json.loads(account) for account in bank_accounts]
+            accounts = [json.loads(account) for account in bank_accounts]
+            # Sort by isDelete (False first) and then by bankAccountNumber
+            
+            accounts.sort(key=lambda x: (x.get("isDelete", True), x.get("bankAccountNumber", "")))
+            return accounts
         except Exception as e:
             log_error(f"Error retrieving top bank accounts: {str(e)}")
-            return []
+            return {"error": str(e), "status": 500}
 
     @staticmethod
     async def get_bank_account_by_id(bank_id: int) -> Optional[Dict]:
@@ -144,7 +160,7 @@ class BankController:
         
             update_fields = bank_data.copy()
             update_fields.pop("id", None)
-            update_fields["updatedAt"] = datetime.now()
+            update_fields["updatedAt"] = dt.now()
             update_fields["updatedBy"] = userID
 
             query = (
@@ -175,16 +191,31 @@ class BankController:
         log_info(f"Deleting bank account with ID: {bankID}")
         try:
             result = await BankAccount.delete_bank_account(bankID, userID)
-            if result == 0:  # Check if any rows were affected
+            if "error" in result:
                 return {"error": "Deletion failed or bank account not found", "status": 404}
-            # Remove from redis
+            
             bank_accounts = r.lrange("bank_account", 0, -1)
-            for account in bank_accounts:
+            for index, account in enumerate(bank_accounts):
                 account_data = json.loads(account)
                 if account_data["id"] == bankID:
-                    r.lrem("bank_account", 0, json.dumps(account_data))
+                    # Save change the status
+                    account_data["isDelete"] = True
+                    await r.lset("bank_account", index, json.dumps(account_data))
                     break
             return {"message": "Bank account deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting bank account with ID {bankID}: {str(e)}")
             return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def fetch_mutation(bankAccountID: int, page: int, pageSize: int, startDate: str, endDate: str):
+        sdate = dt.strptime(startDate, "%Y-%m-%d")
+        edate = dt.strptime(endDate, "%Y-%m-%d")
+        try:
+            result = await Mutation.fetch_mutation(bankAccountID, page, pageSize, sdate, edate)
+            print(result)
+            return result
+        except Exception as e:
+            log_error(f"Error retrieving bank account mutation: {str(e)}")
+            return None
+        

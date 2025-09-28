@@ -46,11 +46,11 @@ async def get_sales_invoice_by_id(salesInvoiceID: int, current_user: Annotated[U
     return result
 
 @router.get("/")
-async def get_sales_invoices(page: int, pageSize: int, current_user: Annotated[User, Depends(get_current_user)]):
+async def get_sales_invoices(page: int, pageSize: int, sortBy: str, sortByDirection: str, keyword: str | None, current_user: Annotated[User, Depends(get_current_user)]):
     """
     Get sales invoices with pagination. Requires a valid token.
     """
-    result = await SalesInvoiceController.get_sales_invoices(page, pageSize)
+    result = await SalesInvoiceController.get_sales_invoices(page, pageSize, sortBy, sortByDirection, keyword)
     if "error" in result:
         raise HTTPException(status_code=result["status"], detail=result["error"])
     

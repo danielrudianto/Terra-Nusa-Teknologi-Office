@@ -89,8 +89,6 @@ class PaymentOutgoingController:
                 log_error(f"Error fetching payment with ID {id}: {payment['error']}")
                 return {"error": payment["error"], "status": payment.get("status")}
             log_info(f"Payment with ID: {id} retrieved successfully")
-
-            print(payment)
             
             bankAccountID = payment.bankAccountID
             bankAccount = await BankAccount.get_bank_account_by_id(bankAccountID)

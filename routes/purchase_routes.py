@@ -22,6 +22,31 @@ async def create_purchase(purchase: Purchase, current_user: Annotated[User, Depe
     
     return result
 
+@router.post("/check")
+async def create_purchase(data: dict, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Check purchase
+    """
+    result = await PurchaseController.check_purchase(data["invoiceName"], data["purchaseOrderName"])
+    if "error" in result:
+        log_error(f"Error creating purchase: {result['error']}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    
+    return result
+
+@router.post("/draft")
+async def update_purchase(purchase: Purchase, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Create a new purchase. Requires a valid token.
+    """
+    userID = current_user["id"]
+    result = await PurchaseController.create_purchase(purchase.model_dump(), userID)
+    if "error" in result:
+        log_error(f"Error creating purchase: {result['error']}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    
+    return result
+
 @router.get("/report/project")
 async def get_purchase_report_by_project(projectName: str, current_user: Annotated[User, Depends(get_current_user)]):
     """

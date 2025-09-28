@@ -20,6 +20,7 @@ class PaymentOutgoing(BaseModel):
     expenseID: int | None = None #Expense ID
     reimbursementID: int | None = None #Reimbursement ID
     salarySlipID: int | None = None #Salary Slip ID
+    loanID: int | None = None
     bankAccountID: int | None = None #Bank account ID
     isApprove: bool = False #Whether the payment is approved
     isDelete: bool = False #Whether the payment is deleted
@@ -486,6 +487,7 @@ class PaymentOutgoing(BaseModel):
                 purchases_table.c.invoiceName.label("purchase_invoiceName"),
                 purchases_table.c.date.label("purchase_date"),
                 purchases_table.c.projectName.label("purchase_project_name"),
+                purchases_table.c.purchaseOrderName.label("purchase_purchase_order_name"),
                 reimbursements_table.c.name.label("reimbursement_name"),
                 reimbursements_table.c.date.label("reimbursement_date"),
                 reimbursements_table.c.projectName.label("reimbursement_project_name"),
@@ -544,7 +546,8 @@ class PaymentOutgoing(BaseModel):
                         "date": payment.purchase_date,
                         "invoiceName": payment.purchase_invoiceName,
                         "accountName": payment.purchase_account_name,
-                        "projectName": payment.purchase_project_name
+                        "projectName": payment.purchase_project_name,
+                        "purchaseOrderName": payment.purchase_purchase_order_name,
                     },
                     "reimbursement": None if payment.reimbursementID is None else {
                         "date": payment.reimbursement_date,
@@ -729,6 +732,7 @@ payments_outgoing_table = Table(
     Column("expenseID", Integer, ForeignKey('expenses.id'), nullable=True),
     Column("reimbursementID", Integer, ForeignKey('reimbursements.id'), nullable=True),
     Column("salarySlipID", Integer, ForeignKey('salary_slips.id'), nullable=True),
+    Column("loanID", Integer, ForeignKey("loans.id"), nullable=True),
     Column("bankAccountID", Integer, ForeignKey("bank_accounts.id"), nullable=True),
     Column("createdAt", DateTime(), nullable=False, default=dt.now()),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),

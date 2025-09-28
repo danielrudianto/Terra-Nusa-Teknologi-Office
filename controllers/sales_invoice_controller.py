@@ -41,12 +41,12 @@ class SalesInvoiceController:
             return {"error": str(e), "status": 500}
 
     @staticmethod
-    async def get_sales_invoices(page, pageSize):
+    async def get_sales_invoices(page: int, pageSize: int, sortBy: str, sortByDirection: str, keyword: str | None):
         """
         Get sales invoices with pagination.
         """
         try:
-            result = await SalesInvoice.get_sales_invoices(page, pageSize)
+            result = await SalesInvoice.get_sales_invoices(page, pageSize, sortBy, sortByDirection, keyword)
             if "error" in result:
                 return {"error": result["error"], "status": result["status"]}  
             return result

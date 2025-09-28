@@ -273,6 +273,90 @@ class SalarySlip(BaseModel):
         
         return {"message": "Salary slip updated successfully"}
 
+    @staticmethod
+    async def get_pph_report(month: int, year: int):
+        query = select(
+            salary_slips_table.c.id,
+            salary_slips_table.c.userID,
+            salary_slips_table.c.month,
+            salary_slips_table.c.year,
+            salary_slips_table.c.taxCategory,
+            salary_slips_table.c.position,
+            salary_slips_table.c.department,
+            salary_slips_table.c.basicSalary,
+            salary_slips_table.c.transportationAllowanceRate, 
+            salary_slips_table.c.transportationAllowanceQuantity,
+            salary_slips_table.c.mealAllowanceRate, 
+            salary_slips_table.c.mealAllowanceQuantity,
+            salary_slips_table.c.overtimeRate, 
+            salary_slips_table.c.overtimeQuantity,
+            salary_slips_table.c.taxAmount,
+            salary_slips_table.c.isDelete,
+            salary_slips_table.c.isPaid,
+            employees_table.c.name,
+            employees_table.c.nik,
+        ).join(
+            employees_table, salary_slips_table.c.userID == employees_table.c.id
+        ).where(
+            salary_slips_table.c.month == month, salary_slips_table.c.year == year, salary_slips_table.c.isDelete == False 
+        ).order_by(
+           employees_table.c.name.asc()
+        )
+        
+        allowance_query = (
+            select(*salary_slips_allowance_table.c)
+            .join(
+                salary_slips_table, salary_slips_table.c.id == salary_slips_allowance_table.c.salarySlipID
+            )
+            .where(
+                salary_slips_table.c.month == month, salary_slips_table.c.year == year
+            )
+        )
+
+        deduction_query = (
+            select(*salary_slips_deduction_table.c)
+            .join(
+                salary_slips_table, salary_slips_table.c.id == salary_slips_deduction_table.c.salarySlipID
+            )
+            .where(
+                salary_slips_table.c.month == month, salary_slips_table.c.year == year
+            )
+        )
+        try:
+            result = await database.fetch_all(query)
+            allowances = await database.fetch_all(allowance_query)
+            deductions = await database.fetch_all(deduction_query)
+            
+            
+            # Convert to list of dicts for easier manipulation
+            result_data = [dict(row) for row in result]
+            allowances_data = [dict(a) for a in allowances]
+            deductions_data = [dict(d) for d in deductions]
+
+            from collections import defaultdict
+            
+            allowance_map = defaultdict(list)
+            for a in allowances_data:
+                allowance_map[a['salarySlipID']].append(a)
+
+            deduction_map = defaultdict(list)
+            for d in deductions_data:
+                deduction_map[d['salarySlipID']].append(d)
+
+            # Attach to each row
+            for row in result_data:
+                row_id = row['id']
+                row['allowances'] = allowance_map.get(row_id, [])
+                row['deductions'] = deduction_map.get(row_id, [])
+
+            return {
+                "data": result_data,
+            }
+
+        except Exception as e:
+            log_error(f"Error fetching salary slips: {str(e)}")
+            return {"error": str(e), "status": 500}
+
 class SalarySlipCheck(BaseModel):
     userID: int  # ID of the user
     month: int  # Month of the salary slip

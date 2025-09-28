@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from models.purchase_model import Purchase
 from models.expense_model import Expense
 from models.payment_outgoing_model import PaymentOutgoing
+from models.salary_slip_model import SalarySlip
 
 class TaxController:
     @staticmethod
@@ -19,6 +20,7 @@ class TaxController:
             log_error(f"Error fetching purchase PPN: {str(e)}")
             return {"error": str(e), "status": 500}
         
+    @staticmethod
     async def get_pph_report(month: int, year: int):
         log_info(f"Fetching PPh report for month {month} and year {year}")
         try:
@@ -36,8 +38,23 @@ class TaxController:
                 "purchase": purchases,
                 "expense": expenses
             }
+        except IntegrityError as e:
+            log_error(f"Integrity error: {str(e)}")
+            raise HTTPException(status_code=400, detail="Asset already exists.")
+        except Exception as e:
+            log_error(f"Unexpected error: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error.")
+        
+    @staticmethod
+    async def get_pph_salary_report(month: int, year: int):
+        log_info(f"Fetching PPh report for month {month} and year {year}")
+        try:
+            salary_slip = await SalarySlip.get_pph_report(month, year)
+            if "error" in salary_slip:
+                log_error(f"Error fetching salary slip data: {salary_slip['error']}")
+                raise HTTPException(status_code=salary_slip.get("status", 500), detail=salary_slip["error"])
             
-            
+            return salary_slip
         except IntegrityError as e:
             log_error(f"Integrity error: {str(e)}")
             raise HTTPException(status_code=400, detail="Asset already exists.")

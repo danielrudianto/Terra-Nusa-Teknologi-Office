@@ -1,11 +1,13 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Annotated
-from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float
+from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, select, func
 from utils.database import metadata
 from datetime import date as d, datetime as dt
 from utils.database import database
 from sqlalchemy.exc import IntegrityError
 from utils.logger_utils import log_error
+from models.payment_outgoing_model import payments_outgoing_table
+from models.payment_incoming_model import payments_incoming_table
 
 # Define the Purchase model
 class BankAccount(BaseModel):
@@ -20,6 +22,7 @@ class BankAccount(BaseModel):
     deletedBy: Optional[int] = None  # ID of the user who deleted the bank account
     deletedAt: Optional[dt] = None  # Deletion date of the bank account
     isDelete: bool = False  # Flag to indicate if the purchase is deleted
+    balance: float | None = None
 
     # Initialize the model with default values
     def __init__(self, **data):
@@ -45,7 +48,7 @@ class BankAccount(BaseModel):
                 updatedAt=self.updatedAt,
                 deletedBy=self.deletedBy,
                 deletedAt=self.deletedAt,
-                isDelete=self.isDelete
+                isDelete=self.isDelete,
             )
             result = await database.execute(query)
             return {"message": "Bank account created successfully", "bank_account_id": result}
@@ -70,9 +73,26 @@ class BankAccount(BaseModel):
         Returns:
             Dict: A dictionary containing the list of bank accounts and pagination info.
         """
+        # Aliases for tables
+        ba = bank_accounts_table
+        po = payments_outgoing_table
+        pi = payments_incoming_table
+
         offset = (page - 1) * pageSize
-        query = bank_accounts_table.select().where(bank_accounts_table.c.isDelete == False).limit(pageSize).offset(offset)
+        query = bank_accounts_table.select().order_by(bank_accounts_table.c.isDelete, bank_accounts_table.c.bankAccountNumber).limit(pageSize).offset(offset)
         try:
+            query = (
+                select(
+                    ba
+                )
+                .select_from(
+                    ba
+                )
+                .order_by(ba.c.isDelete, ba.c.bankAccountNumber)
+                .limit(pageSize)
+                .offset(offset)
+            )
+
             result = await database.fetch_all(query)
             response = []
             for row in result:
@@ -88,11 +108,12 @@ class BankAccount(BaseModel):
                         updatedAt=row.updatedAt,
                         deletedBy=row.deletedBy,
                         deletedAt=row.deletedAt,
-                        isDelete=row.isDelete
+                        isDelete=row.isDelete,
+                        balance=0
                     )
                 )
 
-            count_query = bank_accounts_table.select().where(bank_accounts_table.c.isDelete == False)
+            count_query = select(func.count()).select_from(bank_accounts_table).where(bank_accounts_table.c.isDelete == False)
             count = await database.fetch_val(count_query)
 
             return {"data": response, "count": count if count is not None else 0}

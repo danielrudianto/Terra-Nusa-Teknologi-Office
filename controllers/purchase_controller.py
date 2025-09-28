@@ -39,7 +39,19 @@ class PurchaseController:
         except Exception as e:
             log_error(f"Error creating purchase: {str(e)}")
             return {"error": str(e), "status": 500}
-        
+    
+    @staticmethod
+    async def check_purchase(invoiceName: str, purchaseOrderName: str):
+        try:
+            result = await Purchase.check_purchase(invoiceName, purchaseOrderName)
+            if "error" in result:
+                    return {"error": result["error"], "status": result["status"]}
+            
+            return result
+        except Exception as e:
+            log_error(f"Error fetching purchases: {str(e)}")
+            return {"error": str(e), "status": 500} 
+
     @staticmethod
     async def get_purchases(page: int, pageSize: int, filterObject: dict, sortBy: str, sortByDirection: str, keyword: str | None):
         if page < 1:
@@ -59,7 +71,15 @@ class PurchaseController:
         result = await Purchase.get_purchase_by_id(purchaseID)
         if "error" in result:
             return {"error": result["error"], "status": result["status"]}
-        return result
+        
+        payments = await PaymentOutgoing.get_payments_by_purchase_id(purchaseID)
+        if "error" in payments:
+            return {"error": payments["error"], "status": payments["status"]}
+        
+        response = dict(result)
+        
+        response["payments"] = payments
+        return response
 
     @staticmethod
     async def get_payments_by_purchase_id(purchaseID: int):
