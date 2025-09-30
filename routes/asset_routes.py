@@ -1,30 +1,29 @@
-from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, Request
 from utils.auth_utils import get_current_user
-from models.user_model import User
-from models.asset_model import Asset
+from fastapi import APIRouter, Depends, HTTPException, Query
 from controllers.asset_controller import AssetController
 
 router = APIRouter()
 
-@router.post("/")
-async def create_asset(asset:Asset, current_user: Annotated[User, Depends(get_current_user)]):
-    try:
-        userID = current_user["id"]
-        result = await AssetController.create_asset(asset.model_dump(), userID)
-        return result
-    except HTTPException as e:
-        # Optionally log the error or handle it differently
-        raise e  # Re-raise to return the HTTPException response
-    
-@router.get("/")
-async def fetch_asset(page: int, pageSize: int, keyword: str, current_user: Annotated[User, Depends(get_current_user)]):
-    try:
-        userID = current_user["id"]
-        result = await Asset.get_assets(page, pageSize, keyword)
-        if "error" in result:
-            raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
-        return result
-    except HTTPException as e:
-        # Optionally log the error or handle it differently
-        raise e
+@router.post("/assets")
+async def create_asset(asset_data: dict, user_id: int = Depends(get_current_user)):
+    return await AssetController.create_asset(asset_data, user_id)
+
+@router.get("/assets")
+async def get_assets(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    keyword: str = Query("")
+):
+    return await AssetController.get_assets(page, page_size, keyword)
+
+@router.get("/assets/{asset_id}")
+async def get_asset(asset_id: int):
+    return await AssetController.get_asset_by_id(asset_id)
+
+@router.put("/assets/{asset_id}")
+async def update_asset(asset_id: int, update_data: dict, user_id: int = Depends(get_current_user)):
+    return await AssetController.update_asset(asset_id, update_data, user_id)
+
+@router.delete("/assets/{asset_id}")
+async def delete_asset(asset_id: int):
+    return await AssetController.delete_asset(asset_id)

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Annotated
 from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, select, func
 from utils.database import metadata
@@ -7,102 +7,7 @@ from utils.database import database
 from sqlalchemy.exc import IntegrityError
 from utils.logger_utils import log_error
 
-# Define the Purchase model
-class Asset(BaseModel):
-    id: Optional[int] = Field(default=None, title="ID of the bank account", ge=1)
-    name: Annotated[str, Field(max_length=45)] = Field(..., title="Name of the asset")
-    description: Annotated[str, Field(max_length=500)] = Field(..., title="Description of the asset")
-    brand: Annotated[str, Field(max_length=50)] = Field(..., title="Brand of the asset")
-    type: Annotated[str, Field(max_length=50)] = Field(..., title="Type of the asset")
-    depreciation: int = Field(..., title="Depreciation period in months", ge=0)
-    location: Annotated[str, Field(max_length=50)] = Field(..., title="Location of the asset")
-    purchaseOrderName: Annotated[str, Field(max_length=100)] = Field(..., title="Purchase order name")
-    value: float = Field(..., title="Value of the asset", ge=0)
-    createdBy: int | None = None  # ID of the user who created the bank account
-    createdAt: Optional[dt] = None
-    updatedBy: Optional[int] = Field(default=None, title="ID of the user who last updated the asset", ge=1)
-    updatedAt: Optional[dt] = Field(default=None, title="Last update timestamp")
-    purchaseDate: d = Field(..., title="Purchase date of the asset")
-    soldValue: Optional[float] = Field(default=None, title="Sold value of the asset", ge=0)
-    soldDate: Optional[float] = Field(default=None, title="Sold date of the asset")
-
-    # Initialize the model with default values
-    def __init__(self, **data):
-        super().__init__(**data)
-        if self.createdAt is None:
-            self.createdAt = dt.now()
-
-    async def create(self):
-        """
-        Create a new asset in the database.
-        
-        Returns:
-            Dict: A success message with the created asset ID.
-        """
-        try:
-            query = asset_table.insert().values(
-                name=self.name,
-                description=self.description,
-                brand=self.brand,
-                type=self.type,
-                depreciation=self.depreciation,
-                location=self.location,
-                purchaseOrderName=self.purchaseOrderName,
-                value=self.value,
-                purchaseDate=self.purchaseDate,
-                soldValue=None,
-                soldDate=None,
-                createdBy=self.createdBy,
-                createdAt=self.createdAt,
-            )
-            result = await database.execute(query)
-            return {"message": "Asset created successfully", "asset_id": result}
-        except IntegrityError as e:
-            # Handle integrity errors, such as unique constraint violations
-            log_error(f"Integrity error while creating asset: {str(e.orig)}")
-            return {"error": str(e.orig), "status": 400}
-        except Exception as e:
-            # Handle any other exceptions
-            log_error(f"Unexpected error while creating asset: {str(e)}")
-            return {"error": "Internal server error.", "status": 500}
-
-    @staticmethod
-    async def get_assets(page: int, pageSize: int, keyword: str):
-        query = asset_table.select().limit(pageSize).offset((page -1) * pageSize)
-        try:
-            result = await database.fetch_all(query) 
-            response = []
-            for row in result:
-                response.append(
-                    Asset(
-                        id=row.id,
-                        name=row.name,
-                        description=row.description,
-                        brand=row.brand,
-                        type=row.type,
-                        depreciation=row.depreciation,
-                        location=row.location,
-                        purchaseOrderName=row.purchaseOrderName,
-                        purchaseDate=row.purchaseDate,
-                        value=row.value,
-                        createdBy=row.createdBy,
-                        createdAt=row.createdAt,
-                        updatedBy=row.updatedBy,
-                        updatedAt=row.updatedAt,
-                        soldValue=row.soldValue,
-                        soldDate=row.soldDate
-                    )
-                )
-
-            count_query = select(func.count()).select_from(asset_table)
-            count = await database.fetch_val(count_query)
-            
-            return {"data": response, "count": count if count is not None else 0}
-        except Exception as e:
-            log_error(f"Unexpected error while fetching assets: {str(e)}")
-            return {"error": "Internal server error.", "status": 500}
-
-# Define the SQLAlchemy table
+# SQLAlchemy Table Definition
 asset_table = Table(
     "assets",
     metadata,
@@ -122,6 +27,44 @@ asset_table = Table(
     Column("updatedAt", DateTime(), default=None, onupdate=dt.now, nullable=True),
     Column("soldValue", Float, nullable=True),
     Column("soldDate", Date(), nullable=True)
-    
 )
+
+# Pydantic Models for different scenarios
+class AssetBase(BaseModel):
+    name: Annotated[str, Field(max_length=45)] = Field(..., title="Name of the asset")
+    description: Annotated[str, Field(max_length=500)] = Field(..., title="Description of the asset")
+    brand: Annotated[str, Field(max_length=50)] = Field(..., title="Brand of the asset")
+    type: Annotated[str, Field(max_length=50)] = Field(..., title="Type of the asset")
+    depreciation: int = Field(..., title="Depreciation period in months", ge=0)
+    location: Annotated[str, Field(max_length=50)] = Field(..., title="Location of the asset")
+    purchaseOrderName: Annotated[str, Field(max_length=100)] = Field(..., title="Purchase order name")
+    value: float = Field(..., title="Value of the asset", ge=0)
+    purchaseDate: d = Field(..., title="Purchase date of the asset")
+
+class AssetCreate(AssetBase):
+    createdBy: int | None = None
+
+class AssetUpdate(BaseModel):
+    name: Optional[Annotated[str, Field(max_length=45)]] = None
+    description: Optional[Annotated[str, Field(max_length=500)]] = None
+    brand: Optional[Annotated[str, Field(max_length=50)]] = None
+    type: Optional[Annotated[str, Field(max_length=50)]] = None
+    depreciation: Optional[int] = Field(None, ge=0)
+    location: Optional[Annotated[str, Field(max_length=50)]] = None
+    purchaseOrderName: Optional[Annotated[str, Field(max_length=100)]] = None
+    value: Optional[float] = Field(None, ge=0)
+    purchaseDate: Optional[d] = None
+    soldValue: Optional[float] = Field(default=None, ge=0)
+    soldDate: Optional[d] = None
+    updatedBy: Optional[int] = Field(default=None, ge=1)
+
+class AssetResponse(AssetBase):
+    model_config = ConfigDict(from_attributes=True)
     
+    id: int = Field(..., title="ID of the asset", ge=1)
+    soldValue: Optional[float] = Field(default=None, title="Sold value of the asset", ge=0)
+    soldDate: Optional[d] = Field(default=None, title="Sold date of the asset")
+    createdBy: Optional[int] = None
+    createdAt: Optional[dt] = None
+    updatedBy: Optional[int] = Field(default=None, title="ID of the user who last updated the asset", ge=1)
+    updatedAt: Optional[dt] = Field(default=None, title="Last update timestamp")

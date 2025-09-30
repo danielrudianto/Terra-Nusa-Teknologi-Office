@@ -1,44 +1,328 @@
-from sqlalchemy import insert, select, update, delete, func
-from utils.database import database
-from typing import Dict, List, Optional
+from typing import Dict
 from utils.logger_utils import log_error, log_info
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
-from datetime import datetime
 from utils.redis import r
 import json
-from models.asset_model import Asset
+from models.asset_model import AssetCreate, AssetUpdate, AssetResponse
+from repository.asset_repository import AssetRepository
 
 class AssetController:
     @staticmethod 
-    async def create_asset(asset_data: dict, userID: int) -> Dict:
+    async def create_asset(asset_data: dict, user_id: int) -> Dict:
         """
         Create a new asset in the database.
         
         Args:
             asset_data (Dict): The data of the asset to create.
+            user_id (int): ID of the user creating the asset.
         
         Returns:
             Dict: A success message with the created asset ID.
         """
         log_info(f"Creating asset with data: {asset_data}")
         try:
-            # Create new Bank model
-
-            asset_data["createdAt"] = datetime.now()
-            asset_data["createdBy"] = userID
-
-            asset = Asset(**asset_data)
-            result = await asset.create()
+            # Add user ID to asset data
+            asset_data["createdBy"] = user_id
+            
+            # Validate and create asset model
+            asset_create = AssetCreate(**asset_data)
+            
+            # Use repository to create asset
+            result = await AssetRepository.create(asset_create)
+            
             if "error" in result:
                 log_error(f"Error creating asset: {result['error']}")
-                raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
+                raise HTTPException(
+                    status_code=result.get("status", 500), 
+                    detail=result["error"]
+                )
 
-            log_info(f"Asset created successfully with ID: {result}")
-            return {"message": "Asset created successfully", "asset_id": result}
+            log_info(f"Asset created successfully with ID: {result['asset_id']}")
+            return {
+                "message": "Asset created successfully", 
+                "asset_id": result["asset_id"]
+            }
+            
+        except HTTPException:
+            # Re-raise HTTP exceptions
+            raise
         except IntegrityError as e:
             log_error(f"Integrity error: {str(e)}")
-            raise HTTPException(status_code=400, detail="Asset already exists.")
+            raise HTTPException(
+                status_code=400, 
+                detail="Asset creation failed due to data constraints."
+            )
+        except ValueError as e:
+            log_error(f"Validation error: {str(e)}")
+            raise HTTPException(
+                status_code=422, 
+                detail=f"Invalid asset data: {str(e)}"
+            )
         except Exception as e:
             log_error(f"Unexpected error: {str(e)}")
-            raise HTTPException(status_code=500, detail="Internal server error.")
+            raise HTTPException(
+                status_code=500, 
+                detail="Internal server error."
+            )
+
+    @staticmethod
+    async def get_assets(page: int, page_size: int, keyword: str = "") -> Dict:
+        """
+        Get paginated list of assets.
+        
+        Args:
+            page (int): Page number (starting from 1)
+            page_size (int): Number of items per page
+            keyword (str): Optional search keyword
+            
+        Returns:
+            Dict: Paginated assets data
+        """
+        try:
+            log_info(f"Fetching assets - page={page}, page_size={page_size}, keyword={keyword}")
+            
+            # Validate pagination parameters
+            if page < 1:
+                raise HTTPException(status_code=400, detail="Page must be greater than 0")
+            if page_size < 1 or page_size > 100:
+                raise HTTPException(status_code=400, detail="Page size must be between 1 and 100")
+
+            # Try to get from cache first
+            cache_key = f"assets:page:{page}:size:{page_size}:keyword:{keyword}"
+            cached_data = await r.get(cache_key)
+            
+            if cached_data:
+                log_info("Returning cached assets data")
+                return json.loads(cached_data)
+
+            # Get assets from repository
+            result = await AssetRepository.get_assets(
+                page=page, 
+                page_size=page_size, 
+                keyword=keyword
+            )
+            
+            if "error" in result:
+                log_error(f"Error fetching assets: {result['error']}")
+                raise HTTPException(
+                    status_code=result.get("status", 500), 
+                    detail=result["error"]
+                )
+
+            # Cache the result for 5 minutes
+            await r.setex(cache_key, 300, json.dumps({
+                "data": [asset.model_dump() for asset in result["data"]],
+                "count": result["count"],
+                "page": result["page"],
+                "page_size": result["page_size"],
+                "total_pages": result["total_pages"]
+            }))
+
+            log_info(f"Successfully fetched {len(result['data'])} assets")
+            return {
+                "data": [asset.model_dump() for asset in result["data"]],
+                "count": result["count"],
+                "page": result["page"],
+                "page_size": result["page_size"],
+                "total_pages": result["total_pages"]
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            log_error(f"Unexpected error while fetching assets: {str(e)}")
+            raise HTTPException(
+                status_code=500, 
+                detail="Internal server error while fetching assets."
+            )
+
+    @staticmethod
+    async def get_asset_by_id(asset_id: int) -> Dict:
+        """
+        Get a single asset by ID.
+        
+        Args:
+            asset_id (int): ID of the asset to retrieve
+            
+        Returns:
+            Dict: Asset data
+        """
+        try:
+            log_info(f"Fetching asset with ID: {asset_id}")
+            
+            # Validate asset ID
+            if asset_id < 1:
+                raise HTTPException(status_code=400, detail="Asset ID must be greater than 0")
+
+            # Try cache first
+            cache_key = f"asset:{asset_id}"
+            cached_data = await r.get(cache_key)
+            
+            if cached_data:
+                log_info(f"Returning cached asset data for ID: {asset_id}")
+                return json.loads(cached_data)
+
+            # Get asset from repository
+            asset = await AssetRepository.get_by_id(asset_id)
+            
+            if not asset:
+                log_error(f"Asset not found with ID: {asset_id}")
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Asset with ID {asset_id} not found"
+                )
+
+            # Cache the result for 10 minutes
+            asset_data = asset.model_dump()
+            await r.setex(cache_key, 600, json.dumps(asset_data))
+
+            log_info(f"Successfully fetched asset with ID: {asset_id}")
+            return asset_data
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            log_error(f"Unexpected error while fetching asset {asset_id}: {str(e)}")
+            raise HTTPException(
+                status_code=500, 
+                detail="Internal server error while fetching asset."
+            )
+
+    @staticmethod
+    async def update_asset(asset_id: int, update_data: dict, user_id: int) -> Dict:
+        """
+        Update an existing asset.
+        
+        Args:
+            asset_id (int): ID of the asset to update
+            update_data (Dict): Data to update
+            user_id (int): ID of the user updating the asset
+            
+        Returns:
+            Dict: Success message
+        """
+        try:
+            log_info(f"Updating asset {asset_id} with data: {update_data}")
+            
+            # Validate asset ID
+            if asset_id < 1:
+                raise HTTPException(status_code=400, detail="Asset ID must be greater than 0")
+
+            # Add updatedBy user ID
+            update_data["updatedBy"] = user_id
+            
+            # Validate update data
+            asset_update = AssetUpdate(**update_data)
+            
+            # Check if asset exists
+            existing_asset = await AssetRepository.get_by_id(asset_id)
+            if not existing_asset:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Asset with ID {asset_id} not found"
+                )
+
+            # Update asset
+            result = await AssetRepository.update(asset_id, asset_update)
+            
+            if "error" in result:
+                log_error(f"Error updating asset {asset_id}: {result['error']}")
+                raise HTTPException(
+                    status_code=result.get("status", 500), 
+                    detail=result["error"]
+                )
+
+            # Clear relevant cache entries
+            await AssetController._clear_asset_cache(asset_id)
+            
+            log_info(f"Successfully updated asset with ID: {asset_id}")
+            return {"message": "Asset updated successfully"}
+            
+        except HTTPException:
+            raise
+        except ValueError as e:
+            log_error(f"Validation error updating asset {asset_id}: {str(e)}")
+            raise HTTPException(
+                status_code=422, 
+                detail=f"Invalid update data: {str(e)}"
+            )
+        except Exception as e:
+            log_error(f"Unexpected error updating asset {asset_id}: {str(e)}")
+            raise HTTPException(
+                status_code=500, 
+                detail="Internal server error while updating asset."
+            )
+
+    @staticmethod
+    async def delete_asset(asset_id: int) -> Dict:
+        """
+        Delete an asset.
+        
+        Args:
+            asset_id (int): ID of the asset to delete
+            
+        Returns:
+            Dict: Success message
+        """
+        try:
+            log_info(f"Deleting asset with ID: {asset_id}")
+            
+            # Validate asset ID
+            if asset_id < 1:
+                raise HTTPException(status_code=400, detail="Asset ID must be greater than 0")
+
+            # Check if asset exists
+            existing_asset = await AssetRepository.get_by_id(asset_id)
+            if not existing_asset:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Asset with ID {asset_id} not found"
+                )
+
+            # Delete asset
+            result = await AssetRepository.delete(asset_id)
+            
+            if "error" in result:
+                log_error(f"Error deleting asset {asset_id}: {result['error']}")
+                raise HTTPException(
+                    status_code=result.get("status", 500), 
+                    detail=result["error"]
+                )
+
+            # Clear relevant cache entries
+            await AssetController._clear_asset_cache(asset_id)
+            
+            log_info(f"Successfully deleted asset with ID: {asset_id}")
+            return {"message": "Asset deleted successfully"}
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            log_error(f"Unexpected error deleting asset {asset_id}: {str(e)}")
+            raise HTTPException(
+                status_code=500, 
+                detail="Internal server error while deleting asset."
+            )
+
+    @staticmethod
+    async def _clear_asset_cache(asset_id: int):
+        """
+        Clear cache entries related to an asset.
+        
+        Args:
+            asset_id (int): ID of the asset
+        """
+        try:
+            # Clear specific asset cache
+            await r.delete(f"asset:{asset_id}")
+            
+            # Clear paginated assets cache (you might want to be more specific here)
+            # This is a simple approach - in production, you might want more granular cache invalidation
+            keys = await r.keys("assets:page:*")
+            if keys:
+                await r.delete(*keys)
+                
+        except Exception as e:
+            log_error(f"Error clearing cache for asset {asset_id}: {str(e)}")
+            # Don't raise exception for cache clearing failures
