@@ -1,82 +1,86 @@
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from controllers.client_controller import ClientController
-from models.client_model import Client
+from schemas.client_schema import ClientCreate, ClientUpdate
 from utils.logger_utils import log_error
 from utils.auth_utils import get_current_user
 
 router = APIRouter()
 
 @router.post("/")
-async def create_client(client: Client, user: Annotated[dict, Depends(get_current_user)]):
-    userID = user["id"]
-    result = await ClientController.create_client(client.model_dump(), userID)
-    if "error" in result:
-        log_error(f"Error creating client: {result['error']}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+async def create_client(
+    client: ClientCreate, 
+    current_user: Annotated[dict, Depends(get_current_user)]
+):
+    user_id = current_user["id"]
+    result = await ClientController.create_client(client.model_dump(), user_id)
     return result
 
 @router.get("/")
-async def get_clients(request: Request, user: Annotated[dict, Depends(get_current_user)]):
+async def get_clients(
+    request: Request,
+    current_user: Annotated[dict, Depends(get_current_user)],
+    keyword: str = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    sort_by: str = Query(None),
+    sort_direction: str = Query("asc", regex="^(asc|desc)$")
+):
     """
-    Get all clients. Requires a valid token.
+    Get all clients with pagination, sorting, and search.
     """
-    keyword = request.query_params.get("keyword")
-    page = int(request.query_params.get("page", 1))
-    pageSize = int(request.query_params.get("pageSize", 10))
-    sortBy = request.query_params.get("sortBy")
-    sortByDirection = request.query_params.get("sortByDirection")
-
     result = await ClientController.get_clients(
         page=page,
-        pageSize=pageSize,
-        sortBy=sortBy,
-        sortByDirection=sortByDirection,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_direction=sort_direction,
         keyword=keyword
     )
-    if "error" in result:
-        log_error(f"Error fetching clients: {result['error']}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
     return result
 
-
 @router.get("/{client_id}")
-async def get_client(client_id: int, payload: dict = Depends(get_current_user)):
+async def get_client(
+    client_id: int, 
+    current_user: Annotated[dict, Depends(get_current_user)]
+):
     """
-    Get a specific client by ID. Requires a valid token.
+    Get a specific client by ID.
     """
     result = await ClientController.get_client_by_id(client_id)
-    if "error" in result:
-        log_error("Client with ID %d not found", client_id)
-        raise HTTPException(status_code=result["status"], detail=result["error"])
     return result
 
 @router.put("/{client_id}")
-async def update_client(client_id: int, client: Client, payload: dict = Depends(get_current_user)):
+async def update_client(
+    client_id: int, 
+    client: ClientUpdate, 
+    current_user: Annotated[dict, Depends(get_current_user)]
+):
     """
-    Update a specific client by ID. Requires a valid token.
+    Update a specific client by ID.
     """
-    validation = await ClientController.validate_client_exists(client_id)
-    if "error" in validation:
-        log_error("Validation failed for client ID %d, error: %s", client_id, validation["error"])
-        return HTTPException(detail=validation["error"], status_code=validation["status"])
-    
-    result = await ClientController.update_client(client_id, client.model_dump())
-    if "error" in result:
-        log_error("Failed to update client with ID %d, error: %s", client_id, result["error"])
-        return HTTPException(404, detail="Client not found")
-    
+    user_id = current_user["id"]
+    result = await ClientController.update_client(client_id, client.model_dump(), user_id)
     return result
 
 @router.delete("/{client_id}")
-async def delete_client(client_id: int, payload: dict = Depends(get_current_user)):
+async def delete_client(
+    client_id: int, 
+    current_user: Annotated[dict, Depends(get_current_user)]
+):
     """
-    Delete a specific client by ID. Requires a valid token.
-    """    
-    result = await ClientController.delete_client(client_id)
-    if "error" in result:
-        log_error("Failed to delete client with ID %d, error: %s", client_id, result["error"])
-        return HTTPException(404, detail="Client not found")
-    
-    return {"message": "Client deleted successfully"}
+    Delete a specific client by ID (soft delete).
+    """
+    user_id = current_user["id"]
+    result = await ClientController.delete_client(client_id, user_id)
+    return result
 
+@router.get("/search/{keyword}")
+async def search_clients(
+    keyword: str,
+    current_user: Annotated[dict, Depends(get_current_user)]
+):
+    """
+    Search clients by keyword.
+    """
+    result = await ClientController.search_clients(keyword)
+    return {"data": result, "count": len(result)}

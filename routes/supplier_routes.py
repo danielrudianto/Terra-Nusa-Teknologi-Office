@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from controllers.supplier_controller import SupplierController
-from models.supplier_model import Supplier
+from schemas.supplier_schema import SupplierCreate, SupplierUpdate
 from utils.auth_utils import get_current_user
 from typing import Annotated
 from utils.auth_utils import User
@@ -8,39 +8,61 @@ from utils.auth_utils import User
 router = APIRouter()
 
 @router.post("/")
-async def create_supplier(supplier: Supplier, current_user: Annotated[User, Depends(get_current_user)]):
-    userID = current_user["id"]
-    result = await SupplierController.create_supplier(supplier.model_dump(), userID)
+async def create_supplier(
+    supplier: SupplierCreate, 
+    current_user: Annotated[User, Depends(get_current_user)]
+):
+    user_id = current_user["id"]
+    result = await SupplierController.create_supplier(supplier.model_dump(), user_id)
     if "error" in result:
         raise HTTPException(status_code=result["status"], detail=result["error"])
     return result
 
 @router.get("/{supplier_id}")
-async def get_supplier(supplier_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+async def get_supplier(
+    supplier_id: int, 
+    current_user: Annotated[User, Depends(get_current_user)]
+):
     result = await SupplierController.get_supplier(supplier_id)
     if "error" in result:
         raise HTTPException(status_code=result["status"], detail=result["error"])
     return result
-    
-@router.get("/")
-async def get_suppliers(request: Request, current_user: Annotated[User, Depends(get_current_user)]):
-    keyword = request.query_params.get("keyword")
-    page = int(request.query_params.get("page", 1))
-    pageSize = int(request.query_params.get("pageSize", 10))
 
+@router.get("/")
+async def get_suppliers(
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    keyword: str = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100)
+):
     try:
-        result = await SupplierController.get_suppliers(keyword, page, pageSize)
+        result = await SupplierController.get_suppliers(keyword, page, page_size)
         if "error" in result:
             raise HTTPException(status_code=result["status"], detail=result["error"])
         return result
     except HTTPException as e:
-        # Optionally log the error or handle it differently
         raise e
-    
+
 @router.put("/")
-async def update_supplier(supplier: Supplier, current_user: Annotated[User, Depends(get_current_user)]):
-    userID = current_user["id"]
-    result = await SupplierController.update_supplier(supplier.model_dump(), userID)
+async def update_supplier(
+    supplier: SupplierUpdate, 
+    current_user: Annotated[User, Depends(get_current_user)]
+):
+    user_id = current_user["id"]
+    # Note: You'll need to include the ID in the update request body
+    result = await SupplierController.update_supplier(supplier.model_dump(), user_id)
+    if "error" in result:
+        raise HTTPException(status_code=result["status"], detail=result["error"])
+    return result
+
+@router.delete("/{supplier_id}")
+async def delete_supplier(
+    supplier_id: int,
+    current_user: Annotated[User, Depends(get_current_user)]
+):
+    user_id = current_user["id"]
+    result = await SupplierController.delete_supplier(supplier_id, user_id)
     if "error" in result:
         raise HTTPException(status_code=result["status"], detail=result["error"])
     return result

@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from utils.redis import r
 import json
-from models.asset_model import AssetCreate, AssetUpdate, AssetResponse
+from schemas.asset_schema import AssetCreate, AssetUpdate
 from repository.asset_repository import AssetRepository
 
 class AssetController:
@@ -12,13 +12,6 @@ class AssetController:
     async def create_asset(asset_data: dict, user_id: int) -> Dict:
         """
         Create a new asset in the database.
-        
-        Args:
-            asset_data (Dict): The data of the asset to create.
-            user_id (int): ID of the user creating the asset.
-        
-        Returns:
-            Dict: A success message with the created asset ID.
         """
         log_info(f"Creating asset with data: {asset_data}")
         try:
@@ -45,7 +38,6 @@ class AssetController:
             }
             
         except HTTPException:
-            # Re-raise HTTP exceptions
             raise
         except IntegrityError as e:
             log_error(f"Integrity error: {str(e)}")
@@ -70,14 +62,6 @@ class AssetController:
     async def get_assets(page: int, page_size: int, keyword: str = "") -> Dict:
         """
         Get paginated list of assets.
-        
-        Args:
-            page (int): Page number (starting from 1)
-            page_size (int): Number of items per page
-            keyword (str): Optional search keyword
-            
-        Returns:
-            Dict: Paginated assets data
         """
         try:
             log_info(f"Fetching assets - page={page}, page_size={page_size}, keyword={keyword}")
@@ -110,23 +94,21 @@ class AssetController:
                     detail=result["error"]
                 )
 
-            # Cache the result for 5 minutes
-            await r.setex(cache_key, 300, json.dumps({
+            # Prepare response data
+            response_data = {
                 "data": [asset.model_dump() for asset in result["data"]],
                 "count": result["count"],
-                "page": result["page"],
-                "page_size": result["page_size"],
-                "total_pages": result["total_pages"]
-            }))
-
-            log_info(f"Successfully fetched {len(result['data'])} assets")
-            return {
-                "data": [asset.model_dump() for asset in result["data"]],
-                "count": result["count"],
+                "total_count": result["total_count"],
                 "page": result["page"],
                 "page_size": result["page_size"],
                 "total_pages": result["total_pages"]
             }
+
+            # Cache the result for 5 minutes
+            await r.setex(cache_key, 300, json.dumps(response_data))
+
+            log_info(f"Successfully fetched {len(result['data'])} assets")
+            return response_data
             
         except HTTPException:
             raise
@@ -141,12 +123,6 @@ class AssetController:
     async def get_asset_by_id(asset_id: int) -> Dict:
         """
         Get a single asset by ID.
-        
-        Args:
-            asset_id (int): ID of the asset to retrieve
-            
-        Returns:
-            Dict: Asset data
         """
         try:
             log_info(f"Fetching asset with ID: {asset_id}")
@@ -193,14 +169,6 @@ class AssetController:
     async def update_asset(asset_id: int, update_data: dict, user_id: int) -> Dict:
         """
         Update an existing asset.
-        
-        Args:
-            asset_id (int): ID of the asset to update
-            update_data (Dict): Data to update
-            user_id (int): ID of the user updating the asset
-            
-        Returns:
-            Dict: Success message
         """
         try:
             log_info(f"Updating asset {asset_id} with data: {update_data}")
@@ -258,12 +226,6 @@ class AssetController:
     async def delete_asset(asset_id: int) -> Dict:
         """
         Delete an asset.
-        
-        Args:
-            asset_id (int): ID of the asset to delete
-            
-        Returns:
-            Dict: Success message
         """
         try:
             log_info(f"Deleting asset with ID: {asset_id}")
@@ -306,19 +268,37 @@ class AssetController:
             )
 
     @staticmethod
+    async def search_assets(keyword: str) -> Dict:
+        """
+        Search assets by keyword.
+        """
+        try:
+            log_info(f"Searching assets with keyword: {keyword}")
+            
+            assets = await AssetRepository.search_by_keyword(keyword)
+            
+            return {
+                "data": [asset.model_dump() for asset in assets],
+                "count": len(assets)
+            }
+            
+        except Exception as e:
+            log_error(f"Error searching assets: {str(e)}")
+            raise HTTPException(
+                status_code=500, 
+                detail="Internal server error while searching assets."
+            )
+
+    @staticmethod
     async def _clear_asset_cache(asset_id: int):
         """
         Clear cache entries related to an asset.
-        
-        Args:
-            asset_id (int): ID of the asset
         """
         try:
             # Clear specific asset cache
             await r.delete(f"asset:{asset_id}")
             
-            # Clear paginated assets cache (you might want to be more specific here)
-            # This is a simple approach - in production, you might want more granular cache invalidation
+            # Clear paginated assets cache
             keys = await r.keys("assets:page:*")
             if keys:
                 await r.delete(*keys)

@@ -1,12 +1,16 @@
-from utils.auth_utils import get_current_user
 from fastapi import APIRouter, Depends, HTTPException, Query
 from controllers.asset_controller import AssetController
+from schemas.asset_schema import AssetCreate, AssetUpdate
+from utils.auth_utils import get_current_user
 
 router = APIRouter()
 
 @router.post("/assets")
-async def create_asset(asset_data: dict, user_id: int = Depends(get_current_user)):
-    return await AssetController.create_asset(asset_data, user_id)
+async def create_asset(
+    asset_data: AssetCreate, 
+    user_id: int = Depends(get_current_user)
+):
+    return await AssetController.create_asset(asset_data.model_dump(), user_id)
 
 @router.get("/assets")
 async def get_assets(
@@ -21,9 +25,17 @@ async def get_asset(asset_id: int):
     return await AssetController.get_asset_by_id(asset_id)
 
 @router.put("/assets/{asset_id}")
-async def update_asset(asset_id: int, update_data: dict, user_id: int = Depends(get_current_user)):
-    return await AssetController.update_asset(asset_id, update_data, user_id)
+async def update_asset(
+    asset_id: int, 
+    update_data: AssetUpdate, 
+    user_id: int = Depends(get_current_user)
+):
+    return await AssetController.update_asset(asset_id, update_data.model_dump(), user_id)
 
 @router.delete("/assets/{asset_id}")
 async def delete_asset(asset_id: int):
     return await AssetController.delete_asset(asset_id)
+
+@router.get("/assets/search/{keyword}")
+async def search_assets(keyword: str):
+    return await AssetController.search_assets(keyword)

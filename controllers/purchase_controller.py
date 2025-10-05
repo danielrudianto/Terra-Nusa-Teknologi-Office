@@ -1,7 +1,6 @@
 from sqlalchemy import func, insert, select, update, delete, or_
 from utils.database import database
 from models.purchase_model import purchases_table, purchase_status_table, Purchase, PurchaseStatus
-from models.reimbursement_model import Reimbursement
 from models.payment_outgoing_model import PaymentOutgoing
 from models.mutation_model import Mutation
 from utils.logger_utils import log_error, log_info
@@ -102,14 +101,14 @@ class PurchaseController:
                 log_error(f"Error fetching purchase report by project: {purchases['error']}")
                 return {"error": purchases["error"], "status": purchases["status"]}
             
-            reimbursements = await Reimbursement.get_reimbursements_by_project(projectName)
-            if "error" in reimbursements:
-                log_error(f"Error fetching reimbursements by project: {reimbursements['error']}")
-                return {"error": reimbursements["error"], "status": reimbursements["status"]}
+            # reimbursements = await Reimbursement.get_reimbursements_by_project(projectName)
+            # if "error" in reimbursements:
+            #     log_error(f"Error fetching reimbursements by project: {reimbursements['error']}")
+            #     return {"error": reimbursements["error"], "status": reimbursements["status"]}
             
             return {
                 "purchases": purchases,
-                "reimbursements": reimbursements
+                "reimbursements": []
             }
         except Exception as e:
             log_error(f"Error fetching purchase report by project: {str(e)}")

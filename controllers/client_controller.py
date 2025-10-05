@@ -1,159 +1,182 @@
-from sqlalchemy import insert, select, update, delete
-from utils.database import database
-from models.client_model import clients_table
 from typing import Dict, List, Optional
 from utils.logger_utils import log_error, log_info
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from datetime import datetime
-from models.client_model import Client
+from schemas.client_schema import ClientCreate, ClientUpdate
+from repository.client_repository import ClientRepository
 
 class ClientController:
     @staticmethod
-    async def create_client(client_data: Dict, userID: int) -> Dict:
+    async def create_client(client_data: Dict, user_id: int) -> Dict:
         """
         Create a new client in the database.
-
-        Args:
-            client_data (Dict): The data of the client to create.
-
-        Returns:
-            Dict: A success message with the created client ID.
         """
         log_info(f"Creating client with data: {client_data}")
         try:
-            client_data["createdAt"] = datetime.now()
-            client_data["createdBy"] = userID
-            client_data["isDelete"] = False
-            result = await Client.create_client(client_data)  # Validate client data using Pydantic model
+            # Add user ID to client data
+            client_data["createdBy"] = user_id
+            
+            # Validate and create client model
+            client_create = ClientCreate(**client_data)
+            
+            # Use repository to create client
+            result = await ClientRepository.create(client_create)
+            
             if "error" in result:
                 log_error(f"Error creating client: {result['error']}")
-                raise HTTPException(status_code=result["status"], detail=result["error"])
+                raise HTTPException(
+                    status_code=result.get("status", 500), 
+                    detail=result["error"]
+                )
             
+            log_info(f"Client created successfully with ID: {result['client_id']}")
             return result
+            
+        except HTTPException:
+            raise
         except Exception as e:
-            log_error(f"Unexpected error: {str(e)}")
+            log_error(f"Unexpected error creating client: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error.")
 
     @staticmethod
-    async def get_clients(page: int, pageSize: int = 10, sortBy: Optional[str] = None, sortByDirection: Optional[str] = "asc", keyword: Optional[str] = None) -> Dict:
+    async def get_clients(
+        page: int, 
+        page_size: int = 10, 
+        sort_by: Optional[str] = None, 
+        sort_direction: Optional[str] = "asc", 
+        keyword: Optional[str] = None
+    ) -> Dict:
         """
         Retrieve a list of clients from the database.
-
-        Args:
-            page (int): The page number for pagination.
-            pageSize (int): The number of clients per page.
-            sortBy (Optional[str]): The field to sort by.
-            sortByDirection (Optional[str]): The direction to sort (asc/desc).
-            keyword (Optional[str]): A keyword to filter clients.
-
-        Returns:
-            Dict: A dictionary containing the list of clients and total count.
         """
         if page < 1:
-            return {"error": "Page number must be greater than 0", "status": 400}
+            raise HTTPException(status_code=400, detail="Page number must be greater than 0")
         
-        log_info(f"Retrieving clients with page={page}, keyword={keyword}")
+        log_info(f"Retrieving clients with page={page}, page_size={page_size}, keyword={keyword}")
 
-        clients = await Client.get_clients(page, pageSize, sortBy, sortByDirection, keyword)
-        if "error" in clients:
-            log_error(f"Error fetching clients: {clients['error']}")
-            raise HTTPException(status_code=clients["status"], detail=clients["error"])
-        
-        return clients
+        try:
+            clients = await ClientRepository.get_paginated(
+                page=page,
+                page_size=page_size,
+                sort_by=sort_by,
+                sort_direction=sort_direction,
+                keyword=keyword
+            )
+            
+            return clients
+            
+        except Exception as e:
+            log_error(f"Error fetching clients: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error.")
 
     @staticmethod
     async def get_client_by_id(client_id: int) -> Dict:
         """
         Retrieve a client by its ID.
-
-        Args:
-            client_id (int): The ID of the client to retrieve.
-
-        Returns:
-            Dict: The client data if found.
-
-        Raises:
-            HTTPException: If the client is not found.
         """
-        client = await ClientController._fetch_client_by_id(client_id)
-        return client
+        log_info(f"Fetching client with ID: {client_id}")
+        try:
+            client = await ClientRepository.get_by_id(client_id)
+            
+            if not client:
+                raise HTTPException(status_code=404, detail="Client not found")
+                
+            return client.model_dump()
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            log_error(f"Error fetching client {client_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error.")
 
     @staticmethod
     async def validate_client_exists(client_id: int) -> Dict:
+        """
+        Validate that a client exists and return its data.
+        """
         try:
             client = await ClientController.get_client_by_id(client_id)
-            if client is None:
-                return {"error": "Client not found", "status": 404}
             return client
         except HTTPException as e:
-            log_error("Client with ID %d not found", client_id)
+            log_error(f"Client with ID {client_id} not found")
             raise e
 
     @staticmethod
-    async def update_client(client_id: int, client_data: Dict) -> Dict:
+    async def update_client(client_id: int, client_data: Dict, user_id: Optional[int] = None) -> Dict:
         """
         Update a client's data by its ID.
-
-        Args:
-            client_id (int): The ID of the client to update.
-            client_data (Dict): The updated client data.
-
-        Returns:
-            Dict: A success message.
-
-        Raises:
-            HTTPException: If the client is not found.
         """
-        await ClientController._fetch_client_by_id(client_id)  # Ensure client exists
-        query = update(clients_table).where(clients_table.c.id == client_id).values(**client_data)
+        log_info(f"Updating client {client_id} with data: {client_data}")
         try:
-            await database.execute(query)
-            return {"message": "Client updated successfully"}
+            # Check if client exists
+            await ClientController.validate_client_exists(client_id)
+            
+            # Add updatedBy user ID if provided
+            if user_id:
+                client_data["updatedBy"] = user_id
+            
+            # Validate update data
+            client_update = ClientUpdate(**client_data)
+            
+            # Update client
+            result = await ClientRepository.update(client_id, client_update)
+            
+            if "error" in result:
+                log_error(f"Error updating client: {result['error']}")
+                raise HTTPException(
+                    status_code=result.get("status", 500), 
+                    detail=result["error"]
+                )
+
+            log_info(f"Client {client_id} updated successfully")
+            return result
+            
+        except HTTPException:
+            raise
         except Exception as e:
-            log_error
-            raise Exception(e)
+            log_error(f"Error updating client {client_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error.")
 
     @staticmethod
-    async def delete_client(client_id: int) -> Dict:
+    async def delete_client(client_id: int, user_id: Optional[int] = None) -> Dict:
         """
-        Delete a client by its ID.
-
-        Args:
-            client_id (int): The ID of the client to delete.
-
-        Returns:
-            Dict: A success message.
-
-        Raises:
-            HTTPException: If the client is not found.
+        Soft delete a client by its ID.
         """
-        await ClientController._fetch_client_by_id(client_id)  # Ensure client exists
-        query = delete(clients_table).where(clients_table.c.id == client_id)
+        log_info(f"Deleting client with ID: {client_id}")
         try:
-            await database.execute(query)
-            return {"message": "Client deleted successfully"}
+            # Check if client exists
+            await ClientController.validate_client_exists(client_id)
+            
+            # Soft delete client
+            result = await ClientRepository.soft_delete(client_id, user_id or 0)
+            
+            if "error" in result:
+                log_error(f"Error deleting client: {result['error']}")
+                raise HTTPException(
+                    status_code=result.get("status", 500), 
+                    detail=result["error"]
+                )
+
+            log_info(f"Client {client_id} deleted successfully")
+            return result
+            
+        except HTTPException:
+            raise
         except Exception as e:
-            log_error(f"Error deleting client with ID {client_id,}: {str(e)}",  )
-            raise Exception(e)
+            log_error(f"Error deleting client {client_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error.")
 
     @staticmethod
-    async def _fetch_client_by_id(client_id: int) -> Dict:
+    async def search_clients(keyword: str) -> List[Dict]:
         """
-        Helper method to fetch a client by ID and handle errors if not found.
-
-        Args:
-            client_id (int): The ID of the client to fetch.
-
-        Returns:
-            Dict: The client data if found.
-
-        Raises:
-            HTTPException: If the client is not found.
+        Search clients by keyword.
         """
-        query = select(clients_table).where(clients_table.c.id == client_id)
-        client = await database.fetch_one(query)
-        if not client:
-            log_error(f"Client with ID {client_id} not found")
-            raise Exception(f"Client with ID {client_id} not found")
-        return dict(client)  # Convert to dictionary for consistency
+        log_info(f"Searching clients with keyword: {keyword}")
+        try:
+            clients = await ClientRepository.search_by_keyword(keyword)
+            return [client.model_dump() for client in clients]
+            
+        except Exception as e:
+            log_error(f"Error searching clients: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error.")

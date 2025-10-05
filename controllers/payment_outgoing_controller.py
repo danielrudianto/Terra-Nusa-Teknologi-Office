@@ -2,10 +2,10 @@ from sqlalchemy import func, insert, select, update, delete, or_
 from utils.database import database
 from models.payment_outgoing_model import PaymentOutgoing
 from models.purchase_model import Purchase
-from models.reimbursement_model import Reimbursement, ReimbursementItems
+from repository.reimbursement_repository import ReimbursementRepository
 from models.expense_model import Expense
 from models.salary_slip_model import SalarySlip
-from models.bank_model import BankAccount
+from repository.bank_account_repository import BankAccount
 from models.interpayment_model import Interpayment
 from utils.logger_utils import log_error, log_info
 from datetime import datetime as dt, date as d
@@ -102,8 +102,8 @@ class PaymentOutgoingController:
             salarySlip = None
 
             if payment.reimbursementID is not None:
-                result = await Reimbursement.get_reimbursement_by_id(payment.reimbursementID)
-                result_items = await ReimbursementItems.get_reimbursement_items_by_reimbursement_id(payment.reimbursementID)
+                result = await ReimbursementRepository.get_reimbursement_by_id(payment.reimbursementID)
+                result_items = await ReimbursementRepository.get_reimbursement_items_by_reimbursement_id(payment.reimbursementID)
                 if "error" in result:
                     log_error(f"Error fetching reimbursement with ID {payment.reimbursementID}: {result['error']}")
                     return {"error": result["error"], "status": result.get("status")}
@@ -247,7 +247,7 @@ class PaymentOutgoingController:
                         await Purchase.update_payment_status(payment.purchaseID, True)
                 
                 if payment.reimbursementID is not None:   
-                    reimbursements = await ReimbursementItems.get_reimbursement_items_by_reimbursement_id(payment.reimbursementID)
+                    reimbursements = await ReimbursementRepository.get_reimbursement_items_by_reimbursement_id(payment.reimbursementID)
                     reimbursement_value = sum(r.amount for r in reimbursements)
                                         
                     current_payments = await PaymentOutgoing.get_payments_by_reimbursement_id(payment.reimbursementID)
@@ -257,7 +257,7 @@ class PaymentOutgoingController:
                     total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
                     
                     if reimbursement_value == total_paid:
-                        await Reimbursement.update_payment_status(payment.reimbursementID, True, userID)
+                        await ReimbursementRepository.update_payment_status(payment.reimbursementID, True, userID)
                 
                 if payment.expenseID is not None:
                     expense = await Expense.get_expense_by_id(payment.expenseID)

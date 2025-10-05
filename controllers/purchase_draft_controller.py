@@ -1,7 +1,6 @@
 from sqlalchemy import func, insert, select, update, delete, or_
 from utils.database import database
 from models.purchase_draft_model import PurchaseDraft
-from models.reimbursement_model import Reimbursement
 from models.payment_outgoing_model import PaymentOutgoing
 from models.mutation_model import Mutation
 from utils.logger_utils import log_error, log_info
@@ -54,64 +53,3 @@ class PurchaseDraftController:
         
         response["payments"] = payments
         return response
-
-    @staticmethod
-    async def get_payments_by_purchase_id(purchaseID: int):
-        try:
-            result = await PaymentOutgoing.get_payments_by_purchase_id(purchaseID)
-            if "error" in result:
-                log_error(f"Error fetching payments by purchase ID: {result['error']}")
-                return {"error": result["error"], "status": result["status"]}
-
-            return result
-        except Exception as e:
-            log_error(f"Error fetching payments by purchase ID: {str(e)}")
-            return {"error": str(e), "status": 500}
-        
-    @staticmethod
-    async def delete_purchase(purchaseID: int, userID: int):
-        try:
-            log_info(f"Attempting to delete purchase with ID: {purchaseID} by user ID: {userID}")
-            # Check if the purchase exists
-            purchase = await Purchase.get_purchase_by_id(purchaseID)
-            if "error" in purchase:
-                return {"error": purchase["error"], "status": purchase["status"]}
-            
-            if purchase.isDelete:
-                return {"error": "Purchase is already deleted", "status": 400}
-            
-            result = await Purchase.delete_purchase_by_id(purchaseID, userID)
-            if "error" in result:
-                log_error(f"Error deleting purchase: {result['error']}")
-                return {"error": result["error"], "status": result["status"]}
-            
-            log_info(f"Purchase with ID: {purchaseID} deleted successfully by user ID: {userID}")
-
-            #Delete payments associated with the purchase
-            payments_result = await PaymentOutgoing.delete_payment_by_purchase_id(purchaseID, userID)
-            if "error" in payments_result:
-                log_error(f"Error deleting payments for purchase ID {purchaseID}: {payments_result['error']}")
-                return {"error": payments_result["error"], "status": payments_result["status"]}
-            
-            log_info(f"Payments for purchase ID {purchaseID} deleted successfully")
-
-            log_info(f"Fetching payments history for purchase ID: {purchaseID}")
-
-            payments_history = await PaymentOutgoing.get_payments_by_purchase_id(purchaseID)
-            if "error" in payments_history:
-                log_error(f"Error fetching payments history for purchase ID {purchaseID}: {payments_history['error']}")
-                return {"error": payments_history["error"], "status": payments_history["status"]}
-            
-            log_info(f"Payments history for purchase ID {purchaseID} fetched successfully, count: {len(payments_history)}")
-
-            #Delete mutations associated with the payments
-            payment_history_result = await Mutation.delete_mutations_by_payment_ids([payment.id for payment in payments_history])
-            if "error" in payment_history_result:
-                log_error(f"Error deleting mutations for payments of purchase ID {purchaseID}: {payment_history_result['error']}")
-                return {"error": payment_history_result["error"], "status": payment_history_result["status"]}
-
-            return result
-
-        except Exception as e:
-            log_error(f"Error deleting purchase: {str(e)}")
-            return {"error": str(e), "status": 500}

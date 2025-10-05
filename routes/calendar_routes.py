@@ -1,7 +1,7 @@
 from typing import Annotated, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from controllers.payment_outgoing_controller import PaymentOutgoingController
-from models.bank_model import BankAccount
+from repository.bank_account_repository import BankAccount
 from utils.auth_utils import get_current_user
 from models.user_model import User
 from datetime import datetime

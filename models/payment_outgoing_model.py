@@ -9,6 +9,7 @@ from models.salary_slip_model import salary_slips_table
 from models.employee_model import employees_table
 from models.expense_model import expenses_table, expense_opponents_table
 from models.supplier_model import suppliers_table
+from models.bank_model import bank_accounts_table
 from utils.logger_utils import log_error, log_info
 
 
@@ -74,6 +75,7 @@ class PaymentOutgoing(BaseModel):
         """
         # Placeholder for actual implementation
         # SELECT payments.*, COALESCE(purchases.invoiceName, reimbursements.name) AS documetName
+
         or_conditions = []
         if filterObject.get("isApproved"):
             or_conditions.append(payments_outgoing_table.c.isApprove == True)
@@ -112,7 +114,10 @@ class PaymentOutgoing(BaseModel):
                     salary_slips_table.c.year.cast(String)
                 ), 
                 expenses_table.c.invoiceName
-            ).label("documentName")
+            ).label("documentName"),
+            bank_accounts_table.c.bankAccountName.label("bankAccountName"),
+            bank_accounts_table.c.bankAccountNumber.label("bankAccountNumber"),
+            bank_accounts_table.c.bankName.label("bankName")
         ).outerjoin(
             purchases_table, payments_outgoing_table.c.purchaseID == purchases_table.c.id
         ).outerjoin(
@@ -123,11 +128,26 @@ class PaymentOutgoing(BaseModel):
             employees_table, salary_slips_table.c.userID == employees_table.c.id
         ).outerjoin(
             expenses_table, payments_outgoing_table.c.expenseID == expenses_table.c.id
+        ).outerjoin(
+            bank_accounts_table, payments_outgoing_table.c.bankAccountID == bank_accounts_table.c.id
         ).where(
             or_(*or_conditions)
-        ).order_by(payments_outgoing_table.c.date.desc()
         ).limit(pageSize).offset((page - 1) * pageSize)
+
         
+        if sortBy == "date":
+            if sortByDirection == "desc":
+                query = query.order_by(payments_outgoing_table.c.date.desc())
+            else:
+                query = query.order_by(payments_outgoing_table.c.date.asc())
+        elif sortBy == "amount":
+            if sortByDirection == "desc":
+                query = query.order_by(payments_outgoing_table.c.amount.desc())
+            else:
+                query = query.order_by(payments_outgoing_table.c.amount.asc())
+        else:
+            query = query.order_by(payments_outgoing_table.c.date.desc())
+    
         result = await database.fetch_all(query)
         
         #Not the count
@@ -672,7 +692,7 @@ class PaymentOutgoing(BaseModel):
     async def get_purchase_pph_report(month: int, year: int):
         try:
             supplier_columns = [
-                payments_outgoing_table.c.date.label("date"),
+                payments_outgoing_table.c.date.label("payment_date"),
                 payments_outgoing_table.c.amount.label("amount"),
                 suppliers_table.c.id.label("supplier_id"),
                 suppliers_table.c.name.label("supplier_name"),
@@ -740,7 +760,7 @@ class PaymentOutgoing(BaseModel):
     async def get_expense_pph_report(month: int, year: int):
         try:
             opponent_columns = [
-                payments_outgoing_table.c.date.label("date"),
+                payments_outgoing_table.c.date.label("payment_date"),
                 payments_outgoing_table.c.amount.label("amount"),
                 expense_opponents_table.c.id.label("opponent_id"),
                 expense_opponents_table.c.name.label("opponent_name"),

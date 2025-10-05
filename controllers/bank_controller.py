@@ -1,6 +1,6 @@
 from sqlalchemy import insert, select, update, delete, func
 from utils.database import database
-from models.bank_model import BankAccount
+from repository.bank_account_repository import BankAccount
 from models.mutation_model import Mutation
 from typing import Dict, List, Optional
 from utils.logger_utils import log_error, log_info
