@@ -3,12 +3,6 @@ from typing import List
 from sqlalchemy import Table, Column, DateTime, Integer, String, Boolean, ForeignKey, Date, or_, select, func, and_, case, literal
 from utils.database import metadata, database
 from datetime import date as d, datetime as dt
-from models.purchase_model import purchases_table
-from models.reimbursement_model import reimbursements_table
-from models.salary_slip_model import salary_slips_table
-from models.employee_model import employees_table
-from models.expense_model import expenses_table, expense_opponents_table
-from models.supplier_model import suppliers_table
 from utils.logger_utils import log_error, log_info
 
 
@@ -77,6 +71,27 @@ class PaymentIncoming(BaseModel):
         log_info(f"Retrieving payments for sales invoice ID: {salesInvoiceID}")
         query = select(payments_incoming_table).where(
             payments_incoming_table.c.salesInvoiceID == salesInvoiceID,
+            payments_incoming_table.c.isDelete == False
+        )
+        
+        payments = await database.fetch_all(query)
+        
+        return [PaymentIncoming(**payment) for payment in payments]
+    
+    @staticmethod
+    async def get_payments_by_income_id(incomeID: int):
+        """
+        Get all payments associated with a specific sales invoice ID.
+        
+        Args:
+            purchaseID (int): The ID of the purchase.
+        
+        Returns:
+            list: A list of payments associated with the purchase.
+        """
+        log_info(f"Retrieving payments for income ID: {incomeID}")
+        query = select(payments_incoming_table).where(
+            payments_incoming_table.c.incomeID == incomeID,
             payments_incoming_table.c.isDelete == False
         )
         

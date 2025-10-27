@@ -26,6 +26,7 @@ class Employee(BaseModel):
     updatedBy: Optional[int] = None  # ID of the user who updated the employee
     deletedAt: Optional[dt] = None  # Deletion date
     deletedBy: Optional[int] = None  # ID of the user who deleted the employee
+    startDate: Optional[d] = None
 
     #Initialize the model
     def __init__(self, **data):
@@ -55,7 +56,8 @@ class Employee(BaseModel):
             isDelete=self.isDelete,
             taxCategory=self.taxCategory,
             createdAt=self.createdAt,
-            createdBy=self.createdBy
+            createdBy=self.createdBy,
+            startDate=self.startDate
         )
         try:
             employee_id = await database.execute(query)
@@ -86,7 +88,8 @@ class Employee(BaseModel):
                 isDelete=self.isDelete,
                 taxCategory=self.taxCategory,
                 updatedAt=dt.now(),
-                updatedBy=self.updatedBy
+                updatedBy=self.updatedBy,
+                startDate=self.startDate,
             )
         )
         try:
@@ -167,7 +170,8 @@ class Employee(BaseModel):
                     updatedAt=row.updatedAt,
                     updatedBy=row.updatedBy,
                     deletedAt=row.deletedAt,
-                    deletedBy=row.deletedBy
+                    deletedBy=row.deletedBy,
+                    startDate=row.startDate
                 )
                 response.append(employee_data)
 
@@ -215,7 +219,9 @@ class Employee(BaseModel):
                 updatedAt=employee.updatedAt,
                 updatedBy=employee.updatedBy,
                 deletedAt=employee.deletedAt,
-                deletedBy=employee.deletedBy
+                deletedBy=employee.deletedBy,
+                startDate=employee.startDate,
+                endDate=employee.endDate
             )
         except Exception as e:
             log_error(f"Error fetching employee: {str(e)}")
@@ -240,5 +246,7 @@ employees_table = Table(
     Column("updatedAt", DateTime(), nullable=True),
     Column("updatedBy", Integer(), ForeignKey('users.id'), nullable=True),
     Column("deletedAt", DateTime(), nullable=True),
-    Column("deletedBy", Integer(), ForeignKey('users.id'), nullable=True)
+    Column("deletedBy", Integer(), ForeignKey('users.id'), nullable=True),
+    Column("startDate", DateTime(), nullable=True),
+    Column("endDate", DateTime(), nullable=True)
 )

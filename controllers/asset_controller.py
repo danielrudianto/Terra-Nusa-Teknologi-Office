@@ -72,14 +72,6 @@ class AssetController:
             if page_size < 1 or page_size > 100:
                 raise HTTPException(status_code=400, detail="Page size must be between 1 and 100")
 
-            # Try to get from cache first
-            cache_key = f"assets:page:{page}:size:{page_size}:keyword:{keyword}"
-            cached_data = await r.get(cache_key)
-            
-            if cached_data:
-                log_info("Returning cached assets data")
-                return json.loads(cached_data)
-
             # Get assets from repository
             result = await AssetRepository.get_assets(
                 page=page, 
@@ -103,9 +95,6 @@ class AssetController:
                 "page_size": result["page_size"],
                 "total_pages": result["total_pages"]
             }
-
-            # Cache the result for 5 minutes
-            await r.setex(cache_key, 300, json.dumps(response_data))
 
             log_info(f"Successfully fetched {len(result['data'])} assets")
             return response_data

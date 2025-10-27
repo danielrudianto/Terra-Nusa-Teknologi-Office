@@ -9,6 +9,7 @@ from utils.database import database
 
 # Define the Purchase model
 class PurchaseDraft(BaseModel):
+    id: int | None = None
     supplierID: int  # ID of the supplier
     date: d  # Date of the purchase
     purchaseOrderName: str  # Name of the purchase order
@@ -17,7 +18,7 @@ class PurchaseDraft(BaseModel):
     dpp: Annotated[float, Field(ge=0)]  # DPP value (greater than or equal to 0)
     ppn: Annotated[float, Field(ge=0)]  # PPN value (optional)
     pbbkb: Annotated[float, Field(ge=0)]  # PBBKB value (optional)
-    description: str
+    description: str | None = None
 
     @staticmethod
     async def create_purchase_draft(purchase_data: dict):
@@ -33,6 +34,16 @@ class PurchaseDraft(BaseModel):
             return {"error": str(e), "status": 500}
         
     @staticmethod
+    async def delete_purcase_draft(purchase_data_id: int, userID: int):
+        try:
+            query = purchase_draft_table.update().where(purchase_draft_table.c.id == purchase_data_id).values(isDelete = True, deletedBy = userID, deletedAt = d.now())
+            await database.execute(query)
+            return True
+        except Exception as e:
+            log_error(f"Error deleting purchase: {str(e)}")
+            return {"error": str(e), "status": 500}
+    
+    @staticmethod
     async def get_purchase_draft(page: int, pageSize: int, isPending: bool, isApproved: bool,sortBy: str, sortByDirection: str, keyword: str):
         offset = (page - 1) * pageSize
         supplier_columns = [
@@ -44,15 +55,16 @@ class PurchaseDraft(BaseModel):
             suppliers_table.c.prefix.label("supplier_prefix"),
         ]
 
-        conditions = [purchase_draft_table.c.isDelete == False]
+        conditions = []
 
         or_conditions = []
         if(keyword is not None and keyword != ""):
             or_conditions.append(purchase_draft_table.c.purchaseOrderName.ilike(f"%{keyword}%"))
             or_conditions.append(suppliers_table.c.name.ilike(f"%{keyword}%"))
+            or_conditions.append(purchase_draft_table.c.description.ilike(f"%{keyword}%"))
         conditions.append(or_(*or_conditions))
 
-        or_conditions = []
+        status_conditions = []
         if isPending:
             or_conditions.append(purchase_draft_table.c.isDelete == False)
 
@@ -60,6 +72,7 @@ class PurchaseDraft(BaseModel):
             or_conditions.append(purchase_draft_table.c.isDelete == True)
 
         conditions.append(or_(*or_conditions))
+        conditions.append(or_(*status_conditions))
 
         # Sort by, using switch case
         if sortBy == "date":

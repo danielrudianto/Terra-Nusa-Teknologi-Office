@@ -6,13 +6,14 @@ from controllers.sales_invoice_controller import SalesInvoiceController
 from schemas.sales_invoice_schema import SalesInvoiceCreate
 from utils.auth_utils import get_current_user
 from typing import Annotated
+from utils.auth_utils import User
 
 router = APIRouter()
 
 @router.post("/")
 async def create_sales_invoice(
     sales_invoice: SalesInvoiceCreate, 
-    current_user: Annotated[dict, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(get_current_user)]
 ):
     """
     Create a new sales invoice.
@@ -25,7 +26,7 @@ async def create_sales_invoice(
 
 @router.get("/exists")
 async def check_sales_invoice(
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_user)],
     description: str = Query(...),
     projectName: str = Query(...),
     clientID: int = Query(...),
@@ -42,7 +43,7 @@ async def check_sales_invoice(
 @router.get("/{sales_invoice_id}")
 async def get_sales_invoice_by_id(
     sales_invoice_id: int,
-    current_user: Annotated[dict, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(get_current_user)]
 ):
     """
     Get sales invoice by ID.
@@ -52,7 +53,7 @@ async def get_sales_invoice_by_id(
 
 @router.get("/")
 async def get_sales_invoices(
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_user)],
     page: int = Query(1, ge=1),
     pageSize: int = Query(10, ge=1, le=100),
     sortBy: str = Query("date"),
@@ -70,7 +71,7 @@ async def get_sales_invoices(
 @router.put("/reject/{sales_invoice_id}")
 async def reject_sales_invoice(
     sales_invoice_id: int,
-    current_user: Annotated[dict, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(get_current_user)]
 ):
     """
     Reject sales invoice by ID.
@@ -83,7 +84,7 @@ async def reject_sales_invoice(
 async def approve_sales_invoice(
     sales_invoice_id: int,
     data: dict,
-    current_user: Annotated[dict, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(get_current_user)]
 ):
     """
     Approve sales invoice by ID.

@@ -1,16 +1,15 @@
 from utils.logger_utils import log_error, log_info
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
-from models.purchase_model import Purchase
-from models.expense_model import Expense
+from repository.purchase_repository import PurchaseRepository
 from models.payment_outgoing_model import PaymentOutgoing
-from models.salary_slip_model import SalarySlip
+from repository.salary_slip_repository import SalarySlipRepository
 
 class TaxController:
     @staticmethod
     async def get_ppn_report(month: int, year: int):
         try:
-            result = await Purchase.get_ppn_report(month, year)
+            result = await PurchaseRepository.get_ppn_report(month, year)
             if "error" in result:
                 log_error(f"Error fetching PPN report: {result['error']}")
                 return {"error": result["error"], "status": result["status"]}
@@ -49,7 +48,7 @@ class TaxController:
     async def get_pph_salary_report(month: int, year: int):
         log_info(f"Fetching PPh report for month {month} and year {year}")
         try:
-            salary_slip = await SalarySlip.get_pph_report(month, year)
+            salary_slip = await SalarySlipRepository.get_pph_report(month, year)
             if "error" in salary_slip:
                 log_error(f"Error fetching salary slip data: {salary_slip['error']}")
                 raise HTTPException(status_code=salary_slip.get("status", 500), detail=salary_slip["error"])

@@ -7,9 +7,11 @@ from models.purchase_model import purchases_table
 from models.reimbursement_model import reimbursements_table
 from models.salary_slip_model import salary_slips_table
 from models.employee_model import employees_table
-from models.expense_model import expenses_table, expense_opponents_table
+from models.expense_model import expenses_table
+from models.expense_opponent_model import expense_opponents_table
 from models.supplier_model import suppliers_table
 from models.bank_model import bank_accounts_table
+from models.loans_model import loans_table
 from utils.logger_utils import log_error, log_info
 
 
@@ -382,6 +384,27 @@ class PaymentOutgoing(BaseModel):
             return {"error": str(e), "status": 500}
 
     @staticmethod
+    async def get_payments_by_ids(payment_ids: List[int]):
+        """
+        Get payments by a list of IDs.
+        
+        Args:
+            payment_ids (List[int]): A list of payment IDs.
+        
+        Returns:
+            list: A list of payments associated with the IDs.
+        """
+        log_info(f"Retrieving payments with IDs: {payment_ids}")
+        query = select(payments_outgoing_table).where(
+            payments_outgoing_table.c.id.in_(payment_ids),
+            payments_outgoing_table.c.isDelete == False
+        )
+        
+        payments = await database.fetch_all(query)
+        
+        return [PaymentOutgoing(**payment) for payment in payments]
+
+    @staticmethod
     async def get_payments_by_purchase_id(purchaseID: int):
         """
         Get all payments associated with a specific purchase ID.
@@ -466,6 +489,27 @@ class PaymentOutgoing(BaseModel):
         return [PaymentOutgoing(**payment) for payment in payments]
 
     @staticmethod
+    async def get_payments_by_loan_id(loanID: int):
+        """
+        Get all payments associated with a specific loan ID.
+        
+        Args:
+            loanID (int): The ID of the loan.
+        
+        Returns:
+            list: A list of payments associated with the loan.
+        """
+        log_info(f"Retrieving payments for loan ID: {loanID}")
+        query = select(payments_outgoing_table).where(
+            payments_outgoing_table.c.loanID == loanID,
+            payments_outgoing_table.c.isDelete == False
+        )
+        
+        payments = await database.fetch_all(query)
+        
+        return [PaymentOutgoing(**payment) for payment in payments]
+
+    @staticmethod
     async def update_status(paymentID: int, userID: int, status: str):
         """
         Update the status of a payment.
@@ -499,6 +543,37 @@ class PaymentOutgoing(BaseModel):
             return {"message": "Payment status updated successfully"}
         except Exception as e:
             log_error(f"Error updating payment status: {str(e)}")
+            return {"error": str(e), "status": 500}
+      
+    @staticmethod
+    async def update_bulk_status(payment_ids: List[int], status: str, userID: int):
+        """
+        Update the status of multiple payments in the database.
+        
+        Args:
+            payment_ids (List[int]): A list of payment IDs to update.
+            status (str): The new status of the payments.
+            userID (int): The ID of the user updating the payments.
+        
+        Returns:
+            dict: A success message or an error message.
+        """
+        log_info(f"Updating status for payments with IDs: {payment_ids}")
+        
+        try:
+            query = payments_outgoing_table.update().where(
+                payments_outgoing_table.c.id.in_(payment_ids)
+            ).values(
+                isApprove=status == "approve",
+                isDelete=status == "reject",
+                updatedBy=userID,
+                updatedAt=dt.now()
+            )
+            
+            await database.execute(query)
+            return {"message": "Status updated successfully"}
+        except Exception as e:
+            log_error(f"Error updating status for payments with IDs {payment_ids}: {str(e)}")
             return {"error": str(e), "status": 500}
         
     @staticmethod
@@ -595,7 +670,12 @@ class PaymentOutgoing(BaseModel):
                 expenses_table.c.description.label("expense_description"),
                 suppliers_table.c.name.label("purchase_account_name"),
                 expense_opponents_table.c.name.label("expense_account_name"),
-                reimbursements_table.c.bankAccountName.label("reimbursement_account_name")
+                reimbursements_table.c.bankAccountName.label("reimbursement_account_name"),
+                salary_slips_table.c.month.label("salary_slip_month"),
+                salary_slips_table.c.year.label("salary_slips_year"),
+                employees_table.c.name.label("salary_slip_name"),
+                loans_table.c.creditorName.label("loan_creditor_name"),
+                loans_table.c.description.label("loan_description")
             ]
             
             #Base query
@@ -613,6 +693,12 @@ class PaymentOutgoing(BaseModel):
                 expenses_table, payments_outgoing_table.c.expenseID == expenses_table.c.id
             ).outerjoin(
                 expense_opponents_table, expenses_table.c.opponentID == expense_opponents_table.c.id    
+            ).outerjoin(
+                salary_slips_table, payments_outgoing_table.c.salarySlipID == salary_slips_table.c.id    
+            ).outerjoin(
+                employees_table, salary_slips_table.c.userID == employees_table.c.id    
+            ).outerjoin(
+                loans_table, payments_outgoing_table.c.loanID == loans_table.c.id    
             ).where(
                 func.extract('day', payments_outgoing_table.c.date) == date,
                 func.extract('month', payments_outgoing_table.c.date) == month,
@@ -633,6 +719,8 @@ class PaymentOutgoing(BaseModel):
                     "purchaseID": payment.purchaseID,
                     "expenseID": payment.expenseID,
                     "reimbursementID": payment.reimbursementID,
+                    "salarySlipID": payment.salarySlipID,
+                    "loanID": payment.loanID,
                     "bankAccountID": payment.bankAccountID,
                     "isApprove": payment.isApprove,
                     "isDelete": payment.isDelete,
@@ -659,6 +747,15 @@ class PaymentOutgoing(BaseModel):
                         "invoiceName": payment.expense_invoiceName,
                         "accountName": payment.expense_account_name,
                         "description": payment.expense_description
+                    },
+                    "salarySlip": None if payment.salarySlipID is None else {
+                        "month": payment.salary_slip_month,
+                        "year": payment.salary_slips_year,
+                        "name": payment.salary_slip_name
+                    },
+                    "loan": None if payment.loanID is None else {
+                        "creditorName": payment.loan_creditor_name,
+                        "description": payment.loan_description
                     }
                 } for payment in payments
             ]

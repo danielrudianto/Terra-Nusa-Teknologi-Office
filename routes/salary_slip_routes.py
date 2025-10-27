@@ -1,17 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from utils.logger_utils import log_error, log_info
 from utils.auth_utils import get_current_user
 from typing import Annotated
-from models.user_model import User
+from repository.user_repository import UserRepository
 from controllers.salary_slip_controller import SalarySlipController
-from models.salary_slip_model import SalarySlipCheck, SalarySlip
+from schemas.salary_slip_schema import SalarySlipCheck
+from utils.auth_utils import User
 
 router = APIRouter()
 
 @router.get("/{salary_slip_id}")
 async def fetch(salary_slip_id: int, current_user: Annotated[User, Depends(get_current_user)]):
     """
-    Fetch salary slips with pagination and optional keyword filtering.
+    Fetch salary slip by ID.
     """
     try:
         result = await SalarySlipController.fetchByID(salary_slip_id)
@@ -24,12 +25,12 @@ async def fetch(salary_slip_id: int, current_user: Annotated[User, Depends(get_c
         raise e
 
 @router.get("/")
-async def fetch(page: int, pageSize: int, keyword: str, current_user: Annotated[User, Depends(get_current_user)]):
+async def fetch(page: int, pageSize: int, keyword: str, month: int, year: int, current_user: Annotated[User, Depends(get_current_user)]):
     """
     Fetch salary slips with pagination and optional keyword filtering.
     """
     try:
-        result = await SalarySlipController.fetch(page, pageSize, keyword)
+        result = await SalarySlipController.fetch(page, pageSize, keyword, month, year)
         if "error" in result:
             raise HTTPException(status_code=result["status"], detail=result["error"])
         
@@ -62,7 +63,7 @@ async def create_salary_slip(salarySlip: dict, current_user: Annotated[User, Dep
     Create a new salary slip.
     
     Args:
-        salarySlip (SalarySlip): The salary slip data to be created.
+        salarySlip (dict): The salary slip data to be created.
         current_user (User): The currently authenticated user.
     
     Returns:
@@ -85,9 +86,9 @@ async def delete_salary_slip(id: int, current_user: Annotated[User, Depends(get_
         userID = current_user.id
         deleteResult = await SalarySlipController.delete(id, userID)
         if "error" in deleteResult:
-            log_error(f"Error creating salary slip: {deleteResult['error']}")
+            log_error(f"Error deleting salary slip: {deleteResult['error']}")
             raise HTTPException(status_code=deleteResult["status"], detail=deleteResult["error"])
         return deleteResult
     except HTTPException as e:
-        log_error(f"HTTPException during creation: {str(e.detail)}")
-        raise e 
+        log_error(f"HTTPException during deletion: {str(e.detail)}")
+        raise e

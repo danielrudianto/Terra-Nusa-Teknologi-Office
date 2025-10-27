@@ -60,38 +60,28 @@ class SupplierController:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
-    async def get_suppliers(keyword: str = None, page: int = 1, page_size: int = 10) -> Dict[str, Any]:
+    async def get_suppliers(keyword: str = None, page: int = 1, pageSize: int = 10) -> Dict[str, Any]:
         """
         Get suppliers from the database with Meilisearch fallback.
         """
-        log_info(f"Fetching suppliers with keyword: {keyword}, page: {page}, page_size: {page_size}")
+        log_info(f"Fetching suppliers with keyword: {keyword}, page: {page}, page_size: {pageSize}")
         try:
             # Try Meilisearch first
-            if keyword:
-                try:
-                    result = client.index("suppliers").search(
-                        keyword, 
-                        {"limit": page_size, "offset": (page - 1) * page_size}
-                    )
+            try:
+                result = client.index("suppliers").search(
+                    keyword, 
+                    {"limit": pageSize, "offset": (page - 1) * pageSize}
+                )
 
-                    if result["hits"]:
-                        return {
-                            "data": result["hits"],
-                            "count": result["estimatedTotalHits"],
-                            "page": page,
-                            "page_size": page_size
-                        }
-                except Exception as search_error:
-                    log_error(f"Meilisearch error, falling back to database: {str(search_error)}")
-            
-            # Fallback to database search
-            result = await SupplierRepository.get_paginated(
-                page=page,
-                page_size=page_size,
-                keyword=keyword
-            )
-            
-            return result
+                if result["hits"]:
+                    return {
+                        "data": result["hits"],
+                        "count": result["estimatedTotalHits"],
+                        "page": page,
+                        "page_size": pageSize
+                    }
+            except Exception as search_error:
+                log_error(f"Meilisearch error, falling back to database: {str(search_error)}")
             
         except Exception as e:
             log_error(f"Error fetching suppliers: {str(e)}")
@@ -183,11 +173,11 @@ class SupplierController:
                 address=supplier_data["address"],
                 city=supplier_data["city"],
                 province=supplier_data["province"],
-                phone_number=supplier_data["phoneNumber"],
+                phoneNumber=supplier_data["phoneNumber"],
                 email=supplier_data.get("email"),
                 npwp=supplier_data.get("npwp"),
-                items_sold=supplier_data["itemsSold"].split(",") if supplier_data["itemsSold"] else [],
-                service_area=supplier_data["serviceArea"].split(",") if supplier_data["serviceArea"] else []
+                itemsSold=supplier_data["itemsSold"].split(",") if supplier_data["itemsSold"] else [],
+                serviceArea=supplier_data["serviceArea"].split(",") if supplier_data["serviceArea"] else []
             )
             
             client.index("suppliers").add_documents([search_doc.model_dump()])

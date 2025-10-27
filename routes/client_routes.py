@@ -4,6 +4,7 @@ from controllers.client_controller import ClientController
 from schemas.client_schema import ClientCreate, ClientUpdate
 from utils.logger_utils import log_error
 from utils.auth_utils import get_current_user
+from utils.auth_utils import User
 
 router = APIRouter()
 

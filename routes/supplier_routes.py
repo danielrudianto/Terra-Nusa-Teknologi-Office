@@ -34,10 +34,10 @@ async def get_suppliers(
     current_user: Annotated[User, Depends(get_current_user)],
     keyword: str = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(10, ge=1, le=100)
+    pageSize: int = Query(10, ge=1, le=100)
 ):
     try:
-        result = await SupplierController.get_suppliers(keyword, page, page_size)
+        result = await SupplierController.get_suppliers(keyword, page, pageSize)
         if "error" in result:
             raise HTTPException(status_code=result["status"], detail=result["error"])
         return result

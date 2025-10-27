@@ -1,6 +1,6 @@
-from models.interpayment_model import Interpayment
-from models.mutation_model import Mutation
-from datetime import datetime as dt
+from repository.interpayment_repository import InterpaymentRepository
+from utils.logger_utils import log_error
+from datetime import datetime
 
 class InterpaymentController:
     """
@@ -13,7 +13,7 @@ class InterpaymentController:
         Create an interpayment in the database.
         """
         try:
-            result = await Interpayment.create_interpayment(interpayment_data)
+            result = await InterpaymentRepository.create(interpayment_data)
             if "error" in result:
                 return {"error": result["error"], "status": result["status"]}
             
@@ -22,7 +22,7 @@ class InterpaymentController:
             return {"error": str(e), "status": 500}
         
     @staticmethod
-    async def get_interpayments(page: int, pageSize: int, filterObject: dict, sortBy: str, sortByDirection: str):
+    async def get_interpayments(page: int, pageSize: int, start: str, end: str, filterObject: dict, sortBy: str, sortByDirection: str):
         """
         Retrieve a list of interpayments from the database.
         """
@@ -30,7 +30,37 @@ class InterpaymentController:
             return {"error": "Page number must be greater than 0", "status": 400}
         
         try:
-            result = await Interpayment.get_interpayments(page, pageSize, filterObject, sortBy, sortByDirection)
+            startDate = datetime.strptime(start, "%Y-%m-%d")
+            endDate = datetime.strptime(end, "%Y-%m-%d")
+            result = await InterpaymentRepository.get_interpayments(page, pageSize, startDate, endDate, filterObject, sortBy, sortByDirection)
+            if "error" in result:
+                return {"error": result["error"], "status": result["status"]}
+            
+            return result
+        except Exception as e:
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def get_interpayment_calendar_data(month: int, year: int, bankAccountID: list[int]):
+        """
+        Retrieve a list of interpayments from the database.
+        """
+        try:
+            result = await InterpaymentRepository.get_calendar_data(month, year, bankAccountID)
+            if "error" in result:
+                return {"error": result["error"], "status": result["status"]}
+            
+            return result
+        except Exception as e:
+            return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def get_interpayment_calendar_data_by_date(date: int, month: int, year: int, bankAccountID: list[int] | None):
+        """
+        Retrieve a list of interpayments from the database.
+        """
+        try:
+            result = await InterpaymentRepository.get_calendar_data_by_date(date, month, year, bankAccountID)
             if "error" in result:
                 return {"error": result["error"], "status": result["status"]}
             

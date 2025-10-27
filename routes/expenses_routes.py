@@ -1,16 +1,19 @@
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from utils.auth_utils import get_current_user
-from models.user_model import User
-from models.expense_model import Expense
+from schemas.expense_schema import ExpenseCreate, ExpenseUpdate, ExpenseFilter
 from controllers.expense_controller import ExpenseController
+from utils.auth_utils import User
 
 router = APIRouter()
 
 @router.post("/")
-async def create_expense(expense: Expense, current_user: Annotated[User, Depends(get_current_user)]):
+async def create_expense(expense: ExpenseCreate, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Create a new expense.
+    """
     try:
-        userID = current_user["id"]
+        userID = current_user.id
         result = await ExpenseController.create_expense(expense.model_dump(), userID)
         if "error" in result:
             raise HTTPException(status_code=result["status"], detail=result["error"])
@@ -19,32 +22,46 @@ async def create_expense(expense: Expense, current_user: Annotated[User, Depends
         raise e
     
 @router.get("/")
-async def get_expenses(page: int, pageSize: int, filter: int, sortBy: str, sortByDirection: str, keyword: str | None, current_user: Annotated[User, Depends(get_current_user)], isDue: bool = False, isNotDue: bool = False, isPaid: bool = False, isUnpaid: bool = False, isDraft: bool = False, isReady: bool = False):
+async def get_expenses(
+    page: int, 
+    pageSize: int, 
+    filter: int, 
+    sortBy: str, 
+    sortByDirection: str, 
+    keyword: str | None, 
+    start: str, 
+    end: str, 
+    ignore: bool, 
+    current_user: Annotated[User, Depends(get_current_user)],
+    isDue: bool = False, 
+    isNotDue: bool = False, 
+    isPaid: bool = False, 
+    isUnpaid: bool = False
+):
+    """
+    Get expenses with pagination and filtering.
+    """
     try:
         page = int(page)
         pageSize = int(pageSize)
         filter = int(filter)
-        filterObject = {}
-
-        if(filter == 0):
+        
+        if filter == 0:
             filterObject = {
                 "isDue": True,
                 "isNotDue": True,
                 "isPaid": True,
                 "isUnpaid": True,
-                "isDraft": True,
-                "isReady": True
             }
-        else :
+        else:
             filterObject = {
                 "isDue": isDue,
                 "isNotDue": isNotDue,
                 "isPaid": isPaid,
                 "isUnpaid": isUnpaid,
-                "isDraft": isDraft,
-                "isReady": isReady
             }
-        result = await ExpenseController.get_expenses(page, pageSize, filterObject, sortBy, sortByDirection, keyword)
+            
+        result = await ExpenseController.get_expenses(page, pageSize, filterObject, sortBy, sortByDirection, keyword, start, end, ignore)
         if "error" in result:
             raise HTTPException(status_code=result["status"], detail=result["error"])
         
@@ -52,27 +69,84 @@ async def get_expenses(page: int, pageSize: int, filter: int, sortBy: str, sortB
     except HTTPException as e:
         raise e
 
-@router.put("/approve")
+@router.get("/{expense_id}")
+async def get_expense_by_id(expense_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Get an expense by ID.
+    """
+    try:
+        expense = await ExpenseController.get_expense_by_id(expense_id)
+        if "error" in expense:
+            raise HTTPException(status_code=expense["status"], detail=expense["error"])
+        return expense
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/{expense_id}")
+async def update_expense(expense_id: int, expense: ExpenseUpdate, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Update an expense.
+    """
+    try:
+        userID = current_user.id
+        result = await ExpenseController.update_expense(expense_id, expense.model_dump(exclude_unset=True), userID)
+        if "error" in result:
+            raise HTTPException(status_code=result["status"], detail=result["error"])
+        return result
+    except HTTPException as e:
+        raise e
+
+@router.delete("/{expense_id}")
+async def delete_expense(expense_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Delete an expense.
+    """
+    try:
+        userID = current_user.id
+        result = await ExpenseController.delete_expense(expense_id, userID)
+        if "error" in result:
+            raise HTTPException(status_code=result["status"], detail=result["error"])
+        return result
+    except HTTPException as e:
+        raise e
+
+@router.put("/{expense_id}/approve")
 async def approve_expense_by_id(expense_id: int, current_user: Annotated[User, Depends(get_current_user)]):
     """
-    Approve payments by ID. Requires a valid token.
+    Approve an expense by ID.
     """
-    userID = current_user["id"]
-    expense = await ExpenseController.approve_expense_by_id(expense_id, userID)
-    if expense is None:
-        raise 
-
-@router.get("/payments/{purchase_id}")
-async def get_payments_by_purchase_id(purchase_id: int, current_user: Annotated[User, Depends(get_current_user)]):
-    """
-    Get payments by purchase ID. Requires a valid token.
-    """
-    expense = await ExpenseController.get_expense_by_id(purchase_id)
-    result = await ExpenseController.get_payments_by_expense_id(purchase_id)
+    userID = current_user.id
+    result = await ExpenseController.approve_expense_by_id(expense_id, userID)
     if "error" in result:
         raise HTTPException(status_code=result["status"], detail=result["error"])
+    return result
+
+@router.get("/{expense_id}/payments")
+async def get_payments_by_expense_id(expense_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Get payments by expense ID.
+    """
+    expense = await ExpenseController.get_expense_by_id(expense_id)
+    payments = await ExpenseController.get_payments_by_expense_id(expense_id)
+    
+    if "error" in payments:
+        raise HTTPException(status_code=payments["status"], detail=payments["error"])
     
     return {
         "expense": expense,
-        "payments": result
+        "payments": payments
     }
+
+@router.patch("/{expense_id}/payment-status")
+async def update_payment_status(expense_id: int, isPaid: bool, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Update payment status of an expense.
+    """
+    try:
+        userID = current_user.id
+        result = await ExpenseController.update_payment_status(expense_id, isPaid, userID)
+        if "error" in result:
+            raise HTTPException(status_code=result["status"], detail=result["error"])
+        return result
+    except HTTPException as e:
+        raise e

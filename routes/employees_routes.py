@@ -4,6 +4,7 @@ from utils.logger_utils import log_error, log_info
 from utils.auth_utils import get_current_user
 from models.employee_model import Employee
 from controllers.employee_controller import EmployeeController
+from utils.auth_utils import User
 
 router = APIRouter()
 

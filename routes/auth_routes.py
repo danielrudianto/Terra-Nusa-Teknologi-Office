@@ -4,6 +4,7 @@ from controllers.user_controller import UserController
 from datetime import datetime, timedelta
 from utils.logger_utils import log_error, log_info
 from utils.auth_utils import create_access_token, validate_token
+from utils.auth_utils import User
 
 router = APIRouter()
 
@@ -20,14 +21,14 @@ async def login(loginData: LoginData):
 
     # Generate JWT token
     payload = {
-        "user_id": result["user_id"],
+        "user_id": result["id"],
         "name": result["name"],
-        "exp": int((now + timedelta(hours=8)).timestamp()),  # Token expires in 1 hour
+        "exp": int((now + timedelta(hours=12)).timestamp()),  # Token expires in 1 hour
         "iat": int(now.timestamp()),  # Issued at
     }
 
     refresh_payload = {
-        "user_id": result["user_id"],
+        "user_id": result["id"],
         "exp": int((now + timedelta(days=7)).timestamp()),  # Refresh token expires in 30 days
         "iat": int(now.timestamp())
     }
@@ -38,8 +39,8 @@ async def login(loginData: LoginData):
         "authenticationLevel": result["authenticationLevel"],
     }
 
-    token = create_access_token(payload, timedelta(hours=1))
-    refresh_token = create_access_token(refresh_payload, timedelta(hours=8))
+    token = create_access_token(payload, timedelta(hours=12))
+    refresh_token = create_access_token(refresh_payload, timedelta(hours=7))
     
     return {"access_token": token, "refresh_token": refresh_token, "token_type": "bearer", "user": user}
     

@@ -1,51 +1,37 @@
-from sqlalchemy import insert, select
-from utils.database import database
-from models.user_model import users_table
-import bcrypt
-from fastapi.responses import JSONResponse
-from services.user_service import UserService
+from repository.user_repository import UserRepository
+from schemas.user_schema import UserCreate, UserLogin, LoginResponse, ErrorResponse
 from utils.logger_utils import log_error, log_info
 from fastapi import HTTPException
+import bcrypt
 
 class UserController:
     @staticmethod
     async def create_user(user_data: dict):
         try:
-            query = insert(user_data).values(**user_data)
-            user_id = await database.execute(query)
-            return {"message": "User created successfully", "user_id": user_id}
+            result = await UserRepository.create_user(user_data)
+            return result
         except Exception as e:
             log_error("Error creating user: %s", str(e))
-            raise e
-            
+            raise HTTPException(status_code=500, detail="Internal server error")
+
     @staticmethod
-    async def login(user_data: dict):
+    async def login(login_data: dict):
         try:
-            result = await UserService.get_user_by_email(user_data["email"])
-            hashpassword = bcrypt.hashpw(user_data["password"].encode("utf-8"), bcrypt.gensalt())
-            log_info(f"Hashed password: {hashpassword}")
+            user = await UserRepository.get_user_by_email(login_data['email'])
+            
+            if user is None:
+                log_info("Login failed - invalid credentials")
+                return ErrorResponse(
+                    error="Email or password is incorrect", 
+                    status=401
+                )
+                
+            #Check the password
+            checkpass = bcrypt.checkpw(login_data["password"].encode("utf-8"), user["password"].encode("utf-8"))
 
-            # Check if the user exists
-            if result is None:
-                log_info("User not found")
-                return {"error": "Email or password is incorrect", "status": 401}
-
-            # Verify the password
-            checkpass = bcrypt.checkpw(user_data["password"].encode("utf-8"), result["password"].encode("utf-8"))
-            log_info(f"Password check result: {checkpass}")
-            if checkpass:
-                log_info(f"Password verified for user ID: {result.id}")
-                return {
-                    "message": "Login successful",
-                    "user_id": result.id,
-                    "email": result.email,
-                    "name": result.name,
-                    "authenticationLevel": result.authenticationLevel,
-                }
-            else:
-                #print hashed password
-                log_info("Password verification failed")
-                return {"error": "Email or password is incorrect", "status": 401}
+            log_info(f"Login successful for user ID: {user.id}")
+            return user
+            
         except Exception as e:
-            log_error(e)
-            return {"error": "Internal server error", "status": 500}
+            log_error(f"Login error: {str(e)}")
+            return ErrorResponse(error="Internal server error", status=500)

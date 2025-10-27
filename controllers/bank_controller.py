@@ -192,7 +192,7 @@ class BankController:
         try:
             result = await BankAccount.delete_bank_account(bankID, userID)
             if "error" in result:
-                return {"error": "Deletion failed or bank account not found", "status": 404}
+                return {"error": result["error"], "status": result["detail"]}
             
             bank_accounts = r.lrange("bank_account", 0, -1)
             for index, account in enumerate(bank_accounts):
@@ -200,7 +200,7 @@ class BankController:
                 if account_data["id"] == bankID:
                     # Save change the status
                     account_data["isDelete"] = True
-                    await r.lset("bank_account", index, json.dumps(account_data))
+                    r.lset("bank_account", index, json.dumps(account_data))
                     break
             return {"message": "Bank account deleted successfully"}
         except Exception as e:

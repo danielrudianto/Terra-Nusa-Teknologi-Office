@@ -1,228 +1,258 @@
-from sqlalchemy import func, insert, select, update, delete, or_
-from utils.database import database
-from models.purchase_model import purchases_table, purchase_status_table, Purchase, PurchaseStatus
+from repository.purchase_repository import PurchaseRepository, PurchaseStatusRepository
 from models.payment_outgoing_model import PaymentOutgoing
 from models.mutation_model import Mutation
 from utils.logger_utils import log_error, log_info
+from fastapi import HTTPException
 from datetime import datetime
 
 class PurchaseController:
     @staticmethod
     async def create_purchase(purchase_data: dict, userID: int):
-        purchase_data["createdBy"] = userID
-        purchase_data["createdAt"] = datetime.now()
-        purchase_data["isPaid"] = True if purchase_data["isInternal"] == True else False
-        
-        lastStatus = purchase_data["lastStatus"]
-        lastStatusDescription =  purchase_data["lastStatusDescription"]
+        """
+        Create a new purchase.
+        """
         try:
-            purchase_id = await Purchase.create_purchase(purchase_data)
-            if not isinstance(purchase_id, int) and "error" in purchase_id:
+            purchase_data["createdBy"] = userID
+            purchase_data["createdAt"] = datetime.now()
+            purchase_data['isDelete'] = False
+            purchase_data["isPaid"] = True if purchase_data.get("isInternal") == True else False
+            
+            lastStatus = purchase_data["lastStatus"]
+            lastStatusDescription = purchase_data["lastStatusDescription"]
+            
+            purchase_id = await PurchaseRepository.create(purchase_data)
+            if isinstance(purchase_id, dict) and "error" in purchase_id:
                 log_error(f"Error creating purchase: {purchase_id['error']}")
-                return {"error": purchase_id["error"], "status": purchase_id["status"]}
+                raise HTTPException(status_code=purchase_id["status"], detail=purchase_id["error"])
+            
             log_info(f"Purchase created successfully with ID: {purchase_id}")
+            
             # Insert the initial status if the lastStatus is "draft"
             if lastStatus == "draft":
-                purchase_status_id = await PurchaseStatus.create_purchase_status({
+                purchase_status_id = await PurchaseStatusRepository.create({
                     "purchaseID": purchase_id,
                     "status": "draft",
                     "createdAt": purchase_data["createdAt"],
                     "description": lastStatusDescription,
                     "createdBy": userID
                 })
-                if not isinstance(purchase_status_id, int) and "error" in purchase_status_id:
+                if isinstance(purchase_status_id, dict) and "error" in purchase_status_id:
                     log_error(f"Error creating purchase status: {purchase_status_id['error']}")
-                    return {"error": purchase_status_id["error"], "status": purchase_status_id["status"]}
+                    # Don't fail the whole operation if status creation fails
+                    log_info("Purchase created but status creation failed")
             
             return {"message": "Purchase created successfully", "purchase_id": purchase_id}
+        except HTTPException:
+            raise
         except Exception as e:
             log_error(f"Error creating purchase: {str(e)}")
-            return {"error": str(e), "status": 500}
+            raise HTTPException(status_code=500, detail="Internal server error")
     
     @staticmethod
     async def check_purchase(invoiceName: str, purchaseOrderName: str):
+        """
+        Check if a purchase exists with the given invoice name and purchase order name.
+        """
         try:
-            result = await Purchase.check_purchase(invoiceName, purchaseOrderName)
+            result = await PurchaseRepository.check_exists(invoiceName, purchaseOrderName)
             if "error" in result:
-                    return {"error": result["error"], "status": result["status"]}
+                log_error(f"Error checking purchase: {result['error']}")
+                raise HTTPException(status_code=result["status"], detail=result["error"])
             
             return result
+        except HTTPException:
+            raise
         except Exception as e:
-            log_error(f"Error fetching purchases: {str(e)}")
-            return {"error": str(e), "status": 500} 
+            log_error(f"Error checking purchase: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @staticmethod
     async def get_purchases(page: int, pageSize: int, filterObject: dict, sortBy: str, sortByDirection: str, keyword: str | None):
+        """
+        Get purchases with pagination and filtering.
+        """
         if page < 1:
             return {"error": "Page number must be greater than 0", "status": 400}
         
         try:
-            result = await Purchase.get_purchases(page, pageSize, filterObject, sortBy, sortByDirection, keyword)
+            result = await PurchaseRepository.get_all(page, pageSize, filterObject, sortBy, sortByDirection, keyword)
             if "error" in result:
-                return {"error": result["error"], "status": result["status"]}
+                log_error(f"Error fetching purchases: {result['error']}")
+                raise HTTPException(status_code=result["status"], detail=result["error"])
             return result
+        except HTTPException:
+            raise
         except Exception as e:
             log_error(f"Error fetching purchases: {str(e)}")
-            return {"error": str(e), "status": 500} 
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @staticmethod
     async def get_purchase_by_id(purchaseID: int):
-        result = await Purchase.get_purchase_by_id(purchaseID)
-        if "error" in result:
-            return {"error": result["error"], "status": result["status"]}
-        
-        payments = await PaymentOutgoing.get_payments_by_purchase_id(purchaseID)
-        if "error" in payments:
-            return {"error": payments["error"], "status": payments["status"]}
-        
-        response = dict(result)
-        
-        response["payments"] = payments
-        return response
+        """
+        Get a purchase by ID.
+        """
+        try:
+            result = await PurchaseRepository.get_by_id(purchaseID)
+            if "error" in result:
+                log_error(f"Error fetching purchase: {result['error']}")
+                raise HTTPException(status_code=result["status"], detail=result["error"])
+            return result
+        except HTTPException:
+            raise
+        except Exception as e:
+            log_error(f"Error fetching purchase: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @staticmethod
     async def get_payments_by_purchase_id(purchaseID: int):
+        """
+        Get payments by purchase ID.
+        """
         try:
             result = await PaymentOutgoing.get_payments_by_purchase_id(purchaseID)
             if "error" in result:
                 log_error(f"Error fetching payments by purchase ID: {result['error']}")
-                return {"error": result["error"], "status": result["status"]}
-
+                raise HTTPException(status_code=result["status"], detail=result["error"])
             return result
+        except HTTPException:
+            raise
         except Exception as e:
             log_error(f"Error fetching payments by purchase ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            raise HTTPException(status_code=500, detail="Internal server error")
+
+    @staticmethod
+    async def get_frequent_payment_by_supplier_id(supplierID: int):
+        """
+        Get frequent payment by supplier ID.
+        """
+        try:
+            result = await PurchaseRepository.get_frequent_payment_by_supplier_id(supplierID)
+            if "error" in result:
+                log_error(f"Error fetching frequent payment by supplier ID: {result['error']}")
+                raise HTTPException(status_code=result["status"], detail=result["error"])
+            print(result)
+            return result
+        except HTTPException:
+            raise
+        except Exception as e:
+            log_error(f"Error fetching frequent payment by supplier ID: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @staticmethod
     async def get_purchase_report_by_project(projectName: str):
+        """
+        Get purchase report by project.
+        """
         try:
-            purchases = await Purchase.get_purchase_by_project(projectName)
+            purchases = await PurchaseRepository.get_by_project(projectName)
             if "error" in purchases:
                 log_error(f"Error fetching purchase report by project: {purchases['error']}")
-                return {"error": purchases["error"], "status": purchases["status"]}
-            
-            # reimbursements = await Reimbursement.get_reimbursements_by_project(projectName)
-            # if "error" in reimbursements:
-            #     log_error(f"Error fetching reimbursements by project: {reimbursements['error']}")
-            #     return {"error": reimbursements["error"], "status": reimbursements["status"]}
+                raise HTTPException(status_code=purchases["status"], detail=purchases["error"])
             
             return {
                 "purchases": purchases,
-                "reimbursements": []
+                "reimbursements": []  # Placeholder for reimbursements
             }
+        except HTTPException:
+            raise
         except Exception as e:
             log_error(f"Error fetching purchase report by project: {str(e)}")
-            return {"error": str(e), "status": 500}
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @staticmethod
     async def update_status(purchaseStatus: dict, userID: int):
+        """
+        Update purchase status.
+        """
         try:
             purchase_id = purchaseStatus["id"]
 
-            #Get the purchase
-            query = select(purchases_table).where(purchases_table.c.id == purchase_id)
-            purchase = await database.fetch_one(query)
+            # Get the purchase first to check if it exists and validate
+            purchase = await PurchaseRepository.get_by_id(purchase_id)
+            if "error" in purchase:
+                log_error(f"Error fetching purchase: {purchase['error']}")
+                raise HTTPException(status_code=purchase["status"], detail=purchase["error"])
 
-            if not purchase:
-                return {"error": "Purchase not found", "status": 404}
-            if purchase["isDelete"]:
+            if purchase.get("isDelete"):
                 return {"error": "Purchase is deleted", "status": 400}
-            if purchase["lastStatus"] == "ready":
+            if purchase.get("lastStatus") == "ready":
                 return {"error": "Purchase is already ready", "status": 400}
             
-            invoiceName = purchaseStatus["invoiceName"]
-            receiptName = purchaseStatus["receiptName"]
-            taxInvoiceName = purchaseStatus["taxInvoiceName"]
-            date = purchaseStatus["date"]
-            dueDate = purchaseStatus["dueDate"]
+            # Update the purchase status
+            result = await PurchaseRepository.update_status(purchase_id, purchaseStatus, userID)
+            if "error" in result:
+                log_error(f"Error updating purchase status: {result['error']}")
+                raise HTTPException(status_code=result["status"], detail=result["error"])
             
-            isCopAttached = purchaseStatus["isCopAttached"]
-            isCopyPurchaseOrderAttached = purchaseStatus["isCopyPurchaseOrderAttached"]
-            isInvoiceAttached = purchaseStatus["isInvoiceAttached"]
-            isReceiptAttached = purchaseStatus["isReceiptAttached"]
-            isTaxInvoiceAttached = purchaseStatus["isTaxInvoiceAttached"]
+            # Create the new status record
+            status_result = await PurchaseStatusRepository.create({
+                "purchaseID": purchase_id,
+                "status": "ready",
+                "createdAt": datetime.now(),
+                "description": None,
+                "createdBy": userID,
+            })
+            if isinstance(status_result, dict) and "error" in status_result:
+                log_error(f"Error creating purchase status: {status_result['error']}")
+                # Don't fail the whole operation if status creation fails
+                log_info("Purchase updated but status creation failed")
             
-            # First update the purchase status
-            update_query = (
-                update(purchases_table)
-                .where(purchases_table.c.id == purchase_id)
-                .values(
-                    lastStatus="ready",
-                    lastStatusDescription=None,
-                    updatedAt=datetime.now(),
-                    updatedBy=userID,
-                    invoiceName=invoiceName,
-                    receiptName=receiptName,
-                    taxInvoiceName=taxInvoiceName,
-                    date=date,
-                    dueDate=dueDate,
-                    isCopAttached=isCopAttached,
-                    isCopyPurchaseOrderAttached=isCopyPurchaseOrderAttached,
-                    isInvoiceAttached=isInvoiceAttached,
-                    isReceiptAttached=isReceiptAttached,
-                    isTaxInvoiceAttached=isTaxInvoiceAttached
-                )
-            )
-
-            await database.execute(update_query)
-            # Then insert the new status
-            status_query = insert(purchase_status_table).values(
-                purchaseID=purchase_id,
-                status="ready",
-                createdAt=datetime.now(),
-                description=None,
-                createdBy=userID,
-            )
-            await database.execute(status_query)
             return {"message": "Purchase status updated successfully"}
+        except HTTPException:
+            raise
         except Exception as e:
             log_error(f"Error updating purchase status: {str(e)}")
-            return {"error": str(e), "status": 500}
+            raise HTTPException(status_code=500, detail="Internal server error")
     
     @staticmethod
     async def delete_purchase(purchaseID: int, userID: int):
+        """
+        Delete a purchase.
+        """
         try:
             log_info(f"Attempting to delete purchase with ID: {purchaseID} by user ID: {userID}")
-            # Check if the purchase exists
-            purchase = await Purchase.get_purchase_by_id(purchaseID)
-            if "error" in purchase:
-                return {"error": purchase["error"], "status": purchase["status"]}
             
-            if purchase.isDelete:
+            # Check if the purchase exists
+            purchase = await PurchaseRepository.get_by_id(purchaseID)
+            if "error" in purchase:
+                log_error(f"Error fetching purchase: {purchase['error']}")
+                raise HTTPException(status_code=purchase["status"], detail=purchase["error"])
+            
+            if purchase.get("isDelete"):
                 return {"error": "Purchase is already deleted", "status": 400}
             
-            result = await Purchase.delete_purchase_by_id(purchaseID, userID)
+            # Delete the purchase
+            result = await PurchaseRepository.delete(purchaseID, userID)
             if "error" in result:
                 log_error(f"Error deleting purchase: {result['error']}")
-                return {"error": result["error"], "status": result["status"]}
+                raise HTTPException(status_code=result["status"], detail=result["error"])
             
             log_info(f"Purchase with ID: {purchaseID} deleted successfully by user ID: {userID}")
 
-            #Delete payments associated with the purchase
+            # Delete payments associated with the purchase
             payments_result = await PaymentOutgoing.delete_payment_by_purchase_id(purchaseID, userID)
             if "error" in payments_result:
                 log_error(f"Error deleting payments for purchase ID {purchaseID}: {payments_result['error']}")
-                return {"error": payments_result["error"], "status": payments_result["status"]}
-            
-            log_info(f"Payments for purchase ID {purchaseID} deleted successfully")
+                # Don't fail the whole operation if payment deletion fails
+                log_info(f"Purchase deleted but payment deletion failed for purchase ID {purchaseID}")
 
-            log_info(f"Fetching payments history for purchase ID: {purchaseID}")
-
+            # Get payments history for mutation deletion
             payments_history = await PaymentOutgoing.get_payments_by_purchase_id(purchaseID)
-            if "error" in payments_history:
-                log_error(f"Error fetching payments history for purchase ID {purchaseID}: {payments_history['error']}")
-                return {"error": payments_history["error"], "status": payments_history["status"]}
-            
-            log_info(f"Payments history for purchase ID {purchaseID} fetched successfully, count: {len(payments_history)}")
-
-            #Delete mutations associated with the payments
-            payment_history_result = await Mutation.delete_mutations_by_payment_ids([payment.id for payment in payments_history])
-            if "error" in payment_history_result:
-                log_error(f"Error deleting mutations for payments of purchase ID {purchaseID}: {payment_history_result['error']}")
-                return {"error": payment_history_result["error"], "status": payment_history_result["status"]}
+            if not isinstance(payments_history, dict) or "error" not in payments_history:
+                log_info(f"Fetching payments history for purchase ID: {purchaseID}")
+                
+                # Delete mutations associated with the payments
+                payment_ids = [payment["id"] for payment in payments_history] if payments_history else []
+                if payment_ids:
+                    mutation_result = await Mutation.delete_mutations_by_payment_ids(payment_ids)
+                    if "error" in mutation_result:
+                        log_error(f"Error deleting mutations for payments of purchase ID {purchaseID}: {mutation_result['error']}")
+                        # Don't fail the whole operation if mutation deletion fails
+                        log_info(f"Purchase deleted but mutation deletion failed for purchase ID {purchaseID}")
 
             return result
-
+        except HTTPException:
+            raise
         except Exception as e:
             log_error(f"Error deleting purchase: {str(e)}")
-            return {"error": str(e), "status": 500}
+            raise HTTPException(status_code=500, detail="Internal server error")

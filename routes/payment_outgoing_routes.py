@@ -1,11 +1,12 @@
-from typing import Annotated
+from typing import Annotated, List
 from fastapi import APIRouter, Depends, HTTPException, Request
 from datetime import datetime, timedelta, date
 from utils.logger_utils import log_error, log_info
-import json
 from utils.auth_utils import get_current_user
 from models.payment_outgoing_model import PaymentOutgoing
 from controllers.payment_outgoing_controller import PaymentOutgoingController
+from utils.auth_utils import User
+
 
 router = APIRouter()
 
@@ -88,6 +89,39 @@ async def get_payments(
     if "error" in result:
         log_error(f"Error fetching payments: {result['error']}")
         raise HTTPException(status_code=500, detail="Internal server error")
+    
+    return result
+
+@router.post("/approve/bulk")
+async def approve_bulk_payment_status(
+    payments: List[int],
+    user: Annotated[dict, Depends(get_current_user)]
+):
+    """
+    Approve multiple payments by their IDs. Requires a valid token.
+    """
+    userID = user["id"]
+    result = await PaymentOutgoingController.update_bulk_payment_status(payments, "approve", userID)
+    if "error" in result:
+        log_error(f"Error approving payments: {result['error']}")
+        raise HTTPException(status_code=result['status'], detail=result['error'])
+    
+    return result
+
+@router.post("/reject/bulk")
+async def approve_bulk_payment_status(
+    payments: List[int],
+    user: Annotated[dict, Depends(get_current_user)]
+):
+    """
+    Approve multiple payments by their IDs. Requires a valid token.
+    """
+    userID = user["id"]
+    result = await PaymentOutgoingController.update_bulk_payment_status(payments, "reject", userID)
+    
+    if "error" in result:
+        log_error(f"Error approving payments: {result['error']}")
+        raise HTTPException(status_code=result['status'], detail=result['error'])
     
     return result
 

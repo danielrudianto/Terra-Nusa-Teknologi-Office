@@ -1,21 +1,19 @@
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, Request
-from controllers.bank_controller import BankController
-from utils.auth_utils import get_current_user
-from models.user_model import User
-from models.interpayment_model import Interpayment
+from fastapi import APIRouter, Depends, HTTPException
 from controllers.interpayment_controller import InterpaymentController
+from schemas.interpayment_schema import InterpaymentCreate, CreateInterpaymentResponse, InterpaymentListResponse
+from utils.auth_utils import get_current_user, User
 from utils.logger_utils import log_error
 
 router = APIRouter()
 
-@router.post("/")
-async def create_interpayment(interpayment: Interpayment, user: Annotated[User, Depends(get_current_user)]):
+@router.post("/", response_model=CreateInterpaymentResponse)
+async def create_interpayment(interpayment: InterpaymentCreate, user: Annotated[User, Depends(get_current_user)]):
     """
     Create a new interpayment. Requires a valid token.
     """
     userID = user["id"]
-    interpayment_data = interpayment.model_dump()
+    interpayment_data = interpayment.dict()
     interpayment_data["createdBy"] = userID
     result = await InterpaymentController.create_interpayment(interpayment_data)
     if "error" in result:
@@ -24,10 +22,12 @@ async def create_interpayment(interpayment: Interpayment, user: Annotated[User, 
     
     return result
 
-@router.get("/")
+@router.get("/", response_model=InterpaymentListResponse)
 async def get_interpayments(
     page: int,
     pageSize: int,
+    start: str,
+    end: str,
     user: Annotated[User, Depends(get_current_user)],
     sortBy: str = "date",
     sortByDirection: str = "desc",
@@ -37,11 +37,48 @@ async def get_interpayments(
     """
     filterObject = {}
     result = await InterpaymentController.get_interpayments(
-        page, pageSize, filterObject, sortBy, sortByDirection
+        page, pageSize, start, end, filterObject, sortBy, sortByDirection
     )
     
     if "error" in result:
         log_error(f"Error fetching interpayments: {result['error']}")
+        raise HTTPException(status_code=result["status"], detail=result["error"])
+    
+    return result
+
+@router.get("/calendar")
+async def get_interpayment_calendar_data(
+    month: int,
+    year: int,
+    bankAccountID: list[int],
+    user: Annotated[User, Depends(get_current_user)]
+):
+    """
+    Get interpayment data for calendar view.
+    """
+    result = await InterpaymentController.get_interpayment_calendar_data(month, year, bankAccountID)
+    
+    if "error" in result:
+        log_error(f"Error fetching interpayment calendar data: {result['error']}")
+        raise HTTPException(status_code=result["status"], detail=result["error"])
+    
+    return result
+
+@router.get("/calendar/date")
+async def get_interpayment_calendar_data_by_date(
+    date: int,
+    month: int,
+    year: int,
+    user: Annotated[User, Depends(get_current_user)],
+    bankAccountID: list[int] | None = None,
+):
+    """
+    Get interpayment data for specific date in calendar view.
+    """
+    result = await InterpaymentController.get_interpayment_calendar_data_by_date(date, month, year, bankAccountID)
+    
+    if "error" in result:
+        log_error(f"Error fetching interpayment calendar data by date: {result['error']}")
         raise HTTPException(status_code=result["status"], detail=result["error"])
     
     return result

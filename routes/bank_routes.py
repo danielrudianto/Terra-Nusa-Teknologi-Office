@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from controllers.bank_controller import BankController
 from repository.bank_account_repository import BankAccount
 from utils.auth_utils import get_current_user
-from models.user_model import User
+from utils.auth_utils import User
 
 router = APIRouter()
 

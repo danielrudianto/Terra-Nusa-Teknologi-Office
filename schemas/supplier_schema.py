@@ -39,8 +39,8 @@ class SupplierSearchDocument(BaseModel):
     address: str
     city: str
     province: str
-    phone_number: str
+    phoneNumber: str
     email: Optional[str] = None
     npwp: Optional[str] = None
-    items_sold: list[str]
-    service_area: list[str]
+    itemsSold: list[str]
+    serviceArea: list[str]

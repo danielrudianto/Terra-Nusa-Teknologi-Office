@@ -1,9 +1,10 @@
 from fastapi import APIRouter, HTTPException, Depends
 from controllers.tax_controller import TaxController
 from utils.logger_utils import log_error
-from models.user_model import User
+from repository.user_repository import UserRepository
 from typing import Annotated
 from utils.auth_utils import get_current_user
+from utils.auth_utils import User
 
 router = APIRouter()
 
