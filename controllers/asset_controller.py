@@ -17,12 +17,10 @@ class AssetController:
         try:
             # Add user ID to asset data
             asset_data["createdBy"] = user_id
-            
-            # Validate and create asset model
-            asset_create = AssetCreate(**asset_data)
+            print(asset_data)
             
             # Use repository to create asset
-            result = await AssetRepository.create(asset_create)
+            result = await AssetRepository.create(asset_data)
             
             if "error" in result:
                 log_error(f"Error creating asset: {result['error']}")

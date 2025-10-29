@@ -14,7 +14,7 @@ class AssetBase(BaseModel):
     purchaseDate: d = Field(..., title="Purchase date of the asset")
 
 class AssetCreate(AssetBase):
-    createdBy: Optional[int] = None
+    pass
 
 class AssetUpdate(BaseModel):
     name: Optional[Annotated[str, Field(max_length=45)]] = None

@@ -13,6 +13,9 @@ class InterpaymentController:
         Create an interpayment in the database.
         """
         try:
+            interpayment_data["isDelete"] = False
+            interpayment_data["createdAt"] = datetime.now()
+            
             result = await InterpaymentRepository.create(interpayment_data)
             if "error" in result:
                 return {"error": result["error"], "status": result["status"]}

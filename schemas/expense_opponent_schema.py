@@ -10,9 +10,7 @@ class ExpenseOpponentBase(BaseModel):
     npwp: Optional[str] = Field(None, description="NPWP number")
 
 class ExpenseOpponentCreate(ExpenseOpponentBase):
-    createdBy: int = Field(..., description="ID of the user who created the expense opponent")
-    createdAt: dt = Field(default_factory=dt.now, description="Creation timestamp")
-    isDelete: bool = Field(False, description="Flag to indicate if the expense opponent is deleted")
+    pass
 
 class ExpenseOpponentUpdate(BaseModel):
     name: Optional[str] = None

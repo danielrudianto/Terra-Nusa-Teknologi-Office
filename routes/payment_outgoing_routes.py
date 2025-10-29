@@ -125,6 +125,20 @@ async def approve_bulk_payment_status(
     
     return result
 
+@router.post("/move")
+async def move_payment_date(payment: dict,user: Annotated[dict, Depends(get_current_user)]):
+    #Convert date from yyyy-mm-dd to date object
+    date = payment.get("date")
+    paymentID = payment.get("id")
+    userID = user["id"]
+    result = await PaymentOutgoingController.move_payment(paymentID,  date, userID)
+    
+    if "error" in result:
+        log_error(f"Error approving payment with ID {paymentID}: {result['error']}")
+        raise HTTPException(status_code=result['status'], detail=result['error'])
+    
+    return result
+
 @router.put("/approve/{paymentID}")
 async def update_payment_status(
     paymentID: int,

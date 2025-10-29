@@ -196,6 +196,28 @@ class PaymentOutgoingController:
             return {"error": str(e), "status": 500}
 
     @staticmethod
+    async def move_payment(id: int, date: str, userID: int):
+        log_info(f"Moving payment with ID: {id} to date: {date}")
+        try:
+            payment = await PaymentOutgoing.get_payment_by_id(id)
+            if "error" in payment:
+                log_error(f"Error fetching payment with ID {id}: {payment['error']}")
+                return {"error": payment["error"], "status": payment.get("status", 500)}
+            
+            #Next check if payment isApprove || payment.isDelete, cannot move the date
+            if payment.isApprove or payment.isDelete:
+                return {"error": "Cannot move a payment that is approved or deleted", "status": 400}
+            
+            result = await PaymentOutgoing.move_payment(id, date, userID)
+            if "error" in result:
+                log_error(f"Error moving payment: {result['error']}")
+                return {"error": result["error"], "status": result.get("status", 500)}
+            return result
+        except Exception as e:
+            log_error(f"Error moving payment: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
     async def update_payment_status(id: int, status: str, userID: int):
         """
         Update the status of a payment.

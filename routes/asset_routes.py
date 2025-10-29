@@ -3,15 +3,17 @@ from controllers.asset_controller import AssetController
 from schemas.asset_schema import AssetCreate, AssetUpdate
 from utils.auth_utils import get_current_user
 from utils.auth_utils import User
+from typing import Annotated
 
 router = APIRouter()
 
 @router.post("/")
 async def create_asset(
-    asset_data: AssetCreate, 
-    user_id: int = Depends(get_current_user)
+    asset_data: dict, 
+    current_user: Annotated[User, Depends(get_current_user)]
 ):
-    return await AssetController.create_asset(asset_data.model_dump(), user_id)
+    userID = current_user["id"]
+    return await AssetController.create_asset(asset_data, userID)
 
 @router.get("/")
 async def get_assets(

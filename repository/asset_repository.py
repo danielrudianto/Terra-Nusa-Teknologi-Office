@@ -17,7 +17,7 @@ class AssetRepository:
         """
         try:
             query = asset_table.insert().values(
-                **asset_data.model_dump(exclude_none=True),
+                **asset_data,
                 createdAt=dt.now()
             )
             result = await database.execute(query)

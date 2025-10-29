@@ -577,6 +577,24 @@ class PaymentOutgoing(BaseModel):
             return {"error": str(e), "status": 500}
         
     @staticmethod
+    async def move_payment(id: int, date: d, userID: int):
+        log_info(f"Moving payment with ID: {id} to date: {date}")
+        query = payments_outgoing_table.update().where(
+            payments_outgoing_table.c.id == id
+        ).values(
+            date=date,
+            updatedAt=dt.now(),
+            updatedBy=userID
+        )
+        
+        try:
+            await database.execute(query)
+            return {"message": "Payment moved successfully"}
+        except Exception as e:
+            log_error(f"Error moving payment: {str(e)}")
+            return {"error": str(e), "status": 500}
+        
+    @staticmethod
     async def delete_payment_by_purchase_id(purchaseID: int, userID: int):
         """
         Delete all payments associated with a specific purchase ID.
