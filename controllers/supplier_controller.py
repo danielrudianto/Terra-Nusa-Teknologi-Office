@@ -70,7 +70,7 @@ class SupplierController:
             try:
                 result = client.index("suppliers").search(
                     keyword, 
-                    {"limit": pageSize, "offset": (page - 1) * pageSize}
+                    {"limit": pageSize, "offset": (page) * pageSize}
                 )
 
                 if result["hits"]:

@@ -20,6 +20,7 @@ from routes.tax_routes import router as tax_router
 from routes.purchase_draft_routes import router as purchase_draft_router
 from routes.income_routes import router as income_router
 from routes.loan_routes import router as loan_router
+from routes.purchase_order_routes import router as purchase_order_router
 
 # Create a router instance
 router = APIRouter()
@@ -45,3 +46,4 @@ router.include_router(tax_router, prefix="/taxes", tags=["Taxes"])
 router.include_router(purchase_draft_router, prefix="/purchase-draft", tags=["Purchase draft"])
 router.include_router(income_router, prefix="/income", tags=["Income"])
 router.include_router(loan_router, prefix="/loans", tags=["Loan"])
+router.include_router(purchase_order_router, prefix="/purchase-orders", tags=["Purchase Orders"])

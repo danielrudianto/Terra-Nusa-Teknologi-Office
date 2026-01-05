@@ -4,7 +4,7 @@ from utils.auth_utils import get_current_user
 from schemas.user_schema import UserLogin
 from schemas.purchase_schema import (
     PurchaseCreate, PurchaseUpdateStatus, PurchaseCheckRequest,
-    PurchaseResponse, PurchaseListResponse
+    PurchaseListResponse
 )
 from controllers.purchase_controller import PurchaseController
 from utils.logger_utils import log_error
@@ -57,7 +57,7 @@ async def get_frequent_payment_by_supplier_id(
     
     return result
 
-@router.get("/report/project", response_model=dict)
+@router.get("/report/project/{projectName}", response_model=dict)
 async def get_purchase_report_by_project(
     projectName: str, 
     current_user: Annotated[User, Depends(get_current_user)]
@@ -65,13 +65,13 @@ async def get_purchase_report_by_project(
     """
     Get a report of purchases by project name.
     """
-    result = await PurchaseController.get_purchase_report_by_project(projectName)
-    if "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+    purchases = await PurchaseController.get_purchase_report_by_project(projectName)
+    if "error" in purchases:
+        raise HTTPException(status_code=purchases["status"], detail=purchases["error"])
     
-    return result
+    return purchases
 
-@router.get("/payments/{purchase_id}", response_model=dict)
+@router.get("/payments/{purchase_id}")
 async def get_payments_by_purchase_id(
     purchase_id: int, 
     current_user: Annotated[User, Depends(get_current_user)]
@@ -80,16 +80,12 @@ async def get_payments_by_purchase_id(
     Get payments by purchase ID.
     """
     purchase = await PurchaseController.get_purchase_by_id(purchase_id)
-    result = await PurchaseController.get_payments_by_purchase_id(purchase_id)
-    if "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+    if "error" in purchase:
+        raise HTTPException(status_code=purchase["status"], detail=purchase["error"])
     
-    return {
-        "purchase": purchase,
-        "payments": result
-    }
+    return purchase
 
-@router.get("/{purchase_id}", response_model=PurchaseResponse)
+@router.get("/{purchase_id}")
 async def get_purchase_by_id(
     purchase_id: int, 
     current_user: Annotated[User, Depends(get_current_user)]

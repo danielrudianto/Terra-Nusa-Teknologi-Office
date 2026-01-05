@@ -1,6 +1,6 @@
 from repository.interpayment_repository import InterpaymentRepository
 from utils.logger_utils import log_error
-from datetime import datetime
+from datetime import datetime, date as d
 
 class InterpaymentController:
     """
@@ -24,6 +24,35 @@ class InterpaymentController:
         except Exception as e:
             return {"error": str(e), "status": 500}
         
+    @staticmethod
+    async def delete_interpayment(interpaymentID: int, userID: int):
+        """
+        Delete an interpayment from the database.
+        """
+        try:
+            interpayment = await InterpaymentRepository.get_by_id(interpaymentID)
+            if not interpayment:
+                return {"error": "Interpayment not found", "status": 404}
+            
+            #If interpayment is deleted, then return error
+            if interpayment["isDelete"]:
+                return {"error": "Interpayment already deleted", "status": 400}
+            
+            #If interpayment is today or later, then proceed the deletation, if it's in the past
+            #First convert the interpayment date to datetime object (YYYY-MM-dd)
+            #Convert interpayment['date'] from datetime object to 
+            
+            if interpayment['date'] < d.today():
+                return {"error": "Interpayment is in the past", "status": 400}
+            
+            result = await InterpaymentRepository.delete(interpaymentID, userID)
+            if "error" in result:
+                return {"error": result["error"], "status": result["status"]}
+            
+            return {"message": "Interpayment deleted successfully"}
+        except Exception as e:
+            return {"error": str(e), "status": 500}
+
     @staticmethod
     async def get_interpayments(page: int, pageSize: int, start: str, end: str, filterObject: dict, sortBy: str, sortByDirection: str):
         """

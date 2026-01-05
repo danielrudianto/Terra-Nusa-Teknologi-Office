@@ -7,6 +7,7 @@ class InterpaymentBase(BaseModel):
     bankAccountIDDestination: int = Field(..., title="ID of the destination bank account", ge=1)
     amount: float = Field(..., title="Amount to be transferred", ge=0)
     date: datetime = Field(default_factory=datetime.now, title="Date of the interpayment")
+    description: str = Field("Setoran kas operasional")
 
 class InterpaymentCreate(InterpaymentBase):
     createdBy: Optional[int] = Field(default=None, title="ID of the user who created the interpayment", ge=1)
@@ -16,6 +17,7 @@ class InterpaymentResponse(BaseModel):
     bankAccountIDOrigin: int
     bankAccountIDDestination: int
     amount: float
+    description: str
     date: datetime
     createdBy: Optional[int] = None
     createdAt: datetime

@@ -15,21 +15,66 @@ client = meilisearch.Client("http://localhost:7700", masterKey)
 index_name = "suppliers"
 index = client.index(index_name)
 # Initialize Meilisearch settings
+# Improved Meilisearch settings
 settings = {
-    "displayedAttributes": ["id", "name", "address", "city", "province", "phone_number", "email", "npwp", "items_sold", "service_area"],
-    "searchableAttributes": ["name", "address", "city", "province", "phone_number", "email", "npwp", "items_sold", "service_area"],
-    "filterableAttributes": ["is_active"],
+    "displayedAttributes": [
+        "id", "prefix", "name", "address", "city", "province", 
+        "phone_number", "email", "npwp", "items_sold", "service_area"
+    ],
+    "searchableAttributes": [
+        "name", "prefix", "items_sold", "service_area", "city", 
+        "province", "address", "email"
+    ],
+    "filterableAttributes": [
+        "city", "province", "service_area", "items_sold", "is_active",
+        "created_by", "prefix"
+    ],
+    "sortableAttributes": ["name", "city", "province"],
+    "rankingRules": [
+        "words",
+        "typo",
+        "proximity",
+        "attribute",
+        "sort",
+        "exactness"
+    ],
+    "stopWords": ["pt", "cv", "ud", "tbk", "lainnya", "pribadi"],
+    "nonSeparatorTokens": [".", ",", "-"],
+    "separatorTokens": ["/", "\\", "&"]
 }
 
 client.index(index_name).update_settings(settings)
-client.index(index_name).update_synonyms({
-    "jabodetabek": ["jakarta", "depok", "tangerang", "bekasi", "bogor"],
-    "jawa barat": ["bandung", "cimahi", "bekasi", "bogor"],
-    "jawa tengah": ["semarang", "solo", "salatiga", "magelang"],
-    "jawa timur": ["surabaya", "malang", "kediri", "probolinggo"],
-    "bali": ["denpasar", "badung", "tabanan", "klungkung"],
-    "sumatera utara": ["medan", "binjai", "deliserdang", "langkat"],
-})
+# Enhanced synonyms mapping
+expanded_synonyms = {
+    "jabodetabek": ["jakarta", "depok", "tangerang", "bekasi", "bogor", "jabodetabek"],
+    "bekasi": ["cikarang", "kabupaten bekasi"],
+    "jawa barat": ["bandung", "cimahi", "bekasi", "bogor", "jabar", "west java"],
+    "jawa tengah": ["semarang", "solo", "salatiga", "magelang", "surakarta", "jateng", "central java"],
+    "jawa timur": ["surabaya", "malang", "kediri", "probolinggo", "sidoarjo", "mojokerto", "jatim", "east java"],
+    "bali": ["denpasar", "badung", "tabanan", "klungkung", "kuta", "ubud"],
+    "sumatera utara": ["medan", "binjai", "deliserdang", "langkat", "sumut", "north sumatra"],
+    "dki jakarta": ["jakarta pusat", "jakarta selatan", "jakarta timur", "jakarta utara", "jakarta barat"],
+    "sewa": ["rental", "penyewaan"],
+    "forklift": ["alat angkat", "material handling"],
+    "excavator": ["backhoe", "beko"],
+    "genset": ["generator", "generator set"],
+    "selfloader": ["truk angkut", "truk muat sendiri"],
+    "trailer": ["kereta gandeng", "truk gandeng"],
+    "tronton": ["truk besar", "truk 3 sumbu"]
+}
+
+client.index(index_name).update_synonyms(expanded_synonyms)
+
+typo_settings = {
+    "minWordSizeForTypos": {
+        "oneTypo": 4,
+        "twoTypos": 8
+    },
+    "disableOnWords": [],
+    "disableOnAttributes": ["id", "npwp"]
+}
+
+client.index(index_name).update_typo_tolerance(typo_settings)
 
 async def sync_meilisearch():
     try:

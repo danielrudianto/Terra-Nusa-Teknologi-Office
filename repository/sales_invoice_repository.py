@@ -25,6 +25,35 @@ class SalesInvoiceRepository:
             return {"error": str(e), "status": 500}
 
     @staticmethod
+    async def get_by_project(projectName: str):
+        try:
+            client_columns = [
+                clients_table.c.name.label("client_name"),
+                clients_table.c.id.label("client_id"),
+                clients_table.c.address.label("client_address"),
+                clients_table.c.city.label("client_city"),
+                clients_table.c.province.label("client_province"),
+                clients_table.c.prefix.label("client_prefix"),
+            ]
+            
+            query = select(
+                *sales_invoice_tables.c,
+                *client_columns
+            ).join(
+                clients_table, 
+                sales_invoice_tables.c.clientID == clients_table.c.id
+            ).where(
+                sales_invoice_tables.c.projectName == projectName,
+                sales_invoice_tables.c.isDelete == False
+            )
+            
+            result = await database.fetch_all(query)
+            return [dict(row) for row in result]
+        except Exception as e:
+            log_error(f"Error fetching sales invoice by name: {str(e)}")
+            raise
+
+    @staticmethod
     async def get_by_id(sales_invoice_id: int) -> Optional[SalesInvoiceWithClientResponse]:
         """
         Get a sales invoice by ID with client information.

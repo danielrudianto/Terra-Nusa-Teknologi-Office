@@ -416,35 +416,59 @@ class PaymentOutgoing(BaseModel):
             list: A list of payments associated with the purchase.
         """
         log_info(f"Retrieving payments for purchase ID: {purchaseID}")
-        query = select(payments_outgoing_table).where(
+        select_columns = [
+            payments_outgoing_table,  # Selects all columns from interpayment_table
+            bank_accounts_table.c.bankAccountName.label("bankAccountName"),
+            bank_accounts_table.c.bankAccountNumber.label("bankAccountNumber"),
+            bank_accounts_table.c.bankName.label("bankName")
+        ]
+        query = select(
+            *select_columns
+        ).select_from(
+            payments_outgoing_table
+        ).outerjoin(
+            bank_accounts_table, payments_outgoing_table.c.bankAccountID == bank_accounts_table.c.id
+        ).where(
             payments_outgoing_table.c.purchaseID == purchaseID,
             payments_outgoing_table.c.isDelete == False
         )
         
         payments = await database.fetch_all(query)
-        
-        return [PaymentOutgoing(**payment) for payment in payments]
+            
+        return payments
 
     @staticmethod
     async def get_payments_by_reimbursement_id(reimbursementID: int):
         """
-        Get all payments associated with a specific reimbursement ID.
+        Get all payments associated with a specific purchase ID.
         
         Args:
-            reimbursementID (int): The ID of the reimbursement.
+            purchaseID (int): The ID of the purchase.
         
         Returns:
-            list: A list of payments associated with the reimbursement.
+            list: A list of payments associated with the purchase.
         """
         log_info(f"Retrieving payments for reimbursement ID: {reimbursementID}")
-        query = select(payments_outgoing_table).where(
+        select_columns = [
+            payments_outgoing_table,  # Selects all columns from interpayment_table
+            bank_accounts_table.c.bankAccountName.label("bankAccountName"),
+            bank_accounts_table.c.bankAccountNumber.label("bankAccountNumber"),
+            bank_accounts_table.c.bankName.label("bankName")
+        ]
+        query = select(
+            *select_columns
+        ).select_from(
+            payments_outgoing_table
+        ).outerjoin(
+            bank_accounts_table, payments_outgoing_table.c.bankAccountID == bank_accounts_table.c.id
+        ).where(
             payments_outgoing_table.c.reimbursementID == reimbursementID,
             payments_outgoing_table.c.isDelete == False
         )
         
         payments = await database.fetch_all(query)
-        
-        return [PaymentOutgoing(**payment) for payment in payments]
+            
+        return payments
     
     @staticmethod
     async def get_payments_by_expense_id(expenseID: int):
@@ -458,12 +482,26 @@ class PaymentOutgoing(BaseModel):
             list: A list of payments associated with the purchase.
         """
         log_info(f"Retrieving payments for expense ID: {expenseID}")
-        query = select(payments_outgoing_table).where(
+        select_columns = [
+            payments_outgoing_table,  # Selects all columns from interpayment_table
+            bank_accounts_table.c.bankAccountName.label("bankAccountName"),
+            bank_accounts_table.c.bankAccountNumber.label("bankAccountNumber"),
+            bank_accounts_table.c.bankName.label("bankName")
+        ]
+        query = select(
+            *select_columns
+        ).select_from(
+            payments_outgoing_table
+        ).outerjoin(
+            bank_accounts_table, payments_outgoing_table.c.bankAccountID == bank_accounts_table.c.id
+        ).where(
             payments_outgoing_table.c.expenseID == expenseID,
             payments_outgoing_table.c.isDelete == False
         )
         
         payments = await database.fetch_all(query)
+            
+        return payments
         
         return [PaymentOutgoing(**payment) for payment in payments]
     
@@ -841,7 +879,7 @@ class PaymentOutgoing(BaseModel):
             conditions = [
                 payments_outgoing_table.c.isApprove == True,
                 purchases_table.c.isDelete == False,
-                purchases_table.c.pphPercentage > 0,
+                purchases_table.c.pphCode != None,
                 func.extract('month', payments_outgoing_table.c.date) == month,
                 func.extract('year', payments_outgoing_table.c.date) == year
             ]
@@ -905,7 +943,7 @@ class PaymentOutgoing(BaseModel):
             conditions = [
                 payments_outgoing_table.c.isApprove == True,
                 expenses_table.c.isDelete == False,
-                expenses_table.c.pphPercentage > 0,
+                expenses_table.c.pphCode != None,
                 func.extract('month', payments_outgoing_table.c.date) == month,
                 func.extract('year', payments_outgoing_table.c.date) == year
             ]

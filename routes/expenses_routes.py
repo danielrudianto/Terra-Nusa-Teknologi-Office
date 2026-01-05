@@ -78,6 +78,7 @@ async def get_expense_by_id(expense_id: int, current_user: Annotated[User, Depen
         expense = await ExpenseController.get_expense_by_id(expense_id)
         if "error" in expense:
             raise HTTPException(status_code=expense["status"], detail=expense["error"])
+        
         return expense
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

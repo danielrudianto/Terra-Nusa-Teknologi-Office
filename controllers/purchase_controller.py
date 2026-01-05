@@ -1,6 +1,9 @@
 from repository.purchase_repository import PurchaseRepository, PurchaseStatusRepository
 from models.payment_outgoing_model import PaymentOutgoing
 from models.mutation_model import Mutation
+from repository.reimbursement_repository import ReimbursementRepository
+from repository.sales_invoice_repository import SalesInvoiceRepository
+from models.purchase_draft_model import PurchaseDraft
 from utils.logger_utils import log_error, log_info
 from fastapi import HTTPException
 from datetime import datetime
@@ -71,7 +74,7 @@ class PurchaseController:
         """
         Get purchases with pagination and filtering.
         """
-        if page < 1:
+        if page < 0:
             return {"error": "Page number must be greater than 0", "status": 400}
         
         try:
@@ -93,12 +96,14 @@ class PurchaseController:
         """
         try:
             result = await PurchaseRepository.get_by_id(purchaseID)
+            payments = await PaymentOutgoing.get_payments_by_purchase_id(purchaseID)
             if "error" in result:
                 log_error(f"Error fetching purchase: {result['error']}")
                 raise HTTPException(status_code=result["status"], detail=result["error"])
-            return result
-        except HTTPException:
-            raise
+            return {
+                "purchase": result,
+                "payments": payments
+            }
         except Exception as e:
             log_error(f"Error fetching purchase: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error")
@@ -149,9 +154,27 @@ class PurchaseController:
                 log_error(f"Error fetching purchase report by project: {purchases['error']}")
                 raise HTTPException(status_code=purchases["status"], detail=purchases["error"])
             
+            reimbursements = await ReimbursementRepository.get_by_project(projectName)
+            if "error" in reimbursements:
+                log_error(f"Error fetching purchase report by project: {reimbursements['error']}")
+                raise HTTPException(status_code=reimbursements["status"], detail=reimbursements["error"])
+            
+            purchase_drafts = await PurchaseDraft.get_by_project(projectName)
+            if "error" in purchase_drafts:
+                log_error(f"Error fetching purchase report by project: {purchase_drafts['error']}")
+                raise HTTPException(status_code=purchase_drafts["status"], detail=purchase_drafts["error"])
+            
+            sales_invoices = await SalesInvoiceRepository.get_by_project(projectName)
+            if "error" in sales_invoices:
+                log_error(f"Error fetching purchase report by project: {sales_invoices['error']}")
+                raise HTTPException(status_code=sales_invoices["status"], detail=sales_invoices["error"])
+
+            
             return {
                 "purchases": purchases,
-                "reimbursements": []  # Placeholder for reimbursements
+                "reimbursements": reimbursements,
+                "purchase_drafts": purchase_drafts,
+                "sales_invoices": sales_invoices
             }
         except HTTPException:
             raise

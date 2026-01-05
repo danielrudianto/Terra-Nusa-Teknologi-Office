@@ -33,8 +33,8 @@ async def get_suppliers(
     request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
     keyword: str = Query(None),
-    page: int = Query(1, ge=1),
-    pageSize: int = Query(10, ge=1, le=100)
+    page: int = Query(0, ge=0),
+    pageSize: int = Query(10, ge=10, le=100)
 ):
     try:
         result = await SupplierController.get_suppliers(keyword, page, pageSize)

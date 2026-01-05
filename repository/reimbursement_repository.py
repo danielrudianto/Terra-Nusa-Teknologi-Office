@@ -151,6 +151,36 @@ class ReimbursementRepository:
             return {"error": str(e), "status": 500}
 
     @staticmethod
+    async def get_by_project(projectName: str):
+        try:
+            amount_subq = (
+                select(
+                    reimbursement_items_table.c.reimbursementID,
+                    func.sum(reimbursement_items_table.c.amount).label("amount")
+                )
+                .group_by(reimbursement_items_table.c.reimbursementID)
+            ).subquery()
+
+            query = (
+                select(
+                    reimbursements_table,
+                    amount_subq.c.amount
+                )
+                .select_from(
+                    reimbursements_table.outerjoin(
+                        amount_subq, reimbursements_table.c.id == amount_subq.c.reimbursementID
+                    )
+                )
+                .where(reimbursements_table.c.isDelete == False, reimbursements_table.c.projectName == projectName)
+            )
+
+            reimbursements = await database.fetch_all(query)
+            return [dict(record) for record in reimbursements]
+        except Exception as e:
+            log_error(f"Error getting reimbursement items by project: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
     async def approve_reimbursement_by_id(reimbursementID: int, userID: int):
         try:
             query = (

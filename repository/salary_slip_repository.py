@@ -127,6 +127,7 @@ class SalarySlipRepository:
                 salary_slips_table.c.bankAccountNumber,
                 salary_slips_table.c.paymentMethod,
                 employees_table.c.name,
+                employees_table.c.nik,
             ).join(
                 employees_table, salary_slips_table.c.userID == employees_table.c.id
             ).where(
@@ -135,6 +136,7 @@ class SalarySlipRepository:
             result = await database.fetch_one(query)
             if not result:
                 return {"error": "Salary slip not found", "status": 404}
+            print(dict(result))
             return dict(result)
         except Exception as e:
             log_error(f"Error fetching salary slip by ID: {str(e)}")

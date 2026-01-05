@@ -1,5 +1,5 @@
 from datetime import datetime as dt
-from sqlalchemy import Table, Column, Integer, Boolean, DateTime, Float
+from sqlalchemy import Table, Column, Integer, Boolean, DateTime, Float, String
 from utils.database import metadata
 
 interpayment_table = Table(
@@ -9,6 +9,7 @@ interpayment_table = Table(
     Column("bankAccountIDOrigin", Integer(), nullable=False),
     Column("bankAccountIDDestination", Integer(), nullable=False),
     Column("amount", Float(), nullable=False),
+    Column("description", String, nullable=False),
     Column("date", DateTime(), default=dt.now, nullable=False),
     Column("isDelete", Boolean(), default=False, nullable=False),
     Column("createdBy", Integer(), nullable=False),

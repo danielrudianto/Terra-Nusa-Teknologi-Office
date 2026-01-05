@@ -95,7 +95,16 @@ class ExpenseController:
             if "error" in expense:
                 log_error(f"Error retrieving expense: {expense['error']}")
                 raise HTTPException(status_code=expense["status"], detail=expense["error"])
-            return expense
+        
+            payments = await PaymentOutgoing.get_payments_by_expense_id(id)
+            if "error" in payments:
+                log_error(f"Error retrieving payments for expense ID {id}: {payments['error']}")
+                raise HTTPException(status_code=payments["status"], detail=payments["error"])
+            
+            return {
+                "expense": expense,
+                "payments": payments
+            }
         except HTTPException:
             raise
         except Exception as e:

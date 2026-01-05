@@ -22,6 +22,16 @@ async def create_interpayment(interpayment: InterpaymentCreate, user: Annotated[
     
     return result
 
+@router.delete("/{interpaymentID}")
+async def delete_interpayment(interpaymentID: int, user: Annotated[User, Depends(get_current_user)]):
+    userID = user["id"]
+    result = await InterpaymentController.delete_interpayment(interpaymentID, userID)
+    if "error" in result:
+        log_error(f"Error deleting interpayment: {result['error']}")
+        raise HTTPException(status_code=result["status"], detail=result["error"])
+    
+    return result
+
 @router.get("/", response_model=InterpaymentListResponse)
 async def get_interpayments(
     page: int,

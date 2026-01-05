@@ -98,7 +98,51 @@ class PaymentIncoming(BaseModel):
         payments = await database.fetch_all(query)
         
         return [PaymentIncoming(**payment) for payment in payments]
-    
+
+    @staticmethod
+    async def get_calendar_data(month: int, year: int, bankAccounts: List[int]):
+        try:
+            if month < 1 or month > 12:
+                return {"error": "Invalid month. Month must be between 1 and 12.", "status": 400}
+            if year < 2020:
+                return {"error": "Invalid year. Year must be 2020 or later.", "status": 400}
+            
+            if(bankAccounts is not None and len(bankAccounts) > 0):
+                query = select(
+                    func.sum(payments_incoming_table.c.amount).label("amount"),
+                    payments_incoming_table.c.date
+                ).where(
+                    func.extract('month', payments_incoming_table.c.date) == month,
+                    func.extract('year', payments_incoming_table.c.date) == year,
+                    payments_incoming_table.c.isDelete == False,
+                    payments_incoming_table.c.bankAccountID.in_(bankAccounts)
+                ).group_by(
+                    payments_incoming_table.c.date
+                )
+            else:
+                # If no bank accounts are provided, fetch all payments for the specified month and year
+                query = select(
+                    func.sum(payments_incoming_table.c.amount).label("amount"),
+                    payments_incoming_table.c.date
+                ).where(
+                    func.extract('month', payments_incoming_table.c.date) == month,
+                    func.extract('year', payments_incoming_table.c.date) == year,
+                    payments_incoming_table.c.isDelete == False
+                ).group_by(
+                    payments_incoming_table.c.date
+                )
+                
+            payments = await database.fetch_all(query)
+            return [
+                {   
+                    "date": payment.date,
+                    "amount": payment.amount
+                } for payment in payments
+            ]
+        except Exception as e:
+            log_error(f"Error retrieving calendar data: {str(e)}")
+            return {"error": str(e), "status": 500}
+
 # Define the payments table
 payments_incoming_table = Table(
     "payment_incoming",

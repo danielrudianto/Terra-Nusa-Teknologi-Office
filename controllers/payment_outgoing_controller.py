@@ -266,7 +266,13 @@ class PaymentOutgoingController:
                         return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
                     total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
                     
-                    if purchase_value == total_paid:
+                    #So the purchase_value is Decimal, while the total_paid is float
+                    #How to convert the Decimal to float?
+                    purchase_value = float(purchase_value)
+                    total_paid = float(total_paid)
+
+                    #If the difference is less than 5, then the purchase is fully paid
+                    if abs(purchase_value - total_paid) < 5:
                         await PurchaseRepository.update_payment_status(payment.purchaseID, True)
                 
                 if payment.reimbursementID is not None:   
@@ -279,8 +285,11 @@ class PaymentOutgoingController:
                         return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
                     total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
                     
-                    if reimbursement_value == total_paid:
-                        await ReimbursementRepository.update_payment_status(payment.reimbursementID, True, userID)
+                    reimbursement_value = float(reimbursement_value)
+                    total_paid = float(total_paid)
+                    #If the difference is less than 5, then the reimbursement is fully paid
+                    if abs(reimbursement_value - total_paid) < 5:
+                        await ReimbursementRepository.update_payment_status(payment.reimbursementID, True)
                 
                 if payment.expenseID is not None:
                     expense = await ExpenseRepository.get_by_id(payment.expenseID)
@@ -291,9 +300,10 @@ class PaymentOutgoingController:
                         log_error(f"Error fetching payments for expenseID ID {payment.expenseID}: {current_payments['error']}")
                         return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
                     total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
-                    
-                    if expense_value == total_paid:
-                        await ExpenseRepository.update_payment_status(payment.expenseID, True, userID)
+                    expense_value = float(expense_value)
+                    #If the difference is less than 5, then the expense is fully paid
+                    if abs(expense_value - total_paid) < 5:
+                        await ExpenseRepository.update_payment_status(payment.expenseID, True)
 
                 if payment.salarySlipID is not None:
                     salarySlip = await SalarySlipRepository.get_by_id(payment.salarySlipID)
@@ -316,8 +326,11 @@ class PaymentOutgoingController:
                         log_error(f"Error fetching payments for expenseID ID {payment.expenseID}: {current_payments['error']}")
                         return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
                     total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
-                    
-                    if salary_value == total_paid:
+
+                    salary_value = float(salary_value)
+                    total_paid = float(total_paid)
+                    #If the difference is less than 5, then it means that the loan has been paid off
+                    if abs(salary_value - total_paid) < 5:
                         await SalarySlipRepository.update_payment_status(payment.salarySlipID, True, userID)
                         
                 if payment.loanID is not None:
@@ -331,8 +344,11 @@ class PaymentOutgoingController:
                         log_error(f"Error fetching payments for loanID ID {payment.loanID}: {current_payments['error']}")
                         return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
                     total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
-                    
-                    if loan_value == total_paid:
+
+                    loan_value = float(loan_value)
+                    total_paid = float(total_paid)
+                    #If the difference is less than 5, then it means that the loan has been paid off
+                    if abs(loan_value - total_paid) < 5:
                         await LoanRepository.update_payment_status(payment.loanID, True, userID)
             
             log_info(f"Payment with ID: {id} updated successfully")
@@ -381,8 +397,12 @@ class PaymentOutgoingController:
                             log_error(f"Error fetching payments for purchase ID {payment.purchaseID}: {current_payments['error']}")
                             return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
                         total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
+
+                        purchase_value = float(purchase_value)
+                        total_paid = float(total_paid)
                         
-                        if purchase_value == total_paid:
+                        #If the difference is less than 5, then the payment is considered complete
+                        if abs(purchase_value - total_paid) < 5:
                             await PurchaseRepository.update_payment_status(payment.purchaseID, True)
                     
                     if payment.reimbursementID is not None:   
@@ -394,8 +414,11 @@ class PaymentOutgoingController:
                             log_error(f"Error fetching payments for reimbursement ID {payment.reimbursementID}: {current_payments['error']}")
                             return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
                         total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
+
+                        reimbursement_value = float(reimbursement_value)
+                        total_paid = float(total_paid)
                         
-                        if reimbursement_value == total_paid:
+                        if(abs(reimbursement_value - total_paid) < 5):
                             await ReimbursementRepository.update_payment_status(payment.reimbursementID, True, userID)
                     
                     if payment.expenseID is not None:
@@ -407,8 +430,12 @@ class PaymentOutgoingController:
                             log_error(f"Error fetching payments for expenseID ID {payment.expenseID}: {current_payments['error']}")
                             return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
                         total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
+
+                        expense_value = float(expense_value)
+                        total_paid = float(total_paid)
                         
-                        if expense_value == total_paid:
+                        #If the difference is less than 5, then the payment is considered complete
+                        if abs(expense_value - total_paid) < 5:
                             await ExpenseRepository.update_payment_status(payment.expenseID, True, userID)
 
                     if payment.salarySlipID is not None:
@@ -432,8 +459,12 @@ class PaymentOutgoingController:
                             log_error(f"Error fetching payments for expenseID ID {payment.expenseID}: {current_payments['error']}")
                             return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
                         total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
+
+                        salary_value = float(salary_value)
+                        total_paid = float(total_paid)
                         
-                        if salary_value == total_paid:
+                        #If the difference is less than 5, then the payment is considered complete
+                        if abs(salary_value - total_paid) < 5:
                             await SalarySlipRepository.update_payment_status(payment.salarySlipID, True, userID)
                             
                     if payment.loanID is not None:
@@ -447,8 +478,12 @@ class PaymentOutgoingController:
                             log_error(f"Error fetching payments for loanID ID {payment.loanID}: {current_payments['error']}")
                             return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
                         total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
+
+                        loan_value = float(loan_value)
+                        total_paid = float(total_paid)
                         
-                        if loan_value == total_paid:
+                        #If the difference is less than 5, then the payment is considered complete
+                        if abs(loan_value - total_paid) < 5:
                             await LoanRepository.update_payment_status(payment.loanID, True, userID)
                 
             return result
@@ -481,39 +516,6 @@ class PaymentOutgoingController:
             log_error(f"Error deleting payment: {e}")
             return {"error": "Internal server error", "status": 500}
         
-    @staticmethod
-    async def get_calendar_data(month: int, year: int, bankAccounts: List[int]):
-        """
-        Get calendar data for payments in a specific month and year.
-        
-        Args:
-            month (int): The month for which to retrieve payment data.
-            year (int): The year for which to retrieve payment data.
-        
-        Returns:
-            dict: A dictionary containing the calendar data for payments.
-        """
-        log_info(f"Retrieving calendar data for payments for month: {month}, year: {year}")
-        
-        try:
-            result = await PaymentOutgoing.get_calendar_data(month, year, bankAccounts)
-            if "error" in result:
-                log_error(f"Error fetching calendar data: {result['error']}")
-                return {"error": result["error"], "status": result.get("status", 500)}
-            
-            interpayments = await InterpaymentRepository.get_calendar_data(month, year, bankAccounts)
-            if "error" in interpayments:
-                log_error(f"Error fetching interpayment calendar data: {result['error']}")
-                return {"error": result["error"], "status": result.get("status", 500)}
-
-            
-            return {
-                "payments": result,
-                "interpayments": interpayments,
-            }
-        except Exception as e:
-            log_error(f"Error retrieving calendar data: {str(e)}")
-            return {"error": str(e), "status": 500}
         
     @staticmethod
     async def get_calendar_data_by_date(date: d, bankAccounts: List[int] | None):

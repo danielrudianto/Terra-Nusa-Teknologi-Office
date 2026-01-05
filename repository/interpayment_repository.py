@@ -24,6 +24,26 @@ class InterpaymentRepository:
             log_error(f"Error creating interpayment: {str(e)}")
             return {"error": str(e), "status": 500}
 
+    async def get_by_id(interpaymentID: int):
+        try:
+            query = interpayment_table.select().where(interpayment_table.c.id == interpaymentID)
+            result = await database.fetch_one(query)
+            return result
+        except Exception as e:
+            log_error(f"Error fetching interpayment {interpaymentID}: {str(e)}")
+            return None
+
+    @staticmethod
+    async def delete(interpaymentID: int, userID: int):
+        """Delete an interpayment from the database."""
+        try:
+            query = interpayment_table.update().where(interpayment_table.c.id == interpaymentID).values(isDelete=True, deletedAt=datetime.now(), deletedBy=userID)
+            await database.execute(query)
+            return {"message": "Interpayment deleted successfully"}
+        except Exception as e:
+            log_error(f"Error deleting interpayment: {str(e)}")
+            return {"error": str(e), "status": 500}
+
     @staticmethod
     async def get_interpayments(page: int, pageSize: int, startDate: datetime, endDate: datetime, filterObject: dict, sortBy: str, sortByDirection: str):
         """Retrieve a list of interpayments from the database."""

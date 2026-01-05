@@ -24,11 +24,11 @@ class PurchaseRepository:
         """
         Retrieve a list of purchases from the database.
         """
-        if page < 1:
+        if page < 0:
             return {"error": "Page number must be greater than 0", "status": 400}
         
         try:
-            offset = (page - 1) * pageSize
+            offset = (page) * pageSize
 
             supplier_columns = [
                 suppliers_table.c.id.label("supplier_id"),

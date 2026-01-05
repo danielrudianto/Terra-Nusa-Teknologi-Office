@@ -11,6 +11,7 @@ from utils.redis import r
 import json
 from models.bank_model import bank_accounts_table
 from models.balance_model import Balance
+from functools import reduce
 
 class BankController:
     @staticmethod 
@@ -111,7 +112,6 @@ class BankController:
         except Exception as e:
             log_error(f"Error retrieving top bank accounts: {str(e)}")
             return {"error": str(e), "status": 500}
-
     @staticmethod
     async def get_bank_account_by_id(bank_id: int) -> Optional[Dict]:
         """
@@ -213,7 +213,15 @@ class BankController:
         edate = dt.strptime(endDate, "%Y-%m-%d")
         try:
             result = await Mutation.fetch_mutation(bankAccountID, page, pageSize, sdate, edate)
-            print(result)
+            return result
+        except Exception as e:
+            log_error(f"Error retrieving bank account mutation: {str(e)}")
+            return None
+        
+    @staticmethod
+    async def download_mutation(bankAccountID: int, month: int, year: int):
+        try:
+            result = await Mutation.download_mutation(bankAccountID, month, year)
             return result
         except Exception as e:
             log_error(f"Error retrieving bank account mutation: {str(e)}")
