@@ -118,6 +118,7 @@ class SupplierController:
                 return {"error": result["error"], "status": result["status"]}
             
             # Update search index
+            print(supplier_data)
             await SupplierController._index_supplier_in_search(supplier_id, supplier_data)
             
             log_info(f"Supplier updated successfully with ID: {supplier_id}")
@@ -167,20 +168,20 @@ class SupplierController:
         Index supplier in Meilisearch.
         """
         try:
-            search_doc = SupplierSearchDocument(
-                id=supplier_id,
-                name=f"{supplier_data['name']}, {supplier_data.get('prefix', '')}",
-                address=supplier_data["address"],
-                city=supplier_data["city"],
-                province=supplier_data["province"],
-                phoneNumber=supplier_data["phoneNumber"],
-                email=supplier_data.get("email"),
-                npwp=supplier_data.get("npwp"),
-                itemsSold=supplier_data["itemsSold"].split(",") if supplier_data["itemsSold"] else [],
-                serviceArea=supplier_data["serviceArea"].split(",") if supplier_data["serviceArea"] else []
-            )
+            search_doc = {
+                "id": supplier_id,
+                "name": f"{supplier_data['name']}, {supplier_data.get('prefix', '')}",
+                "address": supplier_data["address"],
+                "city": supplier_data["city"],
+                "province": supplier_data["province"],
+                "phone_number": supplier_data["phoneNumber"],
+                "email": "" if supplier_data["email"] is None else supplier_data.get("email"),
+                "npwp": supplier_data.get("npwp"),
+                "items_sold": supplier_data["itemsSold"].split(",") if supplier_data["itemsSold"] else [],
+                "service_area": supplier_data["serviceArea"].split(",") if supplier_data["serviceArea"] else []
+            }
             
-            client.index("suppliers").add_documents([search_doc.model_dump()])
+            client.index("suppliers").add_documents([search_doc])
             
         except Exception as e:
             log_error(f"Error indexing supplier in search: {str(e)}")

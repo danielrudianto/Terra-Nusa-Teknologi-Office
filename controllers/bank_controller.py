@@ -225,5 +225,5 @@ class BankController:
             return result
         except Exception as e:
             log_error(f"Error retrieving bank account mutation: {str(e)}")
-            return None
+            return {"error": str(e), "status": 500}
         

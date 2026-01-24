@@ -3,6 +3,8 @@ from utils.logger_utils import log_error, log_info
 from fastapi import HTTPException
 from schemas.sales_invoice_schema import SalesInvoiceCreate, SalesInvoiceWithPaymentsResponse
 from repository.sales_invoice_repository import SalesInvoiceRepository
+from repository.payment_income_repository import PaymentIncomingRepository
+
 # Assuming you have a PaymentRepository for payment operations
 # from repository.payment_repository import PaymentRepository
 
@@ -128,11 +130,8 @@ class SalesInvoiceController:
             sales_invoice = await SalesInvoiceRepository.get_by_id(sales_invoice_id)
             if not sales_invoice:
                 raise HTTPException(status_code=404, detail="Sales invoice not found")
-
-            # Get payments for this sales invoice
-            # Assuming you have a PaymentRepository
-            # payments = await PaymentRepository.get_by_sales_invoice_id(sales_invoice_id)
-            payments = []  # Placeholder - replace with actual payment retrieval
+            
+            payments = await PaymentIncomingRepository.get_by_sales_invoice_id(sales_invoice_id)
 
             # Combine sales invoice and payments
             response_data = SalesInvoiceWithPaymentsResponse(

@@ -41,6 +41,7 @@ salary_slips_allowance_table = Table(
     Column("name", String(100), nullable=False),
     Column("description", String(255), nullable=False),
     Column("amount", Float(), nullable=False),
+    Column("isIncluded", Boolean(), nullable=False, default=False),
 )
 
 salary_slips_deduction_table = Table(
@@ -51,4 +52,5 @@ salary_slips_deduction_table = Table(
     Column("name", String(100), nullable=False),
     Column("description", String(255), nullable=False),
     Column("amount", Float(), nullable=False),
+    Column("isIncluded", Boolean(), nullable=False, default=True),
 )

@@ -1,7 +1,7 @@
 from utils.logger_utils import log_info, log_error
 from models.payment_outgoing_model import PaymentOutgoing
 from repository.interpayment_repository import InterpaymentRepository
-from models.payment_incoming_model import PaymentIncoming
+from repository.payment_income_repository import PaymentIncomingRepository
 from models.mutation_model import Mutation
 from typing import List
 
@@ -31,7 +31,7 @@ class CalendarController:
                 log_error(f"Error fetching interpayment calendar data: {interpayments['error']}")
                 return {"error": interpayments["error"], "status": interpayments.get("status", 500)}
             
-            incomes = await PaymentIncoming.get_calendar_data(month, year, bankAccounts)
+            incomes = await PaymentIncomingRepository.get_calendar_data(month, year, bankAccounts)
             if "error" in incomes:
                 log_error(f"Error fetching incoming payment calendar data: {incomes['error']}")
                 return {"error": incomes["error"], "status": incomes.get("status", 500)}

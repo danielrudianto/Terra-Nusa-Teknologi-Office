@@ -21,12 +21,18 @@ class Mutation(BaseModel):
 
             count_query = select(func.count()).select_from(mutation_view).where(mutation_view.c.bankaccountid == bankAccountID, mutation_view.c.date >= startDate, mutation_view.c.date <= endDate)
             count = await database.fetch_val(count_query)
-
-            print(result)
-
             return {"data": result, "count": count if count is not None else 0}
         except Exception as e:
             log_error(f"Error fetching bank accounts: {str(e)}")
+            return {"error": str(e), "status": 500}
+        
+    async def download_mutation(bankAccountID: int, month: int, year: int):
+        try:
+            query = mutation_view.select().where(mutation_view.c.bankaccountid == bankAccountID, func.extract('month', mutation_view.c.date) == month, func.extract('year', mutation_view.c.date) == year)
+            result = await database.fetch_all(query)
+            return result
+        except Exception as e:
+            log_error(f"Error downloading bank account mutation: {str(e)}")
             return {"error": str(e), "status": 500}
 
     @staticmethod

@@ -128,15 +128,8 @@ async def get_payments_by_expense_id(expense_id: int, current_user: Annotated[Us
     Get payments by expense ID.
     """
     expense = await ExpenseController.get_expense_by_id(expense_id)
-    payments = await ExpenseController.get_payments_by_expense_id(expense_id)
     
-    if "error" in payments:
-        raise HTTPException(status_code=payments["status"], detail=payments["error"])
-    
-    return {
-        "expense": expense,
-        "payments": payments
-    }
+    return expense
 
 @router.patch("/{expense_id}/payment-status")
 async def update_payment_status(expense_id: int, isPaid: bool, current_user: Annotated[User, Depends(get_current_user)]):

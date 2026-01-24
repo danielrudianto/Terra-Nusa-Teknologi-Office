@@ -301,7 +301,8 @@ class SalarySlipAllowanceRepository:
                 "salarySlipID": salarySlipID,
                 "name": allowance['name'],
                 "description": allowance['description'],
-                "amount": allowance['amount']
+                "amount": allowance['amount'],
+                "isIncluded": allowance['isIncluded']
             } for allowance in allowances
         ])
 
@@ -333,7 +334,8 @@ class SalarySlipDeductionRepository:
                 "salarySlipID": salarySlipID,
                 "name": deduction['name'],
                 "description": deduction['description'],
-                "amount": deduction['amount']
+                "amount": deduction['amount'],
+                "isIncluded": deduction['isIncluded']
             } for deduction in deductions
         ])
 

@@ -1,5 +1,5 @@
 from repository.income_repository import IncomeRepository
-from models.payment_incoming_model import PaymentIncoming
+from repository.payment_income_repository import PaymentIncomingRepository
 from datetime import datetime as dt
 from utils.logger_utils import log_info, log_error
 from fastapi import HTTPException
@@ -57,7 +57,7 @@ class IncomeController:
         log_info(f"Retrieving income with ID: {income_id}")
         
         result = await IncomeRepository.get_by_id(income_id)
-        payment_incoming = await PaymentIncoming.get_payments_by_income_id(income_id)
+        payment_incoming = await PaymentIncomingRepository.get_payments_by_income_id(income_id)
         if "error" in result:
             log_error(f"Error retrieving income: {result['error']}")
             raise HTTPException(status_code=result["status"], detail=result["error"])

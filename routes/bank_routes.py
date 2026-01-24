@@ -82,14 +82,16 @@ async def download_mutation_data(data: dict, current_user: Annotated[User, Depen
         bankAccountID = data["bankAccountID"]
         month = data["month"]
         year = data["year"]
+
         result = await BankController.download_mutation(bankAccountID, month, year)
         if "error" in result:
+            print(result)
             raise HTTPException(status_code=result["status"], detail=result["error"])
         return result
     except HTTPException as e:
         # Optionally log the error or handle it differently
         raise e
-    
+
 @router.post("/mutation")
 async def get_mutation_data(data: dict, current_user: Annotated[User, Depends(get_current_user)]):
     try:

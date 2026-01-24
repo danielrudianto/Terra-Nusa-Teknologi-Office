@@ -1,16 +1,12 @@
 from sqlalchemy import func, insert, select, update, delete, or_
 from utils.database import database
-from models.payment_incoming_model import PaymentIncoming
+from repository.payment_income_repository import PaymentIncomingRepository
 from utils.logger_utils import log_error, log_info
 from datetime import datetime as dt, date as d
 from fastapi import HTTPException
 from typing import List
 from functools import reduce
 from datetime import date
-
-
-def add(x, y):
-    return x + y.amount
 
 class PaymentIncomingController:
     @staticmethod
@@ -27,16 +23,15 @@ class PaymentIncomingController:
         """
         payment_data["createdBy"] = userID
         payment_data['createdAt'] = dt.now()
-        
-        payment = PaymentIncoming(**payment_data)
+        payment_data['isApprove'] = True
         log_info(f"Creating payment with data: {payment_data}")
         
         try:
-            result = await payment.create()
-            if "error" in result:
-                log_error(f"Error creating payment: {result['error']}")
-                return {"error": result["error"], "status": result.get("status", 500)}
-            return result
+            payment = await PaymentIncomingRepository.create(payment_data)
+            if "error" in payment:
+                log_error(f"Error creating payment: {payment['error']}")
+                return {"error": payment["error"], "status": payment.get("status", 500)}
+            return payment
         except Exception as e:
             log_error(f"Error creating payment: {str(e)}")
             return {"error": str(e), "status": 500}

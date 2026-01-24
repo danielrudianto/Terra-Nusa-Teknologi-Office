@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from datetime import date as d, datetime as dt
 from models.bank_model import bank_accounts_table
 from models.payment_outgoing_model import payments_outgoing_table
-from models.payment_incoming_model import payments_incoming_table
+from models.payment_incoming_model import payment_incoming_table
 from utils.logger_utils import log_error
 from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, select, func
 
