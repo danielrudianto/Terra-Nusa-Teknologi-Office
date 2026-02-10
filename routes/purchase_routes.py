@@ -25,7 +25,6 @@ async def create_purchase(
     if "error" in result:
         log_error(f"Error creating purchase: {result['error']}")
         raise HTTPException(status_code=500, detail="Internal server error")
-    
     return result
 
 @router.post("/check", response_model=dict)
@@ -41,6 +40,20 @@ async def check_purchase(
         log_error(f"Error checking purchase: {result['error']}")
         raise HTTPException(status_code=500, detail="Internal server error")
     
+    return result
+
+@router.get("/purchase-order/{purchase_order_name}")
+async def get_purchases_by_purchase_order_name(
+    purchase_order_name: str,
+    current_user: Annotated[User, Depends(get_current_user)]
+):
+    """
+    Get purchases by purchase order name.
+    """
+    result = await PurchaseController.get_purchases_by_purchase_order_name(purchase_order_name)
+    if "error" in result:
+        log_error(f"Error fetching purchases: {result['error']}")
+        raise HTTPException(status_code=500, detail="Internal server error")
     return result
 
 @router.get("/frequent-payment/{supplier_id}", response_model=dict)

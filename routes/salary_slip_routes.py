@@ -56,7 +56,24 @@ async def check(salarySlipCheck: SalarySlipCheck, current_user: Annotated[User, 
     except HTTPException as e:
         log_error(f"HTTPException during check: {str(e.detail)}")
         raise e
-    
+
+@router.post("/send")
+async def send_salary_slip(salarySlipSend: dict, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Send a salary slip.
+    """
+    try:
+        id = salarySlipSend.get('id')
+        userID = current_user.id
+        sendResult = await SalarySlipController.send(id)
+        if "error" in sendResult:
+            raise HTTPException(status_code=sendResult["status"], detail=sendResult["error"])
+        
+        return sendResult
+    except HTTPException as e:
+        log_error(f"HTTPException during send: {str(e.detail)}")
+        raise e
+
 @router.post("/")
 async def create_salary_slip(salarySlip: dict, current_user: Annotated[User, Depends(get_current_user)]):
     """

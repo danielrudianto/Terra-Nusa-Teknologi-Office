@@ -57,24 +57,26 @@ class AssetController:
             )
 
     @staticmethod
-    async def get_assets(page: int, page_size: int, keyword: str = "") -> Dict:
+    async def get_assets(page: int, page_size: int, keyword: str = "", sortBy: str = "", sortByDirection: str = "asc") -> Dict:
         """
         Get paginated list of assets.
         """
         try:
-            log_info(f"Fetching assets - page={page}, page_size={page_size}, keyword={keyword}")
+            log_info(f"Fetching assets - page={page}, page_size={page_size}, keyword={keyword}, sortBy={sortBy}, sortByDirection={sortByDirection}")
             
             # Validate pagination parameters
-            if page < 1:
+            if page < 0:
                 raise HTTPException(status_code=400, detail="Page must be greater than 0")
-            if page_size < 1 or page_size > 100:
+            if page_size < 10 or page_size > 100:
                 raise HTTPException(status_code=400, detail="Page size must be between 1 and 100")
 
             # Get assets from repository
             result = await AssetRepository.get_assets(
                 page=page, 
                 page_size=page_size, 
-                keyword=keyword
+                keyword=keyword,
+                sort_by=sortBy,
+                sort_by_direction=sortByDirection
             )
             
             if "error" in result:

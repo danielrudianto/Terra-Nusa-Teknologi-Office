@@ -17,11 +17,13 @@ async def create_asset(
 
 @router.get("/")
 async def get_assets(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(10, ge=1, le=100),
-    keyword: str = Query("")
+    page: int = Query(0, ge=0),
+    pageSize: int = Query(10, ge=10, le=100),
+    keyword: str = Query(""),
+    sortBy: str = Query(""),
+    sortByDirection: str = Query("asc", regex="^(asc|desc)$")
 ):
-    return await AssetController.get_assets(page, page_size, keyword)
+    return await AssetController.get_assets(page, pageSize, keyword, sortBy, sortByDirection)
 
 @router.get("/{asset_id}")
 async def get_asset(asset_id: int):
