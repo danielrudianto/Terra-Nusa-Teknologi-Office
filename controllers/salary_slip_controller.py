@@ -5,7 +5,7 @@ from schemas.salary_slip_schema import SalarySlipCreate
 from repository.salary_slip_repository import SalarySlipRepository, SalarySlipAllowanceRepository, SalarySlipDeductionRepository
 from datetime import datetime as dt
 from models.employee_model import Employee
-from models.payment_outgoing_model import PaymentOutgoing
+from models.payment_outgoing_model import PaymentOutgoing           
 
 class SalarySlipController:
     @staticmethod
@@ -47,6 +47,23 @@ class SalarySlipController:
             }
         except Exception as e:
             log_error(f"Unexpected error during fetching by ID {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error.")
+
+    @staticmethod
+    async def send(salary_slip_id: int):
+        try:
+            salarySlip = await SalarySlipRepository.get_by_id(salary_slip_id)
+            employeeID = salarySlip.get('userID')
+
+            employee = await Employee.get_employee_by_id(employeeID)
+            if "error" in employee:
+                raise HTTPException(status_code=employee["status"], detail=employee["error"])
+            
+            email = employee.get('email')
+
+            
+        except Exception as e:
+            log_error(f"Unexpected error during send: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error.")
 
     @staticmethod

@@ -109,6 +109,23 @@ class PurchaseController:
             raise HTTPException(status_code=500, detail="Internal server error")
 
     @staticmethod
+    async def get_purchases_by_purchase_order_name(purchase_order_name: str):
+        """
+        Get purchases by purchase order name.
+        """
+        try:
+            result = await PurchaseRepository.get_purchases_by_purchase_order_name(purchase_order_name)
+            if "error" in result:
+                log_error(f"Error fetching purchases: {result['error']}")
+                raise HTTPException(status_code=result["status"], detail=result["error"])
+            return result
+        except HTTPException:
+            raise
+        except Exception as e:
+            log_error(f"Error fetching purchases: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error")
+
+    @staticmethod
     async def get_payments_by_purchase_id(purchaseID: int):
         """
         Get payments by purchase ID.

@@ -33,7 +33,9 @@ class AssetRepository:
     async def get_assets(
         page: int = 1, 
         page_size: int = 10, 
-        keyword: str = ""
+        keyword: str = "",
+        sort_by: str = "",
+        sort_by_direction: str = "asc"
     ) -> Dict[str, Any]:
         """
         Get paginated assets with optional keyword filtering.
@@ -55,7 +57,11 @@ class AssetRepository:
                 )
             
             # Add pagination
-            query = query.limit(page_size).offset((page - 1) * page_size)
+            query = query.limit(page_size).offset(page * page_size)
+
+            # Add sorting if provided
+            if sort_by and sort_by_direction:
+                query = query.order_by(getattr(asset_table.c, sort_by).asc() if sort_by_direction == "asc" else getattr(asset_table.c, sort_by).desc())
             
             # Execute query
             result = await database.fetch_all(query)

@@ -207,6 +207,39 @@ class PurchaseRepository:
             return {"error": str(e), "status": 500}
 
     @staticmethod
+    async def get_purchases_by_purchase_order_name(purchase_order_name: str):
+        """
+        Get purchases by purchase order name.
+        """
+        try:
+            supplier_columns = [
+                suppliers_table.c.id.label("supplier_id"),
+                suppliers_table.c.name.label("supplier_name"),
+                suppliers_table.c.address.label("supplier_address"),
+                suppliers_table.c.city.label("supplier_city"),
+                suppliers_table.c.province.label("supplier_province"),
+                suppliers_table.c.prefix.label("supplier_prefix"),
+            ]
+
+            conditions = [
+                purchases_table.c.isDelete == False,
+                purchases_table.c.purchaseOrderName == purchase_order_name
+            ]
+
+            query = (
+                select(*purchases_table.c, *supplier_columns)
+                .join(suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id)
+                .where(*conditions)
+            )
+
+            purchases = await database.fetch_all(query)
+
+            return {"data": purchases}
+        except Exception as e:
+            log_error(f"Error fetching purchases: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
     async def get_by_project(projectName: str):
         """
         Get purchases by project name.
