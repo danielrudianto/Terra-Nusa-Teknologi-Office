@@ -5,9 +5,14 @@ from schemas.salary_slip_schema import SalarySlipCreate
 from repository.salary_slip_repository import SalarySlipRepository, SalarySlipAllowanceRepository, SalarySlipDeductionRepository
 from datetime import datetime as dt
 from models.employee_model import Employee
-from models.payment_outgoing_model import PaymentOutgoing           
+from models.payment_outgoing_model import PaymentOutgoing
+from services.mail_service import MailService
+from services.pdf_service import PDFService
+import os
+
 
 class SalarySlipController:
+    
     @staticmethod
     async def fetch(page: int, pageSize: int, keyword: str, month: int, year: int):
         try:
@@ -53,18 +58,80 @@ class SalarySlipController:
     async def send(salary_slip_id: int):
         try:
             salarySlip = await SalarySlipRepository.get_by_id(salary_slip_id)
-            employeeID = salarySlip.get('userID')
+            salarySlipAllowances = await SalarySlipAllowanceRepository.get_by_salary_slip_id(salary_slip_id)
+            salarySlipDeductions = await SalarySlipDeductionRepository.get_by_salary_slip_id(salary_slip_id)
 
-            employee = await Employee.get_employee_by_id(employeeID)
-            if "error" in employee:
-                raise HTTPException(status_code=employee["status"], detail=employee["error"])
-            
-            email = employee.get('email')
+            salarySlip['other_allowances'] = salarySlipAllowances
+            salarySlip['other_deductions'] = salarySlipDeductions
+            employee = await Employee.get_employee_by_id(salarySlip["userID"])
 
-            
+            pdf_path = PDFService.generateSalarySlip(salarySlip)
+            employee_name = employee.name
+            #month_name = bulan dalam bahasa Indonesia
+            month_name = SalarySlipController.get_indonesian_month(salarySlip["month"])
+            year = salarySlip['year']
+
+            MailService.send_email(
+                to_email=employee.email,
+                subject=f"Slip Gaji {month_name} {year}",
+                body=f"""
+                    <p>Kepada Yth.<br>
+                    Bapak / Ibu <strong>{employee_name}</strong><br>
+                    Karyawan PT. Alpha Konstruksi Nusantara</p>
+
+                    <p>
+                    Bersama dengan email ini, kami sampaikan Slip Gaji untuk periode 
+                    <strong>{month_name} {year}</strong>.
+                    Slip gaji beserta detail perhitungannya dapat Anda lihat pada file PDF yang terlampir.
+                    Sebagai informasi, total gaji bersih yang akan dibayarkan telah mengikuti ketentuan dan perhitungan yang berlaku di perusahaan.
+                    </p>
+
+                    <p>
+                    Apabila terdapat pertanyaan atau ketidaksesuaian terkait slip gaji ini, 
+                    kami mohon untuk dapat mengkonfirmasinya terlebih dahulu kepada atasan langsung masing-masing. 
+                    Selanjutnya atasan dapat berkoordinasi dengan departemen HRD untuk pembahasan lebih lanjut.
+                    </p>
+
+                    <p>
+                    Salam Hormat,<br><br>
+                    <strong>Daniel Tri</strong><br>
+                    Alpha Konstruksi Nusantara
+                    </p>
+                """,
+                attachment_path=pdf_path
+            )
+
+            #Delete the temporary file
+            os.remove(pdf_path)
+
+            return {"status": "sent"}
+
         except Exception as e:
-            log_error(f"Unexpected error during send: {str(e)}")
-            raise HTTPException(status_code=500, detail="Internal server error.")
+            log_error(str(e))
+            raise HTTPException(status_code=500, detail="Failed to send salary slip")
+
+    @staticmethod
+    async def print(salary_slip_id: int):
+        try:
+            salarySlip = await SalarySlipRepository.get_by_id(salary_slip_id)
+            salarySlipAllowances = await SalarySlipAllowanceRepository.get_by_salary_slip_id(salary_slip_id)
+            salarySlipDeductions = await SalarySlipDeductionRepository.get_by_salary_slip_id(salary_slip_id)
+
+            salarySlip['other_allowances'] = salarySlipAllowances
+            salarySlip['other_deductions'] = salarySlipDeductions
+
+            pdf_path = PDFService.generateSalarySlip(salarySlip)
+            month_name = SalarySlipController.get_indonesian_month(salarySlip["month"])
+            year = salarySlip['year']
+
+            #Send the pdf file to front end
+            with open(pdf_path, "rb") as file:
+                file_data = file.read()
+                return {"file": file_data, "filename": f"Slip Gaji {month_name} {year}.pdf"}
+
+        except Exception as e:
+            log_error(str(e))
+            raise HTTPException(status_code=500, detail="Failed to send salary slip")
 
     @staticmethod
     async def delete(id: int, userID: int):
@@ -165,3 +232,21 @@ class SalarySlipController:
         except HTTPException as e:
             log_error(f"HTTPException during creation: {str(e.detail)}")
             raise e
+
+    @staticmethod
+    def get_indonesian_month(month_number: int) -> str:
+        months = {
+            1: "Januari",
+            2: "Februari",
+            3: "Maret",
+            4: "April",
+            5: "Mei",
+            6: "Juni",
+            7: "Juli",
+            8: "Agustus",
+            9: "September",
+            10: "Oktober",
+            11: "November",
+            12: "Desember",
+        }
+        return months.get(month_number, "")

@@ -1,0 +1,160 @@
+<html>
+  <head>
+    <style>
+      body {
+        font-family: sans-serif;
+        font-size: 12px;
+      }
+      h2 {
+        text-align: center;
+        margin-bottom: 0;
+        font-weight: medium;
+        font-family: sans-serif;
+        margin-bottom: 0;
+      }
+      h3 {
+        margin-top: 25px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      td {
+        padding: 4px;
+      }
+      .section-title {
+        font-weight: bold;
+        margin-top: 20px;
+      }
+      .total {
+        font-weight: bold;
+      }
+      hr {
+        border: 0.5px solid #000;
+      }
+
+      .horiz-border tr {
+        border-bottom: 1px solid #333;
+        border-top: 1px solid #333;
+        border-collapse: collapse;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>SLIP GAJI</h2>
+    <p style="text-align: center">Periode {month_name} {data['year']}</p>
+
+    <table style="margin-top: 20px" class="horiz-border">
+      <tr>
+        <td>Nama</td>
+        <td>:</td>
+        <td>{data['name']}</td>
+      </tr>
+      <tr>
+        <td>Jabatan</td>
+        <td>:</td>
+        <td>{data['position']}</td>
+      </tr>
+      <tr>
+        <td>Status TK</td>
+        <td>:</td>
+        <td>{data['taxCategory']}</td>
+      </tr>
+      <tr>
+        <td>NIK</td>
+        <td>:</td>
+        <td>{data['nik']}</td>
+      </tr>
+    </table>
+
+    <h2 style="text-align: left; margin-top: 20px; margin-bottom: 20px">
+      Pendapatan
+    </h2>
+
+    <table class="horiz-border">
+      <tr>
+        <td>Gaji Pokok</td>
+        <td>1</td>
+        <td>LS</td>
+        <td align="right">{PDFService.format_rupiah(data['basicSalary'])}</td>
+      </tr>
+
+      <tr>
+        <td>Tunjangan Transportasi</td>
+        <td>{data['transportationAllowanceQuantity']}</td>
+        <td>hari</td>
+        <td align="right">{PDFService.format_rupiah(transport_total)}</td>
+      </tr>
+
+      <tr>
+        <td>Tunjangan Uang Makan</td>
+        <td>{data['mealAllowanceQuantity']}</td>
+        <td>hari</td>
+        <td align="right">{PDFService.format_rupiah(meal_total)}</td>
+      </tr>
+
+      <tr>
+        <td>Lembur</td>
+        <td>{data['overtimeQuantity']}</td>
+        <td>hari</td>
+        <td align="right">{PDFService.format_rupiah(overtime_total)}</td>
+      </tr>
+
+      {other_income_rows}
+      <tr>
+        <td colspan="3">Total Pendapatan Lainnya</td>
+        <td align="right">{PDFService.format_rupiah(total_other_allowance)}</td>
+      </tr>
+
+      <tr>
+        <td colspan="3"><strong>Jumlah Pendapatan</strong></td>
+        <td align="right" class="total">
+          {PDFService.format_rupiah(total_income)}
+        </td>
+      </tr>
+
+      <h2 style="text-align: left; margin-top: 20px; margin-bottom: 20px">
+        Pengurangan
+      </h2>
+    </table>
+
+    <div class="section-title">Pengurangan</div>
+
+    <table class="horiz-border">
+      { other_deduction_rows }
+    </table>
+
+    <table>
+      <tr>
+        <td>PPh21</td>
+        <td align="right">{PDFService.format_rupiah(data['taxAmount'])}</td>
+      </tr>
+      <tr>
+        <td><strong>Jumlah Pengurangan</strong></td>
+        <td align="right" class="total">
+          {PDFService.format_rupiah(total_deduction)}
+        </td>
+      </tr>
+    </table>
+
+    <hr />
+
+    <div class="section-title">Rekapitulasi Data</div>
+    <table>
+      <tr>
+        <td>Jumlah Gaji Dibayarkan</td>
+        <td align="right" class="total">
+          {PDFService.format_rupiah(net_salary)}
+        </td>
+      </tr>
+    </table>
+
+    <hr />
+
+    <p>
+      Bank : {data['bankName']}<br />
+      Nomor Rekening : {data['bankAccountNumber']}<br />
+      Nama Akun : {data['bankAccountName']}
+    </p>
+  </body>
+</html>

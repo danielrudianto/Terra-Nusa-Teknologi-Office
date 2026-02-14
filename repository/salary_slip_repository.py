@@ -136,7 +136,6 @@ class SalarySlipRepository:
             result = await database.fetch_one(query)
             if not result:
                 return {"error": "Salary slip not found", "status": 404}
-            print(dict(result))
             return dict(result)
         except Exception as e:
             log_error(f"Error fetching salary slip by ID: {str(e)}")
