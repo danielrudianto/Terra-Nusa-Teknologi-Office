@@ -1,15 +1,28 @@
+from O365 import Account, FileSystemTokenBackend
 import os
-from O365 import Account
-from dotenv import load_dotenv
 
 class MailService:
     @staticmethod
-    def send_email(email, subject, message, attachment=None):
-        # Implement email sending logic here
-        clientID = os.getenv('MICROSOFT_CLIENT_ID')
-        clientSecret = os.getenv('MICROSOFT_CLIENT_SECRET')
-        credentials = (clientID, clientSecret)
+    def send_email(to_email, subject, body, attachment_path):
+        credentials = (
+            os.getenv("MICROSOFT_CLIENT_ID"),
+            os.getenv("MICROSOFT_CLIENT_SECRET"),
+        )
 
-        account = Account(credentials)
-        if account.authenticate(requested_scopes=['basic', 'message_all']):
-            print('Authenticated!')
+        token_backend = FileSystemTokenBackend(
+            token_path="storage/tokens",
+            token_filename="o365_token.txt"
+        )
+
+        account = Account(credentials, token_backend=token_backend)
+
+        if not account.is_authenticated:
+            account.authenticate(scopes=['message_all'])
+
+        mailbox = account.mailbox()
+        message = mailbox.new_message()
+        message.to.add(to_email)
+        message.subject = subject
+        message.body = body
+        message.attachments.add(attachment_path)
+        message.send()

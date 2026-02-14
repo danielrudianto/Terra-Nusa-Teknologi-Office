@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+  <head>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        font-size: 12px;
+      }
+      h1 {
+        text-align: center;
+        margin-bottom: 0;
+      }
+      .center {
+        text-align: center;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+      }
+      td {
+        border-bottom: 0.5px solid #999;
+        padding: 6px;
+        vertical-align: top;
+      }
+      .no-border td {
+        border: none;
+      }
+      .bold {
+        font-weight: bold;
+      }
+      .right {
+        text-align: right;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>SLIP GAJI</h1>
+    <div class="center">Periode {{ data.monthName }} {{ data.year }}</div>
+
+    <table class="no-border">
+      <tr>
+        <td>Nama</td>
+        <td>: {{ data.name }}</td>
+      </tr>
+      <tr>
+        <td>Jabatan</td>
+        <td>: {{ data.position }} {{ data.department }}</td>
+      </tr>
+      <tr>
+        <td>Status TK</td>
+        <td>: {{ data.taxCategory }}</td>
+      </tr>
+      <tr>
+        <td>NIK</td>
+        <td>: {{ data.nik }}</td>
+      </tr>
+    </table>
+  </body>
+</html>
