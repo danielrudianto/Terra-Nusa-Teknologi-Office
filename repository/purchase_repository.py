@@ -3,6 +3,7 @@ from utils.database import database
 from utils.logger_utils import log_error
 from models.purchase_model import purchases_table, purchase_status_table
 from models.supplier_model import suppliers_table
+from models.payment_outgoing_model import payments_outgoing_table
 from datetime import datetime as dt
 
 class PurchaseRepository:
@@ -351,6 +352,136 @@ class PurchaseRepository:
         except Exception as e:
             log_error(f"Error fetching PPN report: {str(e)}")
             return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def get_monthly_recap(month: int, year: int):
+        try:
+            supplier_columns = [
+                suppliers_table.c.id.label("supplier_id"),
+                suppliers_table.c.name.label("supplier_name"),
+                suppliers_table.c.address.label("supplier_address"),
+                suppliers_table.c.city.label("supplier_city"),
+                suppliers_table.c.province.label("supplier_province"),
+                suppliers_table.c.prefix.label("supplier_prefix"),
+                suppliers_table.c.npwp.label("supplier_npwp"),
+            ]
+
+            query = (
+                select(*purchases_table.c, *supplier_columns)
+                .join(suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id)
+                .where(
+                    func.extract('month', purchases_table.c.date) == month,
+                    func.extract('year', purchases_table.c.date) == year,
+                    purchases_table.c.isDelete == False
+                )
+                .order_by(purchases_table.c.date.asc())
+            )
+
+            results = await database.fetch_all(query)
+            return results
+        except Exception as e:
+            log_error(f"Error fetching monthly purchase report: {str(e)}")
+            return {"error": str(e), "status": 500}
+        
+    @staticmethod
+    async def get_monthly_ap(month: int, year: int):
+        """
+            The goal is to determine the purchase invoice on this month and year, and before that (example, the month and year is 1 and 2026, then search sales invoices that is less than "2026-31-01")
+            Then left join with the payment received
+            if the difference is less than 5 Rupiah, then consider it as paid
+            The others that has difference more than 5 Rupiah should be considered as AR
+        """
+        try:
+            
+            # Hitung batas akhir bulan
+            if month == 12:
+                end_date = dt(year + 1, 1, 1)
+            else:
+                end_date = dt(year, month + 1, 1)
+
+
+            # Subquery total payment per purchase
+            payment_subquery = (
+                select(
+                    payments_outgoing_table.c.purchaseID.label("purchase_id"),
+                    func.coalesce(func.sum(payments_outgoing_table.c.amount), 0).label("total_paid")
+                )
+                .where(
+                    payments_outgoing_table.c.date < end_date,
+                    payments_outgoing_table.c.isDelete == False,
+                    payments_outgoing_table.c.isApprove == True,
+                )
+                .group_by(payments_outgoing_table.c.purchaseID)
+                .subquery()
+            )
+
+            supplier_columns = [
+                suppliers_table.c.id.label("supplier_id"),
+                suppliers_table.c.name.label("supplier_name"),
+                suppliers_table.c.address.label("supplier_address"),
+                suppliers_table.c.city.label("supplier_city"),
+                suppliers_table.c.province.label("supplier_province"),
+                suppliers_table.c.prefix.label("supplier_prefix"),
+                suppliers_table.c.npwp.label("supplier_npwp"),
+            ]
+
+            # Main query
+            query = (
+                select(
+                    purchases_table.c.id,
+                    purchases_table.c.invoiceName,
+                    purchases_table.c.receiptName,
+                    purchases_table.c.taxInvoiceName,
+                    purchases_table.c.purchaseOrderName,
+                    purchases_table.c.projectName,
+                    purchases_table.c.date,
+                    purchases_table.c.dpp,
+                    purchases_table.c.pbbkb,
+                    purchases_table.c.pphPercentage,
+                    purchases_table.c.pphCode,
+                    purchases_table.c.ppn,
+                    purchases_table.c.pphTaxObject,
+                    purchases_table.c.otherValue,
+                    purchases_table.c.otherValueNote,
+                    func.coalesce(payment_subquery.c.total_paid, 0).label("total_paid"),
+                    (
+                        (purchases_table.c.ppn * purchases_table.c.dpp / 100 + 
+                         purchases_table.c.dpp + purchases_table.c.pbbkb + 
+                         purchases_table.c.otherValue - 
+                         purchases_table.c.pphPercentage * purchases_table.c.dpp / 100) -
+                        func.coalesce(payment_subquery.c.total_paid, 0)
+                    ).label("remaining"),
+                    *supplier_columns
+                )
+                .outerjoin(
+                    payment_subquery,
+                    purchases_table.c.id == payment_subquery.c.purchase_id
+                )
+                .join(suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id)
+                .where(
+                    purchases_table.c.date < end_date,
+                    purchases_table.c.isDelete == False,
+                    purchases_table.c.isPaid == False  # Kalau mau hanya unpaid
+                )
+            )
+
+            results = await database.fetch_all(query)
+
+            ap_list = []
+
+            for row in results:
+                data = dict(row)
+                if data["remaining"] is not None and data["remaining"] > 5:
+                    ap_list.append(data)
+
+            return {
+                "data": ap_list,
+                "count": len(ap_list)
+            }
+
+        except Exception as e:
+            log_error(f"Error fetching AP report: {str(e)}")
+            raise
 
     @staticmethod
     async def get_frequent_payment_by_supplier_id(supplierID: int):

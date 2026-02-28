@@ -1,10 +1,11 @@
 from typing import List, Optional, Dict, Any
-from sqlalchemy import select, func, or_, desc, asc
+from sqlalchemy import select, func, or_, desc, asc, extract
 from utils.database import database
 from utils.logger_utils import log_error
 from datetime import datetime as dt
 from models.sales_invoice_model import sales_invoice_tables
 from models.client_model import clients_table
+from models.payment_incoming_model import payment_incoming_table
 from schemas.sales_invoice_schema import SalesInvoiceCreate, SalesInvoiceUpdate, SalesInvoiceWithClientResponse
 
 class SalesInvoiceRepository:
@@ -210,6 +211,124 @@ class SalesInvoiceRepository:
 
         except Exception as e:
             log_error(f"Error fetching sales invoices: {str(e)}")
+            raise
+
+    @staticmethod
+    async def get_monthly_recap(month: int, year: int):
+        try:
+            client_columns = [
+                clients_table.c.name.label("client_name"),
+                clients_table.c.id.label("client_id"),
+                clients_table.c.address.label("client_address"),
+                clients_table.c.city.label("client_city"),
+                clients_table.c.province.label("client_province"),
+                clients_table.c.prefix.label("client_prefix"),
+            ]
+            
+            query = select(
+                *sales_invoice_tables.c,
+                *client_columns
+            ).join(
+                clients_table, 
+                sales_invoice_tables.c.clientID == clients_table.c.id
+            ).where(
+                extract("month", sales_invoice_tables.c.date) == month,
+                extract("year", sales_invoice_tables.c.date) == year
+            )
+            
+            result = await database.fetch_all(query)
+            if not result:
+                return []
+
+            return [
+                dict(row)
+                for row in result
+            ]
+        except Exception as e:
+            log_error(f"Error fetching sales invoice by name: {str(e)}")
+            raise
+    
+    @staticmethod
+    async def get_monthly_ar(month, year):
+        """
+            The goal is to determine the sales invoice on this month and year, and before that (example, the month and year is 1 and 2026, then search sales invoices that is less than "2026-31-01")
+            Then left join with the payment received
+            if the difference is less than 5 Rupiah, then consider it as paid
+            The others that has difference more than 5 Rupiah should be considered as AR
+        """
+        try:
+        # Hitung batas akhir bulan
+            if month == 12:
+                end_date = dt(year + 1, 1, 1)
+            else:
+                end_date = dt(year, month + 1, 1)
+
+            # Subquery total payment per invoice
+            payment_subquery = (
+                select(
+                    payment_incoming_table.c.salesInvoiceID.label("invoice_id"),
+                    func.coalesce(func.sum(payment_incoming_table.c.amount), 0).label("total_paid")
+                )
+                .group_by(payment_incoming_table.c.salesInvoiceID)
+                .subquery()
+            )
+
+            # Main query
+            query = (
+                select(
+                    clients_table.c.name.label("client_name"),
+                    sales_invoice_tables.c.id,
+                    sales_invoice_tables.c.name,
+                    sales_invoice_tables.c.description,
+                    sales_invoice_tables.c.projectName,
+                    sales_invoice_tables.c.date,
+                    sales_invoice_tables.c.spkNumber,
+                    sales_invoice_tables.c.dpp,
+                    sales_invoice_tables.c.ppn,
+                    sales_invoice_tables.c.pphPercentage,
+                    sales_invoice_tables.c.pphCode,
+                    sales_invoice_tables.c.pphTaxObject,
+                    sales_invoice_tables.c.bpjs,
+                    func.coalesce(payment_subquery.c.total_paid, 0).label("total_paid"),
+
+                    (
+                        sales_invoice_tables.c.dpp + sales_invoice_tables.c.ppn * sales_invoice_tables.c.dpp / 100 - sales_invoice_tables.c.pphPercentage * sales_invoice_tables.c.dpp / 100 + sales_invoice_tables.c.bpjs -
+                        func.coalesce(payment_subquery.c.total_paid, 0)
+                    ).label("remaining")
+                )
+                .outerjoin(
+                    payment_subquery,
+                    sales_invoice_tables.c.id == payment_subquery.c.invoice_id,
+                )
+                .join(
+                    clients_table,
+                    sales_invoice_tables.c.clientID == clients_table.c.id
+                )
+                .where(
+                    sales_invoice_tables.c.date < end_date,
+                    sales_invoice_tables.c.isDelete == False,
+                    sales_invoice_tables.c.isApprove == True
+                )
+            )
+
+            results = await database.fetch_all(query)
+
+            ar_list = []
+
+            for row in results:
+                data = dict(row)
+
+                # Kalau sisa lebih dari 5 rupiah → AR
+                if data["remaining"] is not None and data["remaining"] > 5:
+                    ar_list.append(data)
+
+            return {
+                "data": ar_list,
+                "count": len(ar_list)
+            }
+
+        except Exception as e:
+            log_error(f"Error fetching monthly AR: {str(e)}")
             raise
 
     @staticmethod
