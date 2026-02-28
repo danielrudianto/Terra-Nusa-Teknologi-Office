@@ -184,3 +184,29 @@ class AssetRepository:
         except Exception as e:
             log_error(f"Error checking asset existence: {str(e)}")
             return False
+
+    @staticmethod
+    async def get_monthly_asset(month: int, year: int):
+        """
+        Get list of assets that are aquired before the end of the month and year
+        """
+        try:
+            if month == 12:
+                end_date = dt(year + 1, 1, 1)
+            else:
+                end_date = dt(year, month + 1, 1)
+            
+            query = select(asset_table).where(asset_table.c.purchaseDate <= end_date).order_by(asset_table.c.purchaseDate.asc())
+
+            results = await database.fetch_all(query)
+
+            if not results:
+                return []
+
+            # Convert ke Pydantic model
+            assets = [dict(row) for row in results]
+            return assets
+
+        except Exception as e:
+            log_error(f"Error fetching monthly assets for {month}/{year}: {str(e)}")
+            return []

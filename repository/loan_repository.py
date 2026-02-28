@@ -5,6 +5,7 @@ from models.loans_model import loans_table
 from utils.logger_utils import log_error
 from datetime import datetime as dt
 from typing import Optional
+from models.payment_outgoing_model import payments_outgoing_table
 
 class LoanRepository:
     @staticmethod
@@ -105,4 +106,83 @@ class LoanRepository:
             return {"error": str(e.orig), "status": 400}
         except Exception as e:
             log_error(f"Unexpected error while updating loan data: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+            
+    @staticmethod
+    async def get_monthly_loan(month: int, year: int):
+        """
+        The goal is to determine the loan invoices on this month and year,
+        and before that.
+
+        Example:
+        If month = 1 and year = 2026,
+        then search loan records where date < "2026-02-01".
+
+        Then left join with the payments received.
+        If the difference is less than 5 Rupiah,
+        then consider it as paid.
+        The others that have difference more than 5 Rupiah
+        should be considered as outstanding.
+        """
+        try:
+            # 🔹 Hitung batas akhir bulan (exclusive)
+            if month == 12:
+                end_date = dt(year + 1, 1, 1)
+            else:
+                end_date = dt(year, month + 1, 1)
+
+            # 🔹 Subquery total pembayaran per loan
+            payment_subquery = (
+                select(
+                    payments_outgoing_table.c.loanID,
+                    func.coalesce(func.sum(payments_outgoing_table.c.amount), 0).label("total_paid")
+                )  .where(
+                    payments_outgoing_table.c.date < end_date   # 🔥 INI YANG PENTING
+                )
+                .group_by(payments_outgoing_table.c.loanID)
+                .subquery()
+            )
+
+            # 🔹 Hitung remaining
+            remaining_expr = (
+                loans_table.c.debt -
+                func.coalesce(payment_subquery.c.total_paid, 0)
+            )
+
+            query = (
+                select(
+                    loans_table.c.id,
+                    loans_table.c.creditorName,
+                    loans_table.c.creditorNPWP,
+                    loans_table.c.creditorAddress,
+                    loans_table.c.date,
+                    loans_table.c.debt,
+                    loans_table.c.received,
+                    func.coalesce(payment_subquery.c.total_paid, 0).label("total_paid"),
+                    remaining_expr.label("remaining")
+                )
+                .outerjoin(
+                    payment_subquery,
+                    loans_table.c.id == payment_subquery.c.loanID
+                )
+                .where(
+                    loans_table.c.date < end_date
+                )
+            )
+
+            result = await database.fetch_all(query)
+
+            loan_result = []
+            for row in result:
+                row_dict = dict(row)
+
+                # 🔹 Kalau selisih < 5 dianggap lunas
+                if abs(row_dict["remaining"]) > 5: 
+                    loan_result.append(row_dict)
+
+
+            return loan_result
+
+        except Exception as e:
+            log_error(f"Unexpected error in get_monthly_loan: {str(e)}")
             return {"error": "Internal server error.", "status": 500}

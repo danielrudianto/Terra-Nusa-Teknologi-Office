@@ -48,15 +48,19 @@ class Mutation(BaseModel):
             
             if bank_account_ids is None:
                 sql = """
-                SELECT bankAccountID, balance
-                FROM (
+                SELECT m.bankaccountid, m.balance
+                FROM mutation m
+                JOIN (
                     SELECT 
-                        bankAccountID, 
-                        balance,
-                        date
-                    FROM mutation 
-                    WHERE date < :start_date
-                ) ranked
+                        bankaccountid,
+                        MAX(CONCAT(date,'-',LPAD(sortorder,2,'0'),'-',LPAD(tiebreaker,10,'0'))) AS max_key
+                    FROM mutation
+                    WHERE date <= :start_date
+                    GROUP BY bankaccountid
+                ) last_row 
+                ON m.bankaccountid = last_row.bankaccountid
+                AND CONCAT(m.date,'-',LPAD(m.sortorder,2,'0'),'-',LPAD(m.tiebreaker,10,'0')) = last_row.max_key;
+
                 """
                 params = {"start_date": start_of_month}
             else:
@@ -72,8 +76,10 @@ class Mutation(BaseModel):
                 ) ranked
                 """
                 params = {"start_date": start_of_month, "bank_account_ids": tuple(bank_account_ids)}
+                
             
             result = await database.fetch_all(sql, params)
+            print(result)
             total_balance = 0
             for row in result:
                 data = dict(row)
