@@ -703,7 +703,95 @@ class PaymentOutgoing(BaseModel):
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")
             return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def download_calendar_data(month: int, year: int, bankAccounts: List[int]):
+        """
+        Get all payments with pagination, filtering, and sorting.
         
+        Args:
+            page (int): The page number for pagination.
+            pageSize (int): The number of items per page.
+            filterObject (dict): The filter criteria for the payments.
+            sortBy (str): The field to sort by.
+            sortByDirection (str): The direction of sorting ('asc' or 'desc').
+            keyword (str | None): A keyword to search in the payments.
+        
+        Returns:
+            dict: A dictionary containing the payments and pagination info.
+        """
+        # Placeholder for actual implementation
+        # SELECT payments.*, COALESCE(purchases.invoiceName, reimbursements.name) AS documetName
+
+        or_conditions = []
+        or_conditions.append(payments_outgoing_table.c.isApprove == True)
+        or_conditions.append(
+            and_(
+                payments_outgoing_table.c.isApprove == False,
+                payments_outgoing_table.c.isDelete == False
+                )
+            )
+
+        month_names = {
+            1: 'January', 2: 'February', 3: 'March', 4: 'April',
+            5: 'May', 6: 'June', 7: 'July', 8: 'August',
+            9: 'September', 10: 'October', 11: 'November', 12: 'December'
+        }
+
+        month_case = case(
+            *( (salary_slips_table.c.month == num, name) for num, name in month_names.items() ),
+            else_=literal('Unknown')
+        )
+        
+        query = select(
+            payments_outgoing_table,
+            func.coalesce(
+                purchases_table.c.invoiceName, 
+                reimbursements_table.c.name,
+                func.concat(
+                    literal('Salary '),
+                    employees_table.c.name,
+                    literal(' '),
+                    month_case,
+                    literal(' '),
+                    salary_slips_table.c.year.cast(String)
+                ), 
+                expenses_table.c.invoiceName
+            ).label("documentName"),
+            bank_accounts_table.c.bankAccountName.label("bankAccountName"),
+            bank_accounts_table.c.bankAccountNumber.label("bankAccountNumber"),
+            bank_accounts_table.c.bankName.label("bankName")
+        ).outerjoin(
+            purchases_table, payments_outgoing_table.c.purchaseID == purchases_table.c.id
+        ).outerjoin(
+            reimbursements_table, payments_outgoing_table.c.reimbursementID == reimbursements_table.c.id
+        ).outerjoin(
+            salary_slips_table, payments_outgoing_table.c.salarySlipID == salary_slips_table.c.id
+        ).outerjoin(
+            employees_table, salary_slips_table.c.userID == employees_table.c.id
+        ).outerjoin(
+            expenses_table, payments_outgoing_table.c.expenseID == expenses_table.c.id
+        ).outerjoin(
+            bank_accounts_table, payments_outgoing_table.c.bankAccountID == bank_accounts_table.c.id
+        )
+        
+        # ===== WHERE CONDITIONS =====
+        conditions = [
+            or_(*or_conditions),
+            func.extract('month', payments_outgoing_table.c.date) == month,
+            func.extract('year', payments_outgoing_table.c.date) == year,
+        ]
+
+        # Tambahkan filter bankAccount hanya kalau ada isinya
+        if bankAccounts:
+            conditions.append(
+                payments_outgoing_table.c.bankAccountID.in_(bankAccounts)
+            )
+
+        query = query.where(and_(*conditions))
+    
+        result = await database.fetch_all(query)
+        return result
     @staticmethod
     async def get_calendar_data_by_date(date: int, month: int, year: int, bankAccounts: List[int]):
         try:
