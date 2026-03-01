@@ -40,3 +40,18 @@ async def get_calendar_data_by_date(date: str, current_user: Annotated[User, Dep
     except HTTPException as e:
         # Optionally log the error or handle it differently
         raise e # Re-raise to return the HTTPException response
+
+@router.get("/download")
+async def download_calendar(month: int, year: int, current_user: Annotated[User, Depends(get_current_user)], bankAccounts: List[int] =  Query(None)):
+    """
+    Download calendar data for a specific month and year.
+    """
+    try:
+        userID = current_user["id"]
+        result = await CalendarController.download_calendar_data(month, year, bankAccounts)
+        if "error" in result:
+            raise HTTPException(status_code=result["status"], detail=result["error"])
+        return result
+    except HTTPException as e:
+        # Optionally log the error or handle it differently
+        raise e

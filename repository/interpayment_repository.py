@@ -2,7 +2,7 @@ from sqlalchemy import insert, select, func, and_, or_
 from utils.database import database
 from models.interpayment_model import interpayment_table
 from models.bank_model import bank_accounts_table
-from utils.logger_utils import log_error
+from utils.logger_utils import log_error, log_info
 from datetime import datetime
 
 class InterpaymentRepository:
@@ -104,8 +104,10 @@ class InterpaymentRepository:
             return {"error": str(e), "status": 500}
 
     @staticmethod
-    async def get_calendar_data(month: int, year: int, bankAccountID: list[int]):
+    async def get_calendar_data(month: int, year: int, bankAccountID: list[int] | None):
         """Retrieve interpayments for calendar view."""
+        log_info("Retrieving interpayments for month: {}, year: {}".format(month, year))
+
         origin_bank_alias = bank_accounts_table.alias("origin_bank")
         destination_bank_alias = bank_accounts_table.alias("destination_bank")
 
@@ -120,11 +122,20 @@ class InterpaymentRepository:
         ]
 
         conditions = [
-            interpayment_table.c.isDelete == False, 
+            interpayment_table.c.isDelete == False,
             func.extract('month', interpayment_table.c.date) == month,
             func.extract('year', interpayment_table.c.date) == year,
         ]
-        
+
+        # 🔥 FILTER REKENING (PENTING)
+        if bankAccountID:
+            conditions.append(
+                or_(
+                    interpayment_table.c.bankAccountIDOrigin.in_(bankAccountID),
+                    interpayment_table.c.bankAccountIDDestination.in_(bankAccountID),
+                )
+            )
+
         try:
             query = (
                 select(*select_columns)
@@ -140,8 +151,10 @@ class InterpaymentRepository:
                 )
                 .where(and_(*conditions))
             )
+
             result = await database.fetch_all(query)
             return [dict(row) for row in result]
+
         except Exception as e:
             log_error(f"Error fetching interpayment calendar data: {str(e)}")
             return {"error": str(e), "status": 500}
