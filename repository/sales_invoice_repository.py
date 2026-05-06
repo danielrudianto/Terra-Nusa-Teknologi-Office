@@ -289,6 +289,7 @@ class SalesInvoiceRepository:
                     sales_invoice_tables.c.pphCode,
                     sales_invoice_tables.c.pphTaxObject,
                     sales_invoice_tables.c.bpjs,
+                    sales_invoice_tables.c.taxInvoiceName,
                     func.coalesce(payment_subquery.c.total_paid, 0).label("total_paid"),
 
                     (
@@ -319,7 +320,7 @@ class SalesInvoiceRepository:
                 data = dict(row)
 
                 # Kalau sisa lebih dari 5 rupiah → AR
-                if data["remaining"] is not None and data["remaining"] > 5:
+                if data["remaining"] is not None and data["remaining"] >= 5:
                     ar_list.append(data)
 
             return {
