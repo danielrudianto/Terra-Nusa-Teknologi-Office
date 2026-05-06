@@ -9,6 +9,21 @@ from utils.auth_utils import User
 
 router = APIRouter()
 
+@router.get("/print/{salary_slip_id}")
+async def print(salary_slip_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Print a salary slip by ID.
+    """
+    try:
+        result = await SalarySlipController.print(salary_slip_id)
+        if "error" in result:
+            raise HTTPException(status_code=result["status"], detail=result["error"])
+        
+        return result
+    except HTTPException as e:
+        log_error(f"HTTPException during print: {str(e.detail)}")
+        raise e
+
 @router.get("/{salary_slip_id}")
 async def fetch(salary_slip_id: int, current_user: Annotated[User, Depends(get_current_user)]):
     """
