@@ -758,11 +758,25 @@ class PaymentOutgoing(BaseModel):
                 ), 
                 expenses_table.c.invoiceName
             ).label("documentName"),
+            func.coalesce(
+                suppliers_table.c.name, 
+                reimbursements_table.c.bankAccountName,
+                employees_table.c.name,
+                expense_opponents_table.c.name
+            ).label("opponent"),
+            func.coalesce(
+                purchases_table.c.date, 
+                reimbursements_table.c.date,
+                salary_slips_table.c.createdAt,
+                expenses_table.c.date
+            ).label("documentDate"),
             bank_accounts_table.c.bankAccountName.label("bankAccountName"),
             bank_accounts_table.c.bankAccountNumber.label("bankAccountNumber"),
             bank_accounts_table.c.bankName.label("bankName")
         ).outerjoin(
             purchases_table, payments_outgoing_table.c.purchaseID == purchases_table.c.id
+        ).outerjoin(
+            suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id
         ).outerjoin(
             reimbursements_table, payments_outgoing_table.c.reimbursementID == reimbursements_table.c.id
         ).outerjoin(
@@ -771,6 +785,8 @@ class PaymentOutgoing(BaseModel):
             employees_table, salary_slips_table.c.userID == employees_table.c.id
         ).outerjoin(
             expenses_table, payments_outgoing_table.c.expenseID == expenses_table.c.id
+        ).outerjoin(
+            expense_opponents_table, expenses_table.c.opponentID == expense_opponents_table.c.id
         ).outerjoin(
             bank_accounts_table, payments_outgoing_table.c.bankAccountID == bank_accounts_table.c.id
         )

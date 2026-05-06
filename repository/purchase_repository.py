@@ -461,7 +461,13 @@ class PurchaseRepository:
                 .where(
                     purchases_table.c.date < end_date,
                     purchases_table.c.isDelete == False,
-                    purchases_table.c.isPaid == False  # Kalau mau hanya unpaid
+                    purchases_table.c.isInternal == False,
+                    #Where the difference is less than 5 Rupiah
+                    (purchases_table.c.ppn * purchases_table.c.dpp / 100 + 
+                     purchases_table.c.dpp + purchases_table.c.pbbkb + 
+                     purchases_table.c.otherValue - 
+                     purchases_table.c.pphPercentage * purchases_table.c.dpp / 100) -
+                    func.coalesce(payment_subquery.c.total_paid, 0) >= 5
                 )
             )
 

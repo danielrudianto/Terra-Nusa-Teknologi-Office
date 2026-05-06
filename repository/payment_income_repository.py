@@ -2,6 +2,11 @@ from sqlalchemy import insert, select, func
 from typing import List, Optional
 from utils.database import database
 from models.payment_incoming_model import payment_incoming_table
+from models.client_model import clients_table
+from models.expense_opponent_model import expense_opponents_table
+from models.sales_invoice_model import sales_invoice_tables
+from models.income_model import income_table
+from models.loans_model import loans_table
 from utils.logger_utils import log_error, log_info
 from datetime import datetime
 
@@ -80,16 +85,37 @@ class PaymentIncomingRepository:
             
             # Execute query
             query = select(
-                func.sum(payment_incoming_table.c.amount).label("amount"),
-                payment_incoming_table.c.date
-            ).where(*conditions).group_by(payment_incoming_table.c.date)
+                payment_incoming_table.c.amount,
+                payment_incoming_table.c.bankAccountID,
+                payment_incoming_table.c.date,
+                #Coalesce from clients name, expense_opponent name, and loans.creditorName
+                func.coalesce(clients_table.c.name, expense_opponents_table.c.name, loans_table.c.creditorName).label("name"),
+                #Coalesce document name from sales_invoice_table.name, income.description, loans.description
+                func.coalesce(sales_invoice_tables.c.name, income_table.c.description, loans_table.c.description).label("document_name"),
+                #document date, coalesce from sales_invoice_table.date, income.date, loans.date
+                func.coalesce(sales_invoice_tables.c.date, income_table.c.date, loans_table.c.date).label("document_date")
+            ).outerjoin(
+                sales_invoice_tables, payment_incoming_table.c.salesInvoiceID == sales_invoice_tables.c.id
+            ).outerjoin(
+                clients_table, sales_invoice_tables.c.clientID == clients_table.c.id
+            ).outerjoin(
+                income_table, payment_incoming_table.c.incomeID == income_table.c.id
+            ).outerjoin(
+                expense_opponents_table, income_table.c.opponentID == expense_opponents_table.c.id
+            ).outerjoin(
+                loans_table, payment_incoming_table.c.loanID == loans_table.c.id
+            ).where(*conditions)
             
             payments = await database.fetch_all(query)
             
             return [
                 {
                     "date": payment.date,
-                    "amount": payment.amount
+                    "bankAccountID": payment.bankAccountID,
+                    "amount": payment.amount,
+                    "opponent": payment.name,
+                    "document_date": payment.document_date,
+                    "document_name": payment.document_name
                 } for payment in payments
             ]
         except Exception as e:

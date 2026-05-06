@@ -4,6 +4,7 @@ from repository.interpayment_repository import InterpaymentRepository
 from repository.payment_income_repository import PaymentIncomingRepository
 from repository.purchase_repository import PurchaseRepository
 from repository.bank_account_repository import BankAccount
+from repository.payment_income_repository import PaymentIncomingRepository
 from models.mutation_model import Mutation
 from typing import List
 
@@ -83,14 +84,14 @@ class CalendarController:
                 log_error(f"Error fetching interpayment calendar data: {interpayments['error']}")
                 return {"error": interpayments["error"], "status": interpayments.get("status", 500)}
             
-            incomes = await Mutation.download_income_data(month, year, bankAccounts)
+            incomes = await PaymentIncomingRepository.get_calendar_data(month, year, bankAccounts)
             if "error" in incomes:
                 log_error(f"Error fetching incoming payment calendar data: {incomes['error']}")
                 return {"error": incomes["error"], "status": incomes.get("status", 500)}
             
             balances = await Mutation.download_calendar_data(month, year, bankAccounts)
             if isinstance(balances, dict) and "error" in incomes:
-                log_error(f"Error fetching incoming payment calendar data: {incomes['error']}")
+                log_error(f"Error fetching balances calendar data: {incomes['error']}")
                 return {"error": incomes["error"], "status": incomes.get("status", 500)}
             
             return {
