@@ -9,9 +9,9 @@ export const meili = new Meilisearch({ host: "http://localhost:7700", apiKey: ma
 const index = meili.index(INDEX_NAME)
 
 const settings = {
-  displayedAttributes: ["id", "prefix", "name", "address", "city", "province", "phone_number", "email", "npwp", "items_sold", "service_area"],
+  displayedAttributes: ["id", "prefix", "name", "address", "city", "province", "phone_number", "email", "npwp", "items_sold", "service_area", "is_blacklisted"],
   searchableAttributes: ["name", "prefix", "items_sold", "service_area", "city", "province", "address", "email"],
-  filterableAttributes: ["city", "province", "service_area", "items_sold", "is_active", "created_by", "prefix"],
+  filterableAttributes: ["city", "province", "service_area", "items_sold", "is_active", "created_by", "prefix", "is_blacklisted"],
   sortableAttributes: ["name", "city", "province"],
   rankingRules: ["words", "typo", "proximity", "attribute", "sort", "exactness"],
   stopWords: ["pt", "cv", "ud", "tbk", "lainnya", "pribadi"],
@@ -64,6 +64,7 @@ export async function syncMeilisearch() {
         items_sold: supplier.itemsSold ? supplier.itemsSold.split(",").map((s) => s.trim()) : [],
         service_area: supplier.serviceArea ? supplier.serviceArea.split(",").map((s) => s.trim()) : [],
         created_by: supplier.createdBy,
+        is_blacklisted: supplier.isBlackListed ?? false,
       }
       for (const [key, value] of Object.entries(doc)) {
         if (value instanceof Date) doc[key] = value.toISOString()

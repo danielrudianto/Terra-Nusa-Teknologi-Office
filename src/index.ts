@@ -6,17 +6,18 @@ import { setupMeilisearch, syncMeilisearch } from "./utils/meilisearch"
 import { syncRedis } from "./utils/redis"
 import { logInfo, logError, logWarning } from "./utils/logger"
 import { authRoutes } from "./routes/auth"
-import { clientRoutes } from "./routes/clients"
-import { supplierRoutes } from "./routes/suppliers"
-import { employeeRoutes } from "./routes/employees"
-import { bankRoutes } from "./routes/banks"
-import { assetRoutes } from "./routes/assets"
+import { clientRoutes } from "./routes/clients.routes"
+import { supplierRoutes } from "./routes/suppliers.routes"
+import { employeeRoutes } from "./routes/employees.routes"
+import { bankRoutes } from "./routes/banks.routes"
+import { assetRoutes } from "./routes/assets.routes"
 import { expenseOpponentRoutes } from "./routes/expenseOpponents"
 import { incomeRoutes } from "./routes/income"
 import { loanRoutes } from "./routes/loans"
 import { interpaymentRoutes } from "./routes/interpayments"
 import { purchaseRoutes } from "./routes/purchases"
 import { purchaseOrderRoutes } from "./routes/purchaseOrders"
+import { tocRoutes } from "./routes/tocs.routes"
 import { purchaseDraftRoutes } from "./routes/purchaseDrafts"
 import { expenseRoutes } from "./routes/expenses"
 import { reimbursementRoutes } from "./routes/reimbursements"
@@ -92,6 +93,7 @@ const app = new Elysia()
   .use(interpaymentRoutes)
   .use(purchaseRoutes)
   .use(purchaseOrderRoutes)
+  .use(tocRoutes)
   .use(purchaseDraftRoutes)
   .use(expenseRoutes)
   .use(reimbursementRoutes)

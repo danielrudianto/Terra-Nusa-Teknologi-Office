@@ -5,6 +5,11 @@ generator client {
 datasource db {
   provider = "mysql"
   url      = env("DATABASE_URL")
+  // The `url` property is no longer supported in schema files.
+  // Move connection URLs for Migrate to `prisma.config.ts` and pass
+  // either `adapter` for a direct database connection or `accelerateUrl`
+  // for Accelerate to the `PrismaClient` constructor.
+  // See: https://pris.ly/d/config-datasource and https://pris.ly/d/prisma7-client-config
 }
 
 model User {
@@ -24,24 +29,25 @@ model User {
 }
 
 model Supplier {
-  id          Int       @id @default(autoincrement())
-  prefix      String    @db.VarChar(25)
-  name        String    @db.VarChar(255)
-  address     String    @db.VarChar(255)
-  city        String    @db.VarChar(100)
-  province    String    @db.VarChar(100)
-  phoneNumber String    @db.VarChar(20)
-  email       String?   @db.VarChar(255)
-  npwp        String?   @db.VarChar(16)
-  itemsSold   String    @db.VarChar(1000)
-  serviceArea String    @db.VarChar(1000)
-  createdBy   Int
-  createdAt   DateTime  @default(now()) @db.DateTime(0)
-  updatedBy   Int?
-  updatedAt   DateTime? @updatedAt @db.DateTime(0)
-  deletedBy   Int?
-  deletedAt   DateTime? @db.DateTime(0)
-  isDelete    Boolean   @default(false)
+  id            Int       @id @default(autoincrement())
+  prefix        String    @db.VarChar(25)
+  name          String    @db.VarChar(255)
+  address       String    @db.VarChar(255)
+  city          String    @db.VarChar(100)
+  province      String    @db.VarChar(100)
+  phoneNumber   String    @db.VarChar(20)
+  email         String?   @db.VarChar(255)
+  npwp          String?   @db.VarChar(16)
+  itemsSold     String    @db.VarChar(1000)
+  serviceArea   String    @db.VarChar(1000)
+  createdBy     Int
+  createdAt     DateTime  @default(now()) @db.DateTime(0)
+  updatedBy     Int?
+  updatedAt     DateTime? @updatedAt @db.DateTime(0)
+  deletedBy     Int?
+  deletedAt     DateTime? @db.DateTime(0)
+  isBlackListed Boolean   @default(false)
+  isDelete      Boolean   @default(false)
 
   @@map("suppliers")
 }
@@ -102,24 +108,85 @@ model PurchaseStatus {
 }
 
 model PurchaseOrder {
-  id              Int                     @id @default(autoincrement())
-  date            DateTime                @db.Date
-  supplierID      Int
-  name            String                  @db.VarChar(255)
-  purchaseType    String                  @db.VarChar(50)
-  templateVersion String                  @db.VarChar(50)
-  projectName     String                  @db.VarChar(255)
-  dpp             Decimal                 @db.Decimal(15, 2)
-  status          purchase_orders_status?
-  customData      Json?
-  ppn             Decimal                 @default(0.00) @db.Decimal(5, 2)
-  createdBy       Int
-  createdAt       DateTime                @db.DateTime(0)
-  isDelete        Boolean?                @default(false)
-  deletedBy       Int?
-  deletedAt       DateTime?               @db.DateTime(0)
+  id                Int      @id @default(autoincrement())
+  date              DateTime @db.Date
+  supplierID        Int
+  createdBy         Int
+  createdAt         DateTime @default(now()) @db.DateTime(0)
+  purchaseOrderName String   @db.VarChar(255)
+  projectName       String?  @db.VarChar(255)
+  purchaseType      String?  @db.VarChar(100)
+  revision          Int      @default(0)
+  tocID             Int?
+  termOfPayment     String?  @db.VarChar(255)
+
+  dpp            Decimal? @db.Decimal(15, 2)
+  pbbkb          Decimal? @db.Decimal(12, 2)
+  otherValue     Decimal? @db.Decimal(12, 2)
+  otherValueNote String?  @db.VarChar(255)
+  ppn            Decimal? @db.Decimal(12, 2)
+  pphCode        String?  @db.VarChar(100)
+  pphTaxObject   String?  @db.VarChar(500)
+  pphPercentage  Decimal? @db.Decimal(12, 2)
+
+  status              purchase_orders_status?
+  procurementSignedBy Int?
+  procurementSignedAt DateTime?
+  pmSignedBy          Int?
+  pmSignedAt          DateTime?
+  directorSignedBy    Int?
+  directorSignedAt    DateTime?
+  vendorSignedBy      Int?
+  vendorSignedAt      DateTime?
+
+  isDelete  Boolean   @default(false)
+  deletedBy Int?
+  deletedAt DateTime?
+
+  items      PurchaseOrderItem[]
+  tocEntries PurchaseOrderTOC[]
+  signatures PurchaseOrderSignature[]
+  toc        Toc?                     @relation(fields: [tocID], references: [id])
 
   @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id              Int           @id @default(autoincrement())
+  name            String        @db.VarChar(255)
+  description     String?       @db.VarChar(500)
+  quantity        Decimal       @db.Decimal(12, 2)
+  unit            String?       @db.VarChar(50)
+  price           Decimal?      @db.Decimal(20, 2)
+  purchaseOrderID Int
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderID], references: [id])
+
+  @@map("purchase_order_items")
+}
+
+model Toc {
+  id             Int             @id @default(autoincrement())
+  name           String          @db.VarChar(255)
+  purchaseType   String          @db.VarChar(50)
+  revision       Int             @default(0)
+  description    String?         @db.VarChar(500)
+  content        String          @db.Text
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime?       @updatedAt
+  purchaseOrders PurchaseOrder[]
+
+  @@map("toc")
+}
+
+model PurchaseOrderTOC {
+  id              Int           @id @default(autoincrement())
+  name            String        @db.VarChar(255)
+  description     String?       @db.VarChar(500)
+  content         String        @db.Text
+  purchaseOrderID Int
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderID], references: [id])
+
+  @@map("purchase_order_toc")
 }
 
 model PurchaseDraft {
@@ -506,4 +573,29 @@ enum purchase_orders_status {
   draft
   approved
   completed
+}
+
+enum SignatureRole {
+  procurement
+  pm
+  director
+  vendor
+  other
+}
+
+model PurchaseOrderSignature {
+  id              Int           @id @default(autoincrement())
+  purchaseOrderID Int
+  role            SignatureRole
+  userID          Int?
+  signedAt        DateTime      @default(now())
+  ipAddress       String?       @db.VarChar(45)
+  userAgent       String?       @db.VarChar(1000)
+  location        String?       @db.VarChar(255)
+  note            String?       @db.VarChar(500)
+  createdAt       DateTime      @default(now())
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderID], references: [id])
+
+  @@map("purchase_order_signatures")
 }
