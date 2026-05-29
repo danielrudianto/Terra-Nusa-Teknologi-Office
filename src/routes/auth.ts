@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia"
-import { AuthController } from "../controllers/auth"
+import { AuthController } from "../controllers/auth.controller"
 import { createAccessToken, decodeToken } from "../utils/auth"
 import { logError } from "../utils/logger"
 

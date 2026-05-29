@@ -1,6 +1,7 @@
 import { Elysia, t } from "elysia"
 import { guard } from "../utils/guard"
-import { ExpenseOpponentRepository } from "../repository/expenseOpponent"
+import { ExpenseOpponentController } from "../controllers/expenseOpponent.controller"
+import type { IExpenseOpponentCreate, IExpenseOpponentUpdate } from "../interfaces/expenseOpponent.interfaces"
 import { paginationMeta } from "../utils/pagination"
 import { logError } from "../utils/logger"
 
@@ -12,37 +13,48 @@ const OpponentBody = t.Object({
   npwp: t.Optional(t.String()),
 })
 
+const OpponentUpdateBody = t.Object({
+  name: t.Optional(t.String()),
+  type: t.Optional(t.String()),
+  description: t.Optional(t.String()),
+  paymentNumber: t.Optional(t.String()),
+  npwp: t.Optional(t.String()),
+})
+
 export const expenseOpponentRoutes = new Elysia({ prefix: "/expense-opponents" })
   .use(guard)
   .get("/search/:keyword", async ({ params, query, user, set }) => {
     const limit = Number((query as any).limit ?? 20)
-    return ExpenseOpponentRepository.search(params.keyword, limit)
+    try {
+      const result = await ExpenseOpponentController.search(params.keyword, limit)
+      if (Array.isArray(result)) return result
+      set.status = result.status
+      return result
+    } catch (e) { logError(`${e}`); set.status = 500; return { detail: "Failed to search" } }
   })
   .get("/:id", async ({ params, user, set }) => {
-    const item = await ExpenseOpponentRepository.getById(Number(params.id))
-    if (!item) { set.status = 404; return { detail: "Not found" } }
-    return item
+    const result = await ExpenseOpponentController.getById(Number(params.id))
+    if ("error" in result) { set.status = result.status; return result }
+    return result.data
   })
   .get("/", async ({ query, user, set }) => {
     const { keyword, page = "1", pageSize = "10", sortBy, sortByDirection } = query as Record<string, string>
-    try {
-      const { data, total } = await ExpenseOpponentRepository.getAll(Number(page), Number(pageSize), keyword, sortBy, sortByDirection)
-      return { data, meta: paginationMeta(total, Number(page), Number(pageSize)) }
-    } catch (e) { logError(`${e}`); set.status = 500; return { detail: "Failed to fetch" } }
+    const result = await ExpenseOpponentController.getAll(Number(page), Number(pageSize), keyword, sortBy, sortByDirection)
+    if ("error" in result) { set.status = result.status; return result }
+    return result
   })
   .post("/", async ({ body, user, set }) => {
-    try {
-      return ExpenseOpponentRepository.create({ ...body as object, createdBy: user.id, createdAt: new Date() })
-    } catch (e) { logError(`${e}`); set.status = 500; return { detail: "Failed to create" } }
+    const result = await ExpenseOpponentController.create(body as IExpenseOpponentCreate, user!.id)
+    if ("error" in result) { set.status = result.status; return result }
+    return result.data
   }, { body: OpponentBody })
   .put("/:id", async ({ params, body, user, set }) => {
-    const existing = await ExpenseOpponentRepository.getById(Number(params.id))
-    if (!existing) { set.status = 404; return { detail: "Not found" } }
-    return ExpenseOpponentRepository.update(Number(params.id), { ...body as object, updatedBy: user.id, updatedAt: new Date() })
-  }, { body: OpponentBody })
+    const result = await ExpenseOpponentController.update(Number(params.id), body as IExpenseOpponentUpdate, user!.id)
+    if ("error" in result) { set.status = result.status; return result }
+    return result.data
+  }, { body: OpponentUpdateBody })
   .delete("/:id", async ({ params, user, set }) => {
-    const existing = await ExpenseOpponentRepository.getById(Number(params.id))
-    if (!existing) { set.status = 404; return { detail: "Not found" } }
-    await ExpenseOpponentRepository.softDelete(Number(params.id), user.id)
-    return { message: "Deleted successfully" }
+    const result = await ExpenseOpponentController.delete(Number(params.id), user!.id)
+    if ("error" in result) { set.status = result.status; return result }
+    return result
   })
