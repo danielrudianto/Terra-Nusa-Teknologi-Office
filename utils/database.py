@@ -1,4 +1,8 @@
 import os
+import pymysql
+
+pymysql.install_as_MySQLdb()
+
 from sqlalchemy import create_engine, MetaData
 from databases import Database
 
