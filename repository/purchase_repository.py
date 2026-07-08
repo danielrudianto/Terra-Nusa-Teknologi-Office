@@ -314,6 +314,7 @@ class PurchaseRepository:
             
             conditions = [
                 purchases_table.c.isDelete == False,
+                purchases_table.c.isInternal == False,
                 purchases_table.c.ppn > 0,
                 func.extract('month', purchases_table.c.date) == month,
                 func.extract('year', purchases_table.c.date) == year
