@@ -56,6 +56,24 @@ async def get_interpayments(
     
     return result
 
+@router.get("/{interpaymentID}")
+async def get_interpayment_detail(
+    interpaymentID: int,
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """
+    Get the full detail of a single interpayment, including both bank accounts
+    and the audit trail (createdBy / createdAt / deletedBy / deletedAt).
+    """
+    result = await InterpaymentController.get_interpayment_detail(interpaymentID)
+ 
+    if "error" in result:
+        log_error(f"Error fetching interpayment detail: {result['error']}")
+        raise HTTPException(status_code=result["status"], detail=result["error"])
+ 
+    return result
+
+
 @router.get("/calendar")
 async def get_interpayment_calendar_data(
     month: int,

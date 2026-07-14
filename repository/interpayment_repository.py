@@ -2,6 +2,7 @@ from sqlalchemy import insert, select, func, and_, or_
 from utils.database import database
 from models.interpayment_model import interpayment_table
 from models.bank_model import bank_accounts_table
+from models.user_model import users_table
 from utils.logger_utils import log_error, log_info
 from datetime import datetime
 
@@ -32,6 +33,68 @@ class InterpaymentRepository:
         except Exception as e:
             log_error(f"Error fetching interpayment {interpaymentID}: {str(e)}")
             return None
+        
+    @staticmethod
+    async def get_detail_by_id(interpaymentID: int):
+        """Full detail of a single interpayment: bank accounts on both sides,
+        plus audit info (who created / deleted it, and when).
+
+        Deleted rows are returned too — the view dialog shows them with a
+        'Deleted' badge rather than pretending they don't exist.
+        """
+        origin_bank_alias = bank_accounts_table.alias("origin_bank")
+        destination_bank_alias = bank_accounts_table.alias("destination_bank")
+        created_user_alias = users_table.alias("created_user")
+        deleted_user_alias = users_table.alias("deleted_user")
+
+        select_columns = [
+            interpayment_table,
+            origin_bank_alias.c.bankName.label("originBankName"),
+            origin_bank_alias.c.bankAccountName.label("originBankAccountName"),
+            origin_bank_alias.c.bankAccountNumber.label("originBankAccountNumber"),
+            destination_bank_alias.c.bankName.label("destinationBankName"),
+            destination_bank_alias.c.bankAccountName.label("destinationBankAccountName"),
+            destination_bank_alias.c.bankAccountNumber.label("destinationBankAccountNumber"),
+            created_user_alias.c.name.label("createdByName"),
+            created_user_alias.c.email.label("createdByEmail"),
+            deleted_user_alias.c.name.label("deletedByName"),
+            deleted_user_alias.c.email.label("deletedByEmail"),
+        ]
+
+        try:
+            query = (
+                select(*select_columns)
+                .join(
+                    origin_bank_alias,
+                    interpayment_table.c.bankAccountIDOrigin == origin_bank_alias.c.id,
+                    isouter=True,
+                )
+                .join(
+                    destination_bank_alias,
+                    interpayment_table.c.bankAccountIDDestination == destination_bank_alias.c.id,
+                    isouter=True,
+                )
+                .join(
+                    created_user_alias,
+                    interpayment_table.c.createdBy == created_user_alias.c.id,
+                    isouter=True,
+                )
+                .join(
+                    deleted_user_alias,
+                    interpayment_table.c.deletedBy == deleted_user_alias.c.id,
+                    isouter=True,
+                )
+                .where(interpayment_table.c.id == interpaymentID)
+            )
+
+            row = await database.fetch_one(query)
+            if row is None:
+                return {"error": "Interpayment not found", "status": 404}
+
+            return {"interpayment": dict(row)}
+        except Exception as e:
+            log_error(f"Error fetching interpayment detail: {str(e)}")
+            return {"error": str(e), "status": 500}
 
     @staticmethod
     async def delete(interpaymentID: int, userID: int):

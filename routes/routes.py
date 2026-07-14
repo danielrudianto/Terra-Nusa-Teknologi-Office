@@ -21,6 +21,7 @@ from routes.purchase_draft_routes import router as purchase_draft_router
 from routes.income_routes import router as income_router
 from routes.loan_routes import router as loan_router
 from routes.purchase_order_routes import router as purchase_order_router
+from routes.dashboard_routes import router as dashboard_router
 
 # Create a router instance
 router = APIRouter()
@@ -47,3 +48,4 @@ router.include_router(purchase_draft_router, prefix="/purchase-draft", tags=["Pu
 router.include_router(income_router, prefix="/income", tags=["Income"])
 router.include_router(loan_router, prefix="/loans", tags=["Loan"])
 router.include_router(purchase_order_router, prefix="/purchase-orders", tags=["Purchase Orders"])
+router.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])
