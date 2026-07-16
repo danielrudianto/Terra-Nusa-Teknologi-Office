@@ -7,6 +7,7 @@ from models.expense_opponent_model import expense_opponents_table
 from models.sales_invoice_model import sales_invoice_tables
 from models.income_model import income_table
 from models.loans_model import loans_table
+from models.bank_model import bank_accounts_table
 from utils.logger_utils import log_error, log_info
 from datetime import datetime
 
@@ -35,7 +36,9 @@ class PaymentIncomingRepository:
         try:
             log_info(f"Retrieving payments for sales invoice ID: {sales_invoice_id}")
             
-            query = select(payment_incoming_table).where(
+            query = select(payment_incoming_table.c, bank_accounts_table.c["bankAccountName"], bank_accounts_table.c['bankAccountNumber'], bank_accounts_table.c['bankName']).join(
+                bank_accounts_table, payment_incoming_table.c.bankAccountID == bank_accounts_table.c.id
+            ).where(
                 payment_incoming_table.c.salesInvoiceID == sales_invoice_id,
                 payment_incoming_table.c.isDelete == False
             )

@@ -260,6 +260,12 @@ class PurchaseController:
             
             if purchase.get("isDelete"):
                 return {"error": "Purchase is already deleted", "status": 400}
+
+            payments = await PaymentOutgoing.get_payments_by_purchase_id(purchaseID)
+            #Check if there are payments that isDelete = 0, if so, return error
+            for payment in payments:
+                if payment.get("isDelete") == 0:
+                    return {"error": "Cannot delete purchase with payments", "status": 400}
             
             # Delete the purchase
             result = await PurchaseRepository.delete(purchaseID, userID)
