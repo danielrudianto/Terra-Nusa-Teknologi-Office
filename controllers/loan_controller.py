@@ -37,8 +37,8 @@ class LoanController:
         """Get a loan by its ID."""
         try:
             result = await LoanRepository.get_loan_by_id(loan_id)
-            if "error" in result:
-                raise HTTPException(status_code=result["status"], detail=result["error"])
+            if isinstance(result, dict) and "error" in result:
+                raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
             return result
         except HTTPException as e:
             raise e
@@ -48,15 +48,11 @@ class LoanController:
     
     @staticmethod
     async def get_payments_by_loan_id(loan_id: int):
-        """Get payments for a specific loan."""
+        """Get active outgoing payments for a specific loan."""
         try:
-            # This would come from your PaymentOutgoing repository
-            # For now, returning empty list as placeholder
-            # result = await PaymentOutgoingRepository.get_payments_by_loan_id(loan_id)
-            result = []  # Placeholder - replace with actual repository call
-            
-            # if "error" in result:
-            #     raise HTTPException(status_code=result["status"], detail=result["error"])
+            result = await LoanRepository.get_payments_by_loan_id(loan_id)
+            if isinstance(result, dict) and "error" in result:
+                raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
             return result
         except HTTPException as e:
             raise e

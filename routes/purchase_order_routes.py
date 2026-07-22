@@ -68,12 +68,13 @@ async def get_all_purchase_orders(
     current_user: Annotated[User, Depends(get_current_user)],
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(10, ge=1, le=100, description="Items per page"),
+    keyword: str = Query(None, description="Search by PO number, project, or supplier"),
 ):
     """
     Get all purchase orders with pagination.
     """
     try:
-        result = await PurchaseOrderController.get_all_purchase_orders(page, page_size)
+        result = await PurchaseOrderController.get_all_purchase_orders(page, page_size, keyword)
         
         if "error" in result:
             raise HTTPException(

@@ -2,6 +2,7 @@ from sqlalchemy import func, insert, select, update, delete, or_
 from utils.database import database
 from models.purchase_draft_model import PurchaseDraft
 from models.payment_outgoing_model import PaymentOutgoing
+from repository.payment_outgoing_repository import PaymentOutgoingRepository
 from models.mutation_model import Mutation
 from utils.logger_utils import log_error, log_info
 from datetime import datetime
@@ -46,7 +47,7 @@ class PurchaseDraftController:
         if "error" in result:
             return {"error": result["error"], "status": result["status"]}
         
-        payments = await PaymentOutgoing.get_payments_by_purchase_id(purchaseID)
+        payments = await PaymentOutgoingRepository.get_payments_by_purchase_id(purchaseID)
         if "error" in payments:
             return {"error": payments["error"], "status": payments["status"]}
         

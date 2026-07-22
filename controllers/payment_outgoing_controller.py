@@ -1,6 +1,7 @@
 from sqlalchemy import func, insert, select, update, delete, or_
 from utils.database import database
 from models.payment_outgoing_model import PaymentOutgoing
+from repository.payment_outgoing_repository import PaymentOutgoingRepository
 from repository.purchase_repository import PurchaseRepository
 from repository.reimbursement_repository import ReimbursementRepository
 from repository.salary_slip_repository import SalarySlipRepository, SalarySlipAllowanceRepository, SalarySlipDeductionRepository
@@ -37,7 +38,7 @@ class PaymentOutgoingController:
         log_info(f"Creating payment with data: {payment_data}")
         
         try:
-            result = await PaymentOutgoing.create(payment_data)
+            result = await PaymentOutgoingRepository.create(payment_data)
             if "error" in result:
                 log_error(f"Error creating payment: {result['error']}")
                 return {"error": result["error"], "status": result.get("status", 500)}
@@ -60,7 +61,7 @@ class PaymentOutgoingController:
         log_info(f"Retrieving payments for purchase ID: {purchase_id}")
         
         try:
-            payments = await PaymentOutgoing.get_payments_by_purchase_id(purchase_id)
+            payments = await PaymentOutgoingRepository.get_payments_by_purchase_id(purchase_id)
             if "error" in payments:
                 log_error(f"Error fetching payments for purchase ID {purchase_id}: {payments['error']}")
                 return {"error": payments["error"], "status": payments.get("status", 500)}
@@ -85,7 +86,7 @@ class PaymentOutgoingController:
         log_info(f"Retrieving payment with ID: {id}")
         
         try:
-            payment = await PaymentOutgoing.get_payment_by_id(id)
+            payment = await PaymentOutgoingRepository.get_payment_by_id(id)
             if "error" in payment:
                 log_error(f"Error fetching payment with ID {id}: {payment['error']}")
                 return {"error": payment["error"], "status": payment.get("status")}
@@ -167,7 +168,7 @@ class PaymentOutgoingController:
         log_info(f"Retrieving payments with pagination: page={page}, pageSize={pageSize}, filter={filterObject}, sortBy={sortBy}, sortByDirection={sortByDirection}")
         
         try:
-            result = await PaymentOutgoing.get_payments(page, pageSize, filterObject, sortBy, sortByDirection)
+            result = await PaymentOutgoingRepository.get_payments(page, pageSize, filterObject, sortBy, sortByDirection)
             if "error" in result:
                 log_error(f"Error fetching payments: {result['error']}")
                 return {"error": result["error"], "status": result.get("status", 500)}
@@ -180,7 +181,7 @@ class PaymentOutgoingController:
     async def get_mutation_data(startDate: date, endDate: date, page: int, pageSize: int, bankAccountID: int):
         log_info(f"Retrieving payments with pagination: page={page}, pageSize={pageSize}, bankAccountID={bankAccountID}")
         try:
-            result = await PaymentOutgoing.get_mutation(
+            result = await PaymentOutgoingRepository.get_mutation(
                 startDate,
                 endDate,
                 page,
@@ -199,7 +200,7 @@ class PaymentOutgoingController:
     async def move_payment(id: int, date: str, userID: int):
         log_info(f"Moving payment with ID: {id} to date: {date}")
         try:
-            payment = await PaymentOutgoing.get_payment_by_id(id)
+            payment = await PaymentOutgoingRepository.get_payment_by_id(id)
             if "error" in payment:
                 log_error(f"Error fetching payment with ID {id}: {payment['error']}")
                 return {"error": payment["error"], "status": payment.get("status", 500)}
@@ -208,7 +209,7 @@ class PaymentOutgoingController:
             if payment.isApprove or payment.isDelete:
                 return {"error": "Cannot move a payment that is approved or deleted", "status": 400}
             
-            result = await PaymentOutgoing.move_payment(id, date, userID)
+            result = await PaymentOutgoingRepository.move_payment(id, date, userID)
             if "error" in result:
                 log_error(f"Error moving payment: {result['error']}")
                 return {"error": result["error"], "status": result.get("status", 500)}
@@ -234,7 +235,7 @@ class PaymentOutgoingController:
         
         try:
             # First get the payment by ID to ensure it exists
-            payment = await PaymentOutgoing.get_payment_by_id(id)
+            payment = await PaymentOutgoingRepository.get_payment_by_id(id)
             if "error" in payment:
                 log_error(f"Error fetching payment with ID {id}: {payment['error']}")
                 raise HTTPException(status_code=payment.get("status", 500), detail=payment["error"])
@@ -249,7 +250,7 @@ class PaymentOutgoingController:
                 #raise HTTPException(status_code=400, detail="Payment is already approved or deleted")
                 return {"error": "Payment is already approved or deleted", "status": 400}
             
-            result = await PaymentOutgoing.update_status(id, userID, status)
+            result = await PaymentOutgoingRepository.update_status(id, userID, status)
             if "error" in result:
                 log_error(f"Error updating payment status: {result['error']}")
                 return {"error": result["error"], "status": result.get("status", 500)}
@@ -260,7 +261,7 @@ class PaymentOutgoingController:
                     purchases = await PurchaseRepository.get_by_id(payment.purchaseID)
                     purchase_value = round(purchases["dpp"] + (purchases["ppn"] * purchases["dpp"] / 100) + purchases["pbbkb"] + purchases["otherValue"] - (purchases["pphPercentage"] * purchases["dpp"] / 100), 2)
                     
-                    current_payments = await PaymentOutgoing.get_payments_by_purchase_id(payment.purchaseID)
+                    current_payments = await PaymentOutgoingRepository.get_payments_by_purchase_id(payment.purchaseID)
                     if "error" in current_payments:
                         log_error(f"Error fetching payments for purchase ID {payment.purchaseID}: {current_payments['error']}")
                         return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
@@ -279,7 +280,7 @@ class PaymentOutgoingController:
                     reimbursements = await ReimbursementRepository.get_reimbursement_items_by_reimbursement_id(payment.reimbursementID)
                     reimbursement_value = sum(r.amount for r in reimbursements)
                                         
-                    current_payments = await PaymentOutgoing.get_payments_by_reimbursement_id(payment.reimbursementID)
+                    current_payments = await PaymentOutgoingRepository.get_payments_by_reimbursement_id(payment.reimbursementID)
                     if "error" in current_payments:
                         log_error(f"Error fetching payments for reimbursement ID {payment.reimbursementID}: {current_payments['error']}")
                         return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
@@ -295,7 +296,7 @@ class PaymentOutgoingController:
                     expense = await ExpenseRepository.get_by_id(payment.expenseID)
                     expense_value = round(expense["dpp"] + expense["pbbkb"] - (expense["pphPercentage"] * expense["dpp"] / 100), 2)
                     
-                    current_payments = await PaymentOutgoing.get_payments_by_expense_id(payment.expenseID)
+                    current_payments = await PaymentOutgoingRepository.get_payments_by_expense_id(payment.expenseID)
                     if "error" in current_payments:
                         log_error(f"Error fetching payments for expenseID ID {payment.expenseID}: {current_payments['error']}")
                         return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
@@ -321,7 +322,7 @@ class PaymentOutgoingController:
                         salarySlip["taxAmount"]
                     )
 
-                    current_payments = await PaymentOutgoing.get_payments_by_salary_slip_id(payment.salarySlipID)
+                    current_payments = await PaymentOutgoingRepository.get_payments_by_salary_slip_id(payment.salarySlipID)
                     if "error" in current_payments:
                         log_error(f"Error fetching payments for expenseID ID {payment.expenseID}: {current_payments['error']}")
                         return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
@@ -338,8 +339,8 @@ class PaymentOutgoingController:
                     if "error" in loan:
                         log_error(f"Error fetching loan for loanID ID {payment.loanID}: {loan['error']}")
                         return {"error": loan["error"], "status": loan.get("status", 500)}
-                    loan_value = loan["amount"]
-                    current_payments = await PaymentOutgoing.get_payments_by_loan_id(payment.loanID)
+                    loan_value = loan["debt"]
+                    current_payments = await PaymentOutgoingRepository.get_payments_by_loan_id(payment.loanID)
                     if "error" in current_payments:
                         log_error(f"Error fetching payments for loanID ID {payment.loanID}: {current_payments['error']}")
                         return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
@@ -373,7 +374,7 @@ class PaymentOutgoingController:
         log_info(f"Updating status for payments with IDs: {payment_ids}")
         
         try:
-            payments = await PaymentOutgoing.get_payments_by_ids(payment_ids)
+            payments = await PaymentOutgoingRepository.get_payments_by_ids(payment_ids)
             #Check if there is any payment that has been approved / deleted, if there is please return error
             for payment in payments:
                 if payment.isDelete:
@@ -381,7 +382,7 @@ class PaymentOutgoingController:
                 if payment.isApprove:
                     return {"error": "Payment has been approved", "status": 400}
             
-            result = await PaymentOutgoing.update_bulk_status(payment_ids, status, userID)
+            result = await PaymentOutgoingRepository.update_bulk_status(payment_ids, status, userID)
             if "error" in result:
                 log_error(f"Error updating status for payments with IDs {payment_ids}: {result['error']}")
                 return {"error": result["error"], "status": result.get("status", 500)}
@@ -392,7 +393,7 @@ class PaymentOutgoingController:
                         purchases = await PurchaseRepository.get_by_id(payment.purchaseID)
                         purchase_value = round(purchases["dpp"] + (purchases["ppn"] * purchases["dpp"] / 100) + purchases["pbbkb"] + purchases["otherValue"] - (purchases["pphPercentage"] * purchases["dpp"] / 100), 2)
                         
-                        current_payments = await PaymentOutgoing.get_payments_by_purchase_id(payment.purchaseID)
+                        current_payments = await PaymentOutgoingRepository.get_payments_by_purchase_id(payment.purchaseID)
                         if "error" in current_payments:
                             log_error(f"Error fetching payments for purchase ID {payment.purchaseID}: {current_payments['error']}")
                             return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
@@ -409,7 +410,7 @@ class PaymentOutgoingController:
                         reimbursements = await ReimbursementRepository.get_reimbursement_items_by_reimbursement_id(payment.reimbursementID)
                         reimbursement_value = sum(r.amount for r in reimbursements)
                                             
-                        current_payments = await PaymentOutgoing.get_payments_by_reimbursement_id(payment.reimbursementID)
+                        current_payments = await PaymentOutgoingRepository.get_payments_by_reimbursement_id(payment.reimbursementID)
                         if "error" in current_payments:
                             log_error(f"Error fetching payments for reimbursement ID {payment.reimbursementID}: {current_payments['error']}")
                             return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
@@ -425,7 +426,7 @@ class PaymentOutgoingController:
                         expense = await ExpenseRepository.get_by_id(payment.expenseID)
                         expense_value = round(expense["dpp"] + expense["pbbkb"] - (expense["pphPercentage"] * expense["dpp"] / 100), 2)
                         
-                        current_payments = await PaymentOutgoing.get_payments_by_expense_id(payment.expenseID)
+                        current_payments = await PaymentOutgoingRepository.get_payments_by_expense_id(payment.expenseID)
                         if "error" in current_payments:
                             log_error(f"Error fetching payments for expenseID ID {payment.expenseID}: {current_payments['error']}")
                             return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
@@ -454,7 +455,7 @@ class PaymentOutgoingController:
                             salarySlip["taxAmount"]
                         )
 
-                        current_payments = await PaymentOutgoing.get_payments_by_salary_slip_id(payment.salarySlipID)
+                        current_payments = await PaymentOutgoingRepository.get_payments_by_salary_slip_id(payment.salarySlipID)
                         if "error" in current_payments:
                             log_error(f"Error fetching payments for expenseID ID {payment.expenseID}: {current_payments['error']}")
                             return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
@@ -472,8 +473,8 @@ class PaymentOutgoingController:
                         if "error" in loan:
                             log_error(f"Error fetching loan for loanID ID {payment.loanID}: {loan['error']}")
                             return {"error": loan["error"], "status": loan.get("status", 500)}
-                        loan_value = loan["amount"]
-                        current_payments = await PaymentOutgoing.get_payments_by_loan_id(payment.loanID)
+                        loan_value = loan["debt"]
+                        current_payments = await PaymentOutgoingRepository.get_payments_by_loan_id(payment.loanID)
                         if "error" in current_payments:
                             log_error(f"Error fetching payments for loanID ID {payment.loanID}: {current_payments['error']}")
                             return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
@@ -505,7 +506,7 @@ class PaymentOutgoingController:
         log_info(f"Deleting payment with ID: {id}")
         
         try:
-            payment = await PaymentOutgoing.get_payment_by_id(id)
+            payment = await PaymentOutgoingRepository.get_payment_by_id(id)
             if "error" in payment:
                 log_error(f"Error fetching payment with ID {id}: {payment['error']}")
                 return {"error": payment["error"], "status": payment.get("status", 500)}
@@ -531,7 +532,7 @@ class PaymentOutgoingController:
                 log_error(f"Error fetching bank accounts in calendar data: {accounts['error']}")
                 return {"error": accounts["error"], "status": accounts.get('status', 500)}
 
-            result = await PaymentOutgoing.get_calendar_data_by_date(day, month, year, bankAccounts)
+            result = await PaymentOutgoingRepository.get_calendar_data_by_date(day, month, year, bankAccounts)
             if "error" in result:
                 log_error(f"Error fetching payment outgoing in calendar data: {result['error']}")
                 return {"error": result["error"], "status": result.get('status', 500)}
@@ -564,7 +565,7 @@ class PaymentOutgoingController:
                 log_error(f"Error fetching bank accounts in calendar data: {accounts['error']}")
                 return {"error": accounts["error"], "status": accounts.get('status', 500)}
 
-            result = await PaymentOutgoing.get_calendar_data_by_date(day, month, year, bankAccounts)
+            result = await PaymentOutgoingRepository.get_calendar_data_by_date(day, month, year, bankAccounts)
             if "error" in result:
                 log_error(f"Error fetching payment outgoing in calendar data: {result['error']}")
                 return {"error": result["error"], "status": result.get('status', 500)}
@@ -586,12 +587,12 @@ class PaymentOutgoingController:
     @staticmethod
     async def get_pph_report(month: int, year: int):
         try:
-            purchase = await PaymentOutgoing.get_purchase_pph_report(month, year)
+            purchase = await PaymentOutgoingRepository.get_purchase_pph_report(month, year)
             if "error" in purchase:
                 log_error(f"Error fetching purchase PPH report data: {purchase['error']}")
                 return {"error": purchase["error"], "status": purchase.get('status', 500)}
             
-            expense = await PaymentOutgoing.get_expense_pph_report(month, year)
+            expense = await PaymentOutgoingRepository.get_expense_pph_report(month, year)
             if "error" in expense:
                 log_error(f"Error fetching expense PPH report data: {expense['error']}")
                 return {"error": expense["error"], "status": expense.get('status', 500)}

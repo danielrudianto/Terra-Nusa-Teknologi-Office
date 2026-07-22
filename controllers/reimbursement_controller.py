@@ -1,5 +1,6 @@
 from repository.reimbursement_repository import ReimbursementRepository
 from models.payment_outgoing_model import PaymentOutgoing
+from repository.payment_outgoing_repository import PaymentOutgoingRepository
 from schemas.reimbursement_schema import ReimbursementCreate, ReimbursementResponse
 from utils.logger_utils import log_error, log_info
 from datetime import datetime
@@ -78,7 +79,7 @@ class ReimbursementController:
             return reimbursement_items
         
         # Note: You'll need to implement PaymentOutgoing repository similarly
-        payments = await PaymentOutgoing.get_payments_by_reimbursement_id(reimbursementID)
+        payments = await PaymentOutgoingRepository.get_payments_by_reimbursement_id(reimbursementID)
         if "error" in payments:
             log_error(f"Error getting payments: {payments['error']}")
             return payments

@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from routes.routes import router
 from fastapi.middleware.cors import CORSMiddleware
 from utils.meilisearch import setup_meilisearch, sync_meilisearch
+from utils.meilisearch_item import setup_master_item_meilisearch, sync_master_item_meilisearch
 from utils.redis import sync_redis
 from utils.database import database
 from utils.redis import sync_redis
@@ -31,6 +32,13 @@ async def lifespan(app: FastAPI):
         log_info("Meilisearch setup completed successfully!")
     except Exception as e:
         log_error(f"Error connecting to meilisearch: {e}")
+
+    try:
+        await sync_meilisearch()
+        await sync_master_item_meilisearch()
+        log_info("Master item Meilisearch setup & sync completed successfully!")
+    except Exception as e:
+        log_error(f"Error setting up master item meilisearch: {e}")
         
     try:
         await sync_redis()

@@ -6,6 +6,7 @@ from repository.salary_slip_repository import SalarySlipRepository, SalarySlipAl
 from datetime import datetime as dt
 from models.employee_model import Employee
 from models.payment_outgoing_model import PaymentOutgoing
+from repository.payment_outgoing_repository import PaymentOutgoingRepository
 from services.mail_service import MailService
 from services.pdf_service import PDFService
 import os
@@ -40,7 +41,7 @@ class SalarySlipController:
             if "error" in deductions:
                 raise HTTPException(status_code=deductions["status"], detail=deductions["error"])
 
-            payments = await PaymentOutgoing.get_payments_by_salary_slip_id(id)
+            payments = await PaymentOutgoingRepository.get_payments_by_salary_slip_id(id)
             if "error" in payments:
                 raise HTTPException(status_code=payments["status"], detail=payments["error"])
 

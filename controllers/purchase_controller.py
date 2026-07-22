@@ -1,5 +1,6 @@
 from repository.purchase_repository import PurchaseRepository, PurchaseStatusRepository
 from models.payment_outgoing_model import PaymentOutgoing
+from repository.payment_outgoing_repository import PaymentOutgoingRepository
 from models.mutation_model import Mutation
 from repository.reimbursement_repository import ReimbursementRepository
 from repository.sales_invoice_repository import SalesInvoiceRepository
@@ -96,7 +97,7 @@ class PurchaseController:
         """
         try:
             result = await PurchaseRepository.get_by_id(purchaseID)
-            payments = await PaymentOutgoing.get_payments_by_purchase_id(purchaseID)
+            payments = await PaymentOutgoingRepository.get_payments_by_purchase_id(purchaseID)
             if "error" in result:
                 log_error(f"Error fetching purchase: {result['error']}")
                 raise HTTPException(status_code=result["status"], detail=result["error"])
@@ -131,7 +132,7 @@ class PurchaseController:
         Get payments by purchase ID.
         """
         try:
-            result = await PaymentOutgoing.get_payments_by_purchase_id(purchaseID)
+            result = await PaymentOutgoingRepository.get_payments_by_purchase_id(purchaseID)
             if "error" in result:
                 log_error(f"Error fetching payments by purchase ID: {result['error']}")
                 raise HTTPException(status_code=result["status"], detail=result["error"])
@@ -260,12 +261,6 @@ class PurchaseController:
             
             if purchase.get("isDelete"):
                 return {"error": "Purchase is already deleted", "status": 400}
-
-            payments = await PaymentOutgoing.get_payments_by_purchase_id(purchaseID)
-            #Check if there are payments that isDelete = 0, if so, return error
-            for payment in payments:
-                if payment.get("isDelete") == 0:
-                    return {"error": "Cannot delete purchase with payments", "status": 400}
             
             # Delete the purchase
             result = await PurchaseRepository.delete(purchaseID, userID)
@@ -276,14 +271,14 @@ class PurchaseController:
             log_info(f"Purchase with ID: {purchaseID} deleted successfully by user ID: {userID}")
 
             # Delete payments associated with the purchase
-            payments_result = await PaymentOutgoing.delete_payment_by_purchase_id(purchaseID, userID)
+            payments_result = await PaymentOutgoingRepository.delete_payment_by_purchase_id(purchaseID, userID)
             if "error" in payments_result:
                 log_error(f"Error deleting payments for purchase ID {purchaseID}: {payments_result['error']}")
                 # Don't fail the whole operation if payment deletion fails
                 log_info(f"Purchase deleted but payment deletion failed for purchase ID {purchaseID}")
 
             # Get payments history for mutation deletion
-            payments_history = await PaymentOutgoing.get_payments_by_purchase_id(purchaseID)
+            payments_history = await PaymentOutgoingRepository.get_payments_by_purchase_id(purchaseID)
             if not isinstance(payments_history, dict) or "error" not in payments_history:
                 log_info(f"Fetching payments history for purchase ID: {purchaseID}")
                 

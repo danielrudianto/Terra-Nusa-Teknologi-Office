@@ -3,6 +3,7 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from repository.purchase_repository import PurchaseRepository
 from models.payment_outgoing_model import PaymentOutgoing
+from repository.payment_outgoing_repository import PaymentOutgoingRepository
 from repository.salary_slip_repository import SalarySlipRepository
 from repository.sales_invoice_repository import SalesInvoiceRepository
 from repository.mutation_repository import MutationRepository
@@ -28,12 +29,12 @@ class TaxController:
     async def get_pph_report(month: int, year: int):
         log_info(f"Fetching PPh report for month {month} and year {year}")
         try:
-            purchases = await PaymentOutgoing.get_purchase_pph_report(month, year)
+            purchases = await PaymentOutgoingRepository.get_purchase_pph_report(month, year)
             if "error" in purchases:
                 log_error(f"Error fetching purchase data: {purchases['error']}")
                 raise HTTPException(status_code=purchases.get("status", 500), detail=purchases["error"])
             
-            expenses = await PaymentOutgoing.get_expense_pph_report(month, year)
+            expenses = await PaymentOutgoingRepository.get_expense_pph_report(month, year)
             if "error" in expenses:
                 log_error(f"Error fetching expense data: {expenses['error']}")
                 raise HTTPException(status_code=expenses.get("status", 500), detail=expenses["error"])

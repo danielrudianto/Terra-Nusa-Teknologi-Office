@@ -82,12 +82,32 @@ class LoanRepository:
         try:
             query = select(loans_table).where(loans_table.c.id == loan_id)
             result = await database.fetch_one(query)
-            return result
+            if result is None:
+                return {"error": "Loan not found", "status": 404}
+            return dict(result)
         except IntegrityError as e:
             log_error(f"Integrity error while fetching loan data: {str(e.orig)}")
             return {"error": str(e.orig), "status": 400}
         except Exception as e:
             log_error(f"Unexpected error while fetching loan data: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def get_payments_by_loan_id(loan_id: int):
+        """Get all active (non-deleted) outgoing payments for a loan, oldest first."""
+        try:
+            query = (
+                select(payments_outgoing_table)
+                .where(
+                    payments_outgoing_table.c.loanID == loan_id,
+                    payments_outgoing_table.c.isDelete == False,
+                )
+                .order_by(payments_outgoing_table.c.date.asc())
+            )
+            rows = await database.fetch_all(query)
+            return [dict(row) for row in rows]
+        except Exception as e:
+            log_error(f"Unexpected error while fetching payments for loan {loan_id}: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod

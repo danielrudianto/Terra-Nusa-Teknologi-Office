@@ -1,5 +1,6 @@
 from utils.logger_utils import log_info, log_error
 from models.payment_outgoing_model import PaymentOutgoing
+from repository.payment_outgoing_repository import PaymentOutgoingRepository
 from repository.interpayment_repository import InterpaymentRepository
 from repository.payment_income_repository import PaymentIncomingRepository
 from repository.purchase_repository import PurchaseRepository
@@ -24,7 +25,7 @@ class CalendarController:
         log_info(f"Retrieving calendar data for payments for month: {month}, year: {year}")
         
         try:
-            payments = await PaymentOutgoing.get_calendar_data(month, year, bankAccounts)
+            payments = await PaymentOutgoingRepository.get_calendar_data(month, year, bankAccounts)
             if "error" in payments:
                 log_error(f"Error fetching calendar data: {payments['error']}")
                 return {"error": payments["error"], "status": payments.get("status", 500)}
@@ -74,7 +75,7 @@ class CalendarController:
                 log_error(f"Error fetching bank accounts in calendar data: {bank_accounts['error']}")
                 return {"error": bank_accounts["error"], "status": bank_accounts.get("status", 500)}
             
-            payments = await PaymentOutgoing.download_calendar_data(month, year, bankAccounts)
+            payments = await PaymentOutgoingRepository.download_calendar_data(month, year, bankAccounts)
             if "error" in payments:
                 log_error(f"Error fetching calendar data: {payments['error']}")
                 return {"error": payments["error"], "status": payments.get("status", 500)}

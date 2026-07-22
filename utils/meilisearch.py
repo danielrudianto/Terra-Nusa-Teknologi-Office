@@ -76,40 +76,61 @@ typo_settings = {
 
 client.index(index_name).update_typo_tolerance(typo_settings)
 
+
+def _build_supplier_document(supplier) -> dict:
+    """Transform a DB row into a Meilisearch document (same logic as before)."""
+    supplier_dict = dict(supplier)
+
+    supplier_dict["phone_number"] = supplier_dict["phoneNumber"]
+    supplier_dict["name"] = supplier_dict["name"] + ", " + supplier_dict["prefix"]
+
+    # Sold items
+    supplier_dict["items_sold"] = (
+        supplier_dict["itemsSold"].split(",") if supplier_dict["itemsSold"] else []
+    )
+    # Service area
+    supplier_dict["service_area"] = (
+        supplier_dict["serviceArea"].split(",") if supplier_dict["serviceArea"] else []
+    )
+
+    # Normalize remaining fields
+    for key, value in supplier_dict.items():
+        if isinstance(value, datetime):
+            supplier_dict[key] = value.isoformat()  # datetime -> ISO string
+        elif value is None:
+            supplier_dict[key] = ""
+
+    return supplier_dict
+
+
 async def sync_meilisearch():
     try:
         client.create_index(index_name, {"primaryKey": "id"})
-        print(f"Index '{index_name}' created successfully.")
+        log_info(f"Index '{index_name}' created (or already exists).")
 
         # Clear all the data
         index.delete_all_documents()
-        print(f"All documents in index '{index_name}' deleted successfully.")
 
-        # Add existing supplier to the index
+        # Fetch every supplier once
         query = select(suppliers_table)
         suppliers = await database.fetch_all(query)
-        for supplier in suppliers:
-            supplier_dict = dict(supplier)
 
-            supplier_dict["phone_number"] = supplier_dict["phoneNumber"]
-            supplier_dict["name"] = supplier_dict["name"] + ", " + supplier_dict["prefix"]
+        # Build all documents in memory, then push in batches (1 request per batch
+        # instead of 1 request per supplier -> massively faster)
+        documents = [_build_supplier_document(s) for s in suppliers]
 
-            #Sold items
-            supplier_dict["items_sold"] = supplier_dict["itemsSold"].split(",") if supplier_dict["itemsSold"] else []
-            #Service area
-            supplier_dict["service_area"] = supplier_dict["serviceArea"].split(",") if supplier_dict["serviceArea"] else []
-            
-            # Remove unnecessary fields
-            for key, value in supplier_dict.items():
-                if isinstance(value, datetime):
-                    supplier_dict[key] = value.isoformat()  # Convert datetime to ISO format
-                elif value is None:
-                    supplier_dict[key] = ""
+        BATCH_SIZE = 1000
+        for start in range(0, len(documents), BATCH_SIZE):
+            batch = documents[start:start + BATCH_SIZE]
+            index.add_documents(batch)
 
-            index.add_documents([supplier_dict])
-            print(f"Document with ID '{supplier_dict['id']}' added to index '{index_name}' successfully.")
+        log_info(
+            f"Synced {len(documents)} suppliers to Meilisearch index '{index_name}' "
+            f"in {(len(documents) + BATCH_SIZE - 1) // BATCH_SIZE} batch(es)."
+        )
 
     except Exception as e:
+        log_error(f"Error syncing suppliers to Meilisearch: {str(e)}")
         raise e
 
 

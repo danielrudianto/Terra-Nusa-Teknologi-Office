@@ -57,7 +57,7 @@ class IncomeController:
         log_info(f"Retrieving income with ID: {income_id}")
         
         result = await IncomeRepository.get_by_id(income_id)
-        payment_incoming = await PaymentIncomingRepository.get_payments_by_income_id(income_id)
+        payment_incoming = await PaymentIncomingRepository.get_by_income_id(income_id)
         if "error" in result:
             log_error(f"Error retrieving income: {result['error']}")
             raise HTTPException(status_code=result["status"], detail=result["error"])
