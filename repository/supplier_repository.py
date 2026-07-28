@@ -181,6 +181,33 @@ class SupplierRepository:
             return {"error": str(e), "status": 500}
 
     @staticmethod
+    async def set_blacklist(supplier_id: int, is_blacklist: bool,
+                            reason: str, user_id: int) -> Dict[str, Any]:
+        """Flag or unflag a supplier as blacklisted (warning only)."""
+        try:
+            values = {"isBlacklist": is_blacklist}
+            if is_blacklist:
+                values["blacklistReason"] = reason
+                values["blacklistedBy"] = user_id
+                values["blacklistedAt"] = dt.now().isoformat()
+            else:
+                values["blacklistReason"] = None
+                values["blacklistedBy"] = None
+                values["blacklistedAt"] = None
+
+            query = (
+                update(suppliers_table)
+                .where(suppliers_table.c.id == supplier_id)
+                .values(**values)
+            )
+            await database.execute(query)
+            action = "blacklisted" if is_blacklist else "un-blacklisted"
+            return {"message": f"Supplier {action} successfully"}
+        except Exception as e:
+            log_error(f"Error updating supplier blacklist: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
     async def search_by_keyword(keyword: str) -> List[SupplierResponse]:
         """
         Search suppliers by keyword across multiple fields.

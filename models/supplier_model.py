@@ -1,4 +1,4 @@
-from sqlalchemy import ForeignKey, Table, Column, Integer, String, Boolean
+from sqlalchemy import ForeignKey, Table, Column, Integer, String, Boolean, text
 from utils.database import metadata
 
 # Define the suppliers table
@@ -23,4 +23,9 @@ suppliers_table = Table(
     Column("deletedAt", String(50), nullable=True),
     Column("deletedBy", Integer, ForeignKey("users.id"), nullable=True),
     Column("isDelete", Boolean, default=False, nullable=False, server_default="false"),
+    # --- blacklist (warns on purchase/PO, does not block) ---
+    Column("isBlacklist", Boolean, default=False, nullable=False, server_default=text("0")),
+    Column("blacklistReason", String(500), nullable=True),
+    Column("blacklistedBy", Integer, ForeignKey("users.id"), nullable=True),
+    Column("blacklistedAt", String(50), nullable=True),
 )

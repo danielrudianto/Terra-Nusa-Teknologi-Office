@@ -4,7 +4,7 @@ from utils.logger_utils import log_error, log_info
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from utils.meilisearch import client
-from schemas.supplier_schema import SupplierCreate, SupplierUpdate, SupplierSearchDocument
+from schemas.supplier_schema import SupplierCreate, SupplierUpdate, SupplierSearchDocument, SupplierBlacklistUpdate
 from repository.supplier_repository import SupplierRepository
 
 class SupplierController:
@@ -161,6 +161,34 @@ class SupplierController:
         except Exception as e:
             log_error(f"Error deleting supplier: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def set_blacklist(supplier_id: int, data: dict, user_id: int) -> Dict[str, Any]:
+        """
+        Flag / unflag a supplier as blacklisted. This is a warning only — it
+        never blocks the supplier from being selected in a purchase or PO.
+        """
+        try:
+            payload = SupplierBlacklistUpdate(**data)
+
+            # supplier must exist and not be soft-deleted
+            supplier = await SupplierRepository.get_by_id(supplier_id)
+            if supplier is None:
+                return {"error": "Supplier not found", "status": 404}
+
+            if payload.isBlacklist and not (payload.blacklistReason or "").strip():
+                return {"error": "Blacklist reason is required", "status": 400}
+
+            result = await SupplierRepository.set_blacklist(
+                supplier_id,
+                payload.isBlacklist,
+                (payload.blacklistReason or "").strip(),
+                user_id,
+            )
+            return result
+        except Exception as e:
+            log_error(f"Error setting supplier blacklist: {str(e)}")
+            return {"error": str(e), "status": 500}
 
     @staticmethod
     async def _index_supplier_in_search(supplier_id: int, supplier_data: dict):

@@ -32,6 +32,10 @@ class SupplierResponse(SupplierBase):
     deletedAt: dt | None = None
     deletedBy: int | None = None
     isDelete: bool = False
+    isBlacklist: bool = False
+    blacklistReason: str | None = None
+    blacklistedBy: int | None = None
+    blacklistedAt: dt | None = None
 
 class SupplierSearchDocument(BaseModel):
     id: int
@@ -44,3 +48,7 @@ class SupplierSearchDocument(BaseModel):
     npwp: Optional[str] = None
     itemsSold: list[str]
     serviceArea: list[str]
+
+class SupplierBlacklistUpdate(BaseModel):
+    isBlacklist: bool
+    blacklistReason: Annotated[str, StringConstraints(max_length=500)] | None = None
