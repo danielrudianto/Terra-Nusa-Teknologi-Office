@@ -33,6 +33,10 @@ class PurchaseOrderCreate(PurchaseOrderBase):
     projectCode: Optional[str] = None
     # If provided, use this exact PO number instead of auto-generating.
     name: Optional[str] = None
+    # Baris item PO. WAJIB ada di schema: route memanggil `.dict()`, sehingga
+    # field yang tidak dideklarasikan di sini akan dibuang sebelum sampai ke
+    # controller — itulah sebabnya purchase_order_items selalu kosong.
+    items: Optional[List[Dict[str, Any]]] = None
 
 
 class PurchaseOrderUpdate(BaseModel):
@@ -71,6 +75,18 @@ class PurchaseOrderResponse(BaseModel):
     approvedAt: Optional[datetime] = None
     createdBy: Optional[int] = None
     createdAt: Optional[datetime] = None
+    # Dipakai saat mencetak ulang dokumen: tanpa field ini FastAPI membuang
+    # item dan data supplier dari response.
+    number: Optional[int] = None
+    items: Optional[List[Dict[str, Any]]] = None
+    supplier: Optional[Dict[str, Any]] = None
+    supplierName: Optional[str] = None
+    supplierAddress: Optional[str] = None
+    supplierCity: Optional[str] = None
+    supplierNpwp: Optional[str] = None
+    # Hasil join di daftar PO (snake_case, sesuai label kolom query)
+    supplier_name: Optional[str] = None
+    supplier_prefix: Optional[str] = None
     isDelete: Optional[bool] = False
     deletedBy: Optional[int] = None
     deletedAt: Optional[datetime] = None

@@ -129,14 +129,39 @@ class PurchaseController:
     @staticmethod
     async def get_payments_by_purchase_id(purchaseID: int):
         """
-        Get payments by purchase ID.
+        Get payments by purchase ID, together with the purchase detail
+        (including supplier info) so the client can render the header.
+        Returns { "purchase": <detail>, "payments": [...] }.
         """
         try:
-            result = await PaymentOutgoingRepository.get_payments_by_purchase_id(purchaseID)
-            if "error" in result:
-                log_error(f"Error fetching payments by purchase ID: {result['error']}")
-                raise HTTPException(status_code=result["status"], detail=result["error"])
-            return result
+            payments = await PaymentOutgoingRepository.get_payments_by_purchase_id(purchaseID)
+            if isinstance(payments, dict) and "error" in payments:
+                log_error(f"Error fetching payments by purchase ID: {payments['error']}")
+                raise HTTPException(status_code=payments["status"], detail=payments["error"])
+
+            purchase = await PurchaseRepository.get_by_id(purchaseID)
+            if purchase is None:
+                raise HTTPException(status_code=404, detail="Purchase not found")
+            if isinstance(purchase, dict) and "error" in purchase:
+                raise HTTPException(
+                    status_code=purchase.get("status", 500),
+                    detail=purchase["error"],
+                )
+
+            # The client reads flat fields (supplier_name, supplier_prefix, ...)
+            # while get_by_id returns a nested `supplier` object. Provide both.
+            purchase = dict(purchase)
+            supplier = purchase.get("supplier") or {}
+            purchase.setdefault("supplier_name", supplier.get("name"))
+            purchase.setdefault("supplier_prefix", supplier.get("prefix"))
+            purchase.setdefault("supplier_address", supplier.get("address"))
+            purchase.setdefault("supplier_city", supplier.get("city"))
+            purchase.setdefault("supplier_province", supplier.get("province"))
+
+            return {
+                "purchase": purchase,
+                "payments": payments,
+            }
         except HTTPException:
             raise
         except Exception as e:

@@ -7,9 +7,13 @@ from repository.reimbursement_repository import ReimbursementRepository
 from repository.salary_slip_repository import SalarySlipRepository, SalarySlipAllowanceRepository, SalarySlipDeductionRepository
 from repository.expense_repository import ExpenseRepository
 from repository.bank_account_repository import BankAccount
+from models.balance_model import Balance
 from repository.interpayment_repository import InterpaymentRepository
 from repository.loan_repository import LoanRepository
 from utils.logger_utils import log_error, log_info
+
+# Fee charged per transfer to an account at a different bank (IDR).
+INTERBANK_TRANSFER_FEE = 2500
 from datetime import datetime as dt, date as d
 from fastapi import HTTPException
 from typing import List
@@ -542,10 +546,70 @@ class PaymentOutgoingController:
                 log_error(f"Error fetching interpayments in calendar data: {interpayments['error']}")
                 return {"error": interpayments["error"], "status": interpayments.get('status', 500)}
             
+            # Accounts come back as pydantic models -> work with plain dicts
+            # so we can attach balance and fee estimates to them.
+            accounts = [
+                a if isinstance(a, dict) else a.model_dump()
+                for a in accounts
+            ]
+
+            # --- opening balance per account -------------------------------
+            account_ids = [a["id"] for a in accounts]
+            balances = await Balance.fetch_by_bank_account_ids(account_ids)
+            balance_map = {}
+            if isinstance(balances, list):
+                balance_map = {b["id"]: (b["balance"] or 0) for b in balances}
+
+            # --- estimated inter-bank transfer fee --------------------------
+            # A transfer to an account at the SAME bank is free; a transfer to
+            # another bank costs INTERBANK_TRANSFER_FEE per transaction.
+            def _same_bank(origin, destination) -> bool:
+                if not origin or not destination:
+                    return False
+                return str(origin).strip().lower() == str(destination).strip().lower()
+
+            for account in accounts:
+                account_payments = [
+                    p for p in result
+                    if p.get("bankAccountID") == account["id"]
+                    and not p.get("isDelete")
+                ]
+                interbank_count = 0
+                same_bank_count = 0
+                unknown_count = 0
+                for payment in account_payments:
+                    destination = payment.get("destinationBankName")
+                    if not destination:
+                        # unknown destination -> assume worst case (charged)
+                        unknown_count += 1
+                        interbank_count += 1
+                    elif _same_bank(account.get("bankName"), destination):
+                        same_bank_count += 1
+                    else:
+                        interbank_count += 1
+
+                total_payment = sum(
+                    (p.get("amount") or 0) for p in account_payments
+                )
+                opening_balance = balance_map.get(account["id"], 0)
+                admin_fee = interbank_count * INTERBANK_TRANSFER_FEE
+
+                account["balance"] = opening_balance
+                account["openingBalance"] = opening_balance
+                account["totalPaymentAmount"] = total_payment
+                account["interbankTransferCount"] = interbank_count
+                account["sameBankTransferCount"] = same_bank_count
+                account["unknownDestinationCount"] = unknown_count
+                account["estimatedAdminFee"] = admin_fee
+                account["closingBalance"] = (
+                    opening_balance - total_payment - admin_fee
+                )
+
             return {
                 "data": result,
                 "bankAccounts": accounts,
-                "interpayments": interpayments
+                "interpayments": interpayments,
+                "interbankTransferFee": INTERBANK_TRANSFER_FEE
             }
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")

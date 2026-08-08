@@ -2,32 +2,46 @@ from typing import Dict
 from datetime import datetime as dt
 from utils.logger_utils import log_info, log_error
 from repository.purchase_order_repository import PurchaseOrderRepository
+from repository.purchase_order_item_repository import PurchaseOrderItemRepository
+from repository.supplier_repository import SupplierRepository
 
 
 class PurchaseOrderController:
     @staticmethod
     async def generate_purchase_order_name(
         project_code: str = "", purchase_type: str = ""
-    ) -> str:
+    ) -> tuple[str, int]:
         """
-        Build the PO number using a global running sequence.
+        Build the PO number using a per-project running sequence.
         Format: {seq:03d}-PO-{projectCode}-{purchaseType}  e.g. 025-PO-MICZ-G
-        Falls back to just the 3-digit sequence when no project code is given.
+
+        Urutan dihitung per proyek: proyek baru mulai dari 001 lagi, dan
+        menambah PO di satu proyek tidak menggeser nomor proyek lain.
         """
         try:
-            count = await PurchaseOrderRepository.get_global_purchase_order_count()
-            seq = f"{count + 1:03d}"
+            if project_code:
+                number = await PurchaseOrderRepository.get_next_project_sequence(
+                    project_code
+                )
+            else:
+                # tanpa kode proyek, jatuh kembali ke urutan global
+                number = (
+                    await PurchaseOrderRepository.get_global_purchase_order_count()
+                ) + 1
+            seq = f"{number:03d}"
             if project_code and purchase_type:
                 name = f"{seq}-PO-{project_code}-{purchase_type}"
             elif project_code:
                 name = f"{seq}-PO-{project_code}"
             else:
                 name = seq
-            log_info(f"Generated purchase order number '{name}' (existing count: {count})")
-            return name
+            log_info(
+                f"Generated purchase order number '{name}' for project '{project_code}'"
+            )
+            return name, number
         except Exception as e:
             log_error(f"Error generating purchase order name: {str(e)}")
-            return str(int(dt.now().timestamp()))[-3:]
+            return str(int(dt.now().timestamp()))[-3:], 0
 
     @staticmethod
     async def create_purchase_order(purchase_order_data: Dict, user_id: int):
@@ -40,14 +54,23 @@ class PurchaseOrderController:
             # pull out helper-only fields that are not columns
             project_code = purchase_order_data.pop("projectCode", None)
             explicit_name = purchase_order_data.pop("name", None)
+            # `items` bukan kolom purchase_orders — dipisah dan disimpan
+            # ke purchase_order_items setelah PO-nya terbuat.
+            items = purchase_order_data.pop("items", None) or []
 
             # use client-provided PO number, otherwise auto-generate
             if explicit_name:
                 purchase_order_name = explicit_name
+                purchase_order_number = None
             else:
-                purchase_order_name = await PurchaseOrderController.generate_purchase_order_name(
+                (
+                    purchase_order_name,
+                    purchase_order_number,
+                ) = await PurchaseOrderController.generate_purchase_order_name(
                     project_code or "", purchase_order_data.get("purchaseType", "")
                 )
+            # simpan nomor urutnya, dipakai untuk menghitung PO berikutnya
+            purchase_order_data["number"] = purchase_order_number
 
             # billing_requirements is NOT NULL — default to {} for the trial
             if purchase_order_data.get("billing_requirements") is None:
@@ -71,6 +94,25 @@ class PurchaseOrderController:
             if "error" in result:
                 return {"error": result["error"], "status": result.get("status", 500)}
 
+            # Simpan baris item. Sebelumnya langkah ini tidak ada sama sekali,
+            # sehingga purchase_order_items selalu kosong dan dokumen yang
+            # dicetak ulang kehilangan seluruh daftar barang.
+            po_id = result.get("purchase_order_id") or result.get("id")
+            if po_id and items:
+                try:
+                    inserted = await PurchaseOrderItemRepository.insert_many(
+                        po_id, items
+                    )
+                    log_info(f"Inserted {inserted} item(s) for purchase order {po_id}")
+                except Exception as item_error:
+                    log_error(
+                        f"Error inserting items for purchase order {po_id}: {str(item_error)}"
+                    )
+                    return {
+                        "error": "Purchase order saved but its items failed to save",
+                        "status": 500,
+                    }
+
             return {
                 "message": "Purchase order created successfully",
                 "purchase_order_id": result["purchase_order_id"],
@@ -82,10 +124,44 @@ class PurchaseOrderController:
 
     @staticmethod
     async def get_purchase_order_by_id(purchase_order_id: int):
+        """
+        Detail PO lengkap dengan item dan data supplier.
+
+        Keduanya dibutuhkan untuk mencetak ulang dokumen; sebelumnya hanya
+        baris purchase_orders yang dikembalikan sehingga tabel barang dan
+        alamat supplier kosong saat dicetak.
+        """
         try:
             result = await PurchaseOrderRepository.get_by_id(purchase_order_id)
             if "error" in result:
                 return {"error": result["error"], "status": result.get("status", 500)}
+
+            result = dict(result)
+
+            items = await PurchaseOrderItemRepository.get_by_po(purchase_order_id)
+            result["items"] = items if isinstance(items, list) else []
+
+            supplier_id = result.get("supplierID")
+            if supplier_id:
+                supplier = await SupplierRepository.get_by_id(supplier_id)
+                # get_by_id mengembalikan model pydantic (SupplierResponse),
+                # bukan dict — tanpa konversi ini datanya terlewat diam-diam.
+                if supplier is not None and not (
+                    isinstance(supplier, dict) and "error" in supplier
+                ):
+                    data = (
+                        supplier
+                        if isinstance(supplier, dict)
+                        else supplier.model_dump()
+                    )
+                    result["supplier"] = data
+                    result["supplierName"] = data.get("name")
+                    result["supplierAddress"] = data.get("address")
+                    result["supplierCity"] = ", ".join(
+                        x for x in [data.get("city"), data.get("province")] if x
+                    )
+                    result["supplierNpwp"] = data.get("npwp")
+
             return result
         except Exception as e:
             log_error(f"Error fetching purchase order: {str(e)}")

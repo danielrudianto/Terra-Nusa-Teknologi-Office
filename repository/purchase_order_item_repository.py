@@ -4,15 +4,20 @@ from utils.database import database
 from utils.logger_utils import log_error
 from models.purchase_order_item_model import purchase_order_items_table
 from models.master_item_model import master_item_table
+from models.master_equipment_model import master_equipment_table
 
 _COLUMNS = [
-    "equipment_id", "fleet_id", "task", "quantity", "price",
+    "item_id", "equipment_id", "fleet_id", "task", "quantity", "price",
     "remarks_1", "remarks_2", "remarks_3", "remarks_4", "unit",
 ]
 
 
 def _clean_item(item: dict, po_id: int) -> dict:
     row = {"purchaseOrderID": po_id}
+    # item_id  = barang katalog (master_item), dipakai PO G/F/C/5.1.x/6.3
+    # equipment_id = alat sewa (master_equipment), dipakai PO B
+    # Keduanya kolom terpisah dan tidak boleh saling menimpa.
+    item = dict(item)
     for c in _COLUMNS:
         row[c] = item.get(c)
     # NOT NULL columns with sensible fallbacks
@@ -40,11 +45,22 @@ class PurchaseOrderItemRepository:
 
     @staticmethod
     async def get_by_po(po_id: int) -> List[dict]:
-        """Fetch items for a PO, joined with fleet + master_item for display."""
+        """
+        Ambil item PO beserta nama barang/alatnya.
+
+        Satu baris bisa merujuk master_item (PO barang) ATAU master_equipment
+        (PO B, penyewaan alat), jadi keduanya di-join agar dokumen yang
+        dicetak selalu punya nama.
+        """
         try:
             joined = purchase_order_items_table.join(
                 master_item_table,
-                purchase_order_items_table.c.equipment_id == master_item_table.c.id,
+                purchase_order_items_table.c.item_id == master_item_table.c.id,
+                isouter=True,
+            ).join(
+                master_equipment_table,
+                purchase_order_items_table.c.equipment_id
+                == master_equipment_table.c.id,
                 isouter=True,
             )
             # fleet_id is resolved against the hardcoded frontend fleet list,
@@ -54,6 +70,7 @@ class PurchaseOrderItemRepository:
                     *purchase_order_items_table.c,
                     master_item_table.c.sku.label("sku"),
                     master_item_table.c.description.label("item_description"),
+                    master_equipment_table.c.name.label("equipment_name"),
                 )
                 .select_from(joined)
                 .where(purchase_order_items_table.c.purchaseOrderID == po_id)

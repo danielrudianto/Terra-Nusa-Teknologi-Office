@@ -36,6 +36,9 @@ purchase_orders_table = Table(
     Column("date", Date, nullable=False),
     Column("supplierID", Integer, ForeignKey("suppliers.id"), nullable=False),
     Column("name", String(255), nullable=False),
+    # Nomor urut per proyek. Disimpan terpisah dari "name" supaya urutan
+    # berikutnya tidak perlu diambil dengan mem-parsing teks nomor PO.
+    Column("number", Integer(), nullable=True, index=True),
     Column("purchaseType", String(50), nullable=False),
     Column("templateVersion", String(50), nullable=False),
     Column("projectName", String(255), nullable=False),

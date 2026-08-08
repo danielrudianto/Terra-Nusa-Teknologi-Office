@@ -75,6 +75,8 @@ class SalesInvoiceRepository:
                 clients_table.c.city.label("client_city"),
                 clients_table.c.province.label("client_province"),
                 clients_table.c.prefix.label("client_prefix"),
+                # NPWP dipakai saat membuat faktur pajak dari layar konfirmasi
+                clients_table.c.npwp.label("client_npwp"),
             ]
 
             # Subquery: total pembayaran yang sudah diterima per invoice (uang masuk)
@@ -131,6 +133,8 @@ class SalesInvoiceRepository:
                 clients_table.c.city.label("client_city"),
                 clients_table.c.province.label("client_province"),
                 clients_table.c.prefix.label("client_prefix"),
+                # NPWP dipakai saat membuat faktur pajak dari layar konfirmasi
+                clients_table.c.npwp.label("client_npwp"),
             ]
             
             query = select(
@@ -170,6 +174,8 @@ class SalesInvoiceRepository:
                 clients_table.c.city.label("client_city"),
                 clients_table.c.province.label("client_province"),
                 clients_table.c.prefix.label("client_prefix"),
+                # NPWP dipakai saat membuat faktur pajak dari layar konfirmasi
+                clients_table.c.npwp.label("client_npwp"),
             ]
             
             query = select(
@@ -358,6 +364,8 @@ class SalesInvoiceRepository:
                 clients_table.c.city.label("client_city"),
                 clients_table.c.province.label("client_province"),
                 clients_table.c.prefix.label("client_prefix"),
+                # NPWP dipakai saat membuat faktur pajak dari layar konfirmasi
+                clients_table.c.npwp.label("client_npwp"),
             ]
             
             query = select(

@@ -235,13 +235,15 @@ class PaymentOutgoingRepository:
                         "date": payment.reimbursement_date,
                         "name": payment.reimbursement_name,
                         "accountName": payment.reimbursement_account_name,
-                        "projectName": payment.reimbursement_project_name
+                        "projectName": payment.reimbursement_project_name,
+                        "bankName": payment.reimbursement_bank_name
                     },
                     "expense": None if payment.expenseID is None else {
                         "date": payment.expense_date,
                         "invoiceName": payment.expense_invoiceName,
                         "accountName": payment.expense_account_name,
-                        "description": payment.expense_description
+                        "description": payment.expense_description,
+                        "bankName": payment.expense_bank_name
                     }
                 } for payment in payments
             ]
@@ -825,7 +827,14 @@ class PaymentOutgoingRepository:
                 salary_slips_table.c.year.label("salary_slips_year"),
                 employees_table.c.name.label("salary_slip_name"),
                 loans_table.c.creditorName.label("loan_creditor_name"),
-                loans_table.c.description.label("loan_description")
+                loans_table.c.description.label("loan_description"),
+                # destination bank of each document -> used to estimate
+                # inter-bank transfer fees on the calendar day view
+                purchases_table.c.bankName.label("purchase_bank_name"),
+                expenses_table.c.bankName.label("expense_bank_name"),
+                reimbursements_table.c.bankName.label("reimbursement_bank_name"),
+                salary_slips_table.c.bankName.label("salary_slip_bank_name"),
+                loans_table.c.bankName.label("loan_bank_name")
             ]
             
             #Base query
@@ -884,6 +893,7 @@ class PaymentOutgoingRepository:
                         "accountName": payment.purchase_account_name,
                         "projectName": payment.purchase_project_name,
                         "purchaseOrderName": payment.purchase_purchase_order_name,
+                        "bankName": payment.purchase_bank_name,
                     },
                     "reimbursement": None if payment.reimbursementID is None else {
                         "date": payment.reimbursement_date,
@@ -900,12 +910,23 @@ class PaymentOutgoingRepository:
                     "salarySlip": None if payment.salarySlipID is None else {
                         "month": payment.salary_slip_month,
                         "year": payment.salary_slips_year,
-                        "name": payment.salary_slip_name
+                        "name": payment.salary_slip_name,
+                        "bankName": payment.salary_slip_bank_name
                     },
                     "loan": None if payment.loanID is None else {
                         "creditorName": payment.loan_creditor_name,
-                        "description": payment.loan_description
-                    }
+                        "description": payment.loan_description,
+                        "bankName": payment.loan_bank_name
+                    },
+                    # flattened destination bank, whichever document this
+                    # payment belongs to (used for transfer-fee estimation)
+                    "destinationBankName": (
+                        payment.purchase_bank_name
+                        or payment.expense_bank_name
+                        or payment.reimbursement_bank_name
+                        or payment.salary_slip_bank_name
+                        or payment.loan_bank_name
+                    )
                 } for payment in payments
             ]
         except Exception as e:

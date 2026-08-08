@@ -1,9 +1,10 @@
 import json
 from datetime import datetime as dt
-from sqlalchemy import insert, select, func, update
+from sqlalchemy import insert, select, func, update, or_
 from sqlalchemy.exc import IntegrityError
 from utils.database import database
 from models.purchase_order_model import purchase_orders_table
+from models.supplier_model import suppliers_table
 from utils.logger_utils import log_error
 
 # JSON columns that may come back as strings from the driver and should be dicts
@@ -42,6 +43,28 @@ class PurchaseOrderRepository:
         except Exception as e:
             log_error(f"Error counting purchase orders for project {project_name}: {str(e)}")
             return 0
+
+    @staticmethod
+    async def get_next_project_sequence(project_name: str) -> int:
+        """
+        Nomor urut berikutnya untuk satu proyek.
+
+        Dibaca dari kolom `number` (MAX + 1), bukan hasil COUNT dan bukan
+        hasil parsing teks: COUNT membuat nomor terpakai ulang setelah ada
+        PO dihapus, sedangkan parsing ikut mewarisi nomor global lama.
+        Baris terhapus tetap dihitung supaya nomor tidak pernah dobel.
+        """
+        try:
+            query = select(func.max(purchase_orders_table.c.number)).where(
+                purchase_orders_table.c.projectName == project_name
+            )
+            highest = await database.fetch_val(query)
+            return (highest or 0) + 1
+        except Exception as e:
+            log_error(
+                f"Error getting next sequence for project {project_name}: {str(e)}"
+            )
+            return 1
 
     @staticmethod
     async def get_global_purchase_order_count() -> int:
@@ -89,26 +112,42 @@ class PurchaseOrderRepository:
 
     @staticmethod
     async def get_all(page: int = 1, page_size: int = 10, keyword: str = None):
-        """Get purchase orders with pagination (newest first), optional keyword search."""
+        """
+        Get purchase orders with pagination (newest first).
+
+        `keyword` mencari pada nomor PO dan nama proyek (tabel ini tidak
+        menyimpan nama supplier, hanya supplierID).
+        Sebelumnya parameter ini tidak ada padahal controller mengirimnya,
+        sehingga daftar PO gagal dimuat.
+        """
         try:
             offset = (page - 1) * page_size
 
-            # filter dasar: belum dihapus
-            base_filter = purchase_orders_table.c.isDelete == False
-
-            # filter keyword (opsional) di kolom teks yang relevan
+            conditions = [purchase_orders_table.c.isDelete == False]
             if keyword:
-                like = f"%{keyword}%"
-                keyword_filter = (
-                    purchase_orders_table.c.name.ilike(like)
-                    | purchase_orders_table.c.purchaseType.ilike(like)
-                    | purchase_orders_table.c.projectName.ilike(like)
+                pattern = f"%{keyword}%"
+                conditions.append(
+                    or_(
+                        purchase_orders_table.c.name.ilike(pattern),
+                        purchase_orders_table.c.projectName.ilike(pattern),
+                    )
                 )
-                base_filter = base_filter & keyword_filter
 
+            # Join ke suppliers: daftar PO menampilkan nama supplier, dan
+            # sebelumnya kolom itu tidak ikut diambil sehingga tampil "?".
             query = (
-                select(purchase_orders_table)
-                .where(base_filter)
+                select(
+                    purchase_orders_table,
+                    suppliers_table.c.name.label("supplier_name"),
+                    suppliers_table.c.prefix.label("supplier_prefix"),
+                )
+                .select_from(
+                    purchase_orders_table.outerjoin(
+                        suppliers_table,
+                        purchase_orders_table.c.supplierID == suppliers_table.c.id,
+                    )
+                )
+                .where(*conditions)
                 .order_by(purchase_orders_table.c.createdAt.desc())
                 .offset(offset)
                 .limit(page_size)
@@ -118,7 +157,7 @@ class PurchaseOrderRepository:
             count_query = (
                 select(func.count())
                 .select_from(purchase_orders_table)
-                .where(base_filter)
+                .where(*conditions)
             )
             total_count = await database.fetch_val(count_query) or 0
 

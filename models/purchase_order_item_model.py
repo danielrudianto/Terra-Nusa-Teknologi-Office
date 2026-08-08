@@ -7,7 +7,10 @@ purchase_order_items_table = Table(
     "purchase_order_items",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("equipment_id", Integer, ForeignKey("master_item.id"), nullable=True),
+    # Barang katalog (master_item) — PO G, F, C, 5.1.1, 5.1.2, 5.1.6, 6.3
+    Column("item_id", Integer, ForeignKey("master_item.id"), nullable=True),
+    # Alat sewa (master_equipment) — khusus PO B (penyewaan alat kerja)
+    Column("equipment_id", Integer, nullable=True),
     Column("fleet_id", Integer, nullable=True),  # references hardcoded frontend fleet list (no DB table)
     Column("task", String(100), nullable=True),
     Column("quantity", DECIMAL(12, 2), nullable=False, server_default="0.00"),

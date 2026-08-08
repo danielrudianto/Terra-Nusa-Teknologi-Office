@@ -7,6 +7,10 @@ from datetime import datetime
 class UserRepository:
     @staticmethod
     async def create_user(user_data: dict):
+        # Model memakai default=datetime.now() yang dievaluasi sekali saat
+        # modul di-import, sehingga semua user akan tercatat dengan waktu
+        # yang sama. Diisi eksplisit di sini agar benar-benar waktu simpan.
+        user_data.setdefault("createdAt", datetime.now())
         query = insert(users_table).values(**user_data)
         user_id = await database.execute(query)
         return user_id
