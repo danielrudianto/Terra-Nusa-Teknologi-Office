@@ -18,6 +18,7 @@ sales_invoice_tables = Table(
     Column("bpjs", Float, nullable=False, default=0.0),
     Column("spkNumber", String(100), nullable=False),
     Column("taxInvoiceName", String(100), nullable=True, default=None),
+    Column("incomeTaxInvoiceName", String(100), nullable=True, default=None),
     Column("description", String(100), nullable=True),
     Column("bankAccountID", Integer, ForeignKey("bank_accounts.id"), nullable=False),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False, default=1),

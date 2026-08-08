@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from utils.auth_utils import get_current_user
 from utils.logger_utils import log_error
-from typing import Annotated, Optional
+from typing import Annotated, Optional, List
 from controllers.sales_invoice_controller import SalesInvoiceController
-from schemas.sales_invoice_schema import SalesInvoiceCreate
+from schemas.sales_invoice_schema import SalesInvoiceCreate, SalesInvoiceTaxInvoiceUpdate, SalesInvoiceIncomeTaxUpdate
 from utils.auth_utils import get_current_user
 from typing import Annotated
 from utils.auth_utils import User
@@ -59,12 +59,14 @@ async def get_sales_invoices(
     sortBy: str = Query("date"),
     sortByDirection: str = Query("desc", regex="^(asc|desc)$"),
     keyword: Optional[str] = Query(None),
+    filters: Optional[List[str]] = Query(None),
 ):
     """
     Get sales invoices with pagination.
+    filters: paid, unpaid, complete, no_tax_invoice, no_withholding (multi-select).
     """
     result = await SalesInvoiceController.get_sales_invoices(
-        page, pageSize, sortBy, sortByDirection, keyword
+        page, pageSize, sortBy, sortByDirection, keyword, filters
     )
     return result
 
@@ -95,3 +97,28 @@ async def approve_sales_invoice(
         sales_invoice_id, tax_invoice_name, user_id
     )
     return result
+
+@router.put("/tax-invoice/{sales_invoice_id}")
+async def set_tax_invoice_name(
+    sales_invoice_id: int,
+    data: SalesInvoiceTaxInvoiceUpdate,
+    current_user: Annotated[User, Depends(get_current_user)]
+):
+    """Set nomor faktur pajak PPN pada sales invoice."""
+    user_id = current_user["id"]
+    return await SalesInvoiceController.set_tax_invoice_name(
+        sales_invoice_id, data.taxInvoiceName, user_id
+    )
+
+
+@router.put("/income-tax/{sales_invoice_id}")
+async def set_income_tax_name(
+    sales_invoice_id: int,
+    data: SalesInvoiceIncomeTaxUpdate,
+    current_user: Annotated[User, Depends(get_current_user)]
+):
+    """Set nomor bukti potong PPh pada sales invoice (hanya yang sudah dibayar & ada PPh)."""
+    user_id = current_user["id"]
+    return await SalesInvoiceController.set_income_tax_name(
+        sales_invoice_id, data.incomeTaxInvoiceName, user_id
+    )

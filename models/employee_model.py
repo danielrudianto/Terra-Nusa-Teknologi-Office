@@ -27,6 +27,7 @@ class Employee(BaseModel):
     deletedAt: Optional[dt] = None  # Deletion date
     deletedBy: Optional[int] = None  # ID of the user who deleted the employee
     startDate: Optional[d] = None
+    endDate: Optional[d] = None
 
     #Initialize the model
     def __init__(self, **data):
@@ -57,7 +58,8 @@ class Employee(BaseModel):
             taxCategory=self.taxCategory,
             createdAt=self.createdAt,
             createdBy=self.createdBy,
-            startDate=self.startDate
+            startDate=self.startDate,
+            endDate=self.endDate
         )
         try:
             employee_id = await database.execute(query)
@@ -90,6 +92,7 @@ class Employee(BaseModel):
                 updatedAt=dt.now(),
                 updatedBy=self.updatedBy,
                 startDate=self.startDate,
+                endDate=self.endDate,
             )
         )
         try:
@@ -122,7 +125,7 @@ class Employee(BaseModel):
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
-    async def get_employees(keyword: str, page: int, pageSize: int = 10, sortBy: str = None, sortByDirection: str = "asc"):
+    async def get_employees(keyword: str, page: int, pageSize: int = 10, sortBy: str = None, sortByDirection: str = "asc", status: str = None):
         """
         Retrieve a list of employees from the database.
         """
@@ -141,7 +144,15 @@ class Employee(BaseModel):
                     employees_table.c.nik.ilike(f"%{keyword}%"),
                     employees_table.c.email.ilike(f"%{keyword}%")
                 )
-            ).offset(offset).limit(pageSize)
+            )
+
+            # filter by employment status via endDate
+            if status == "active":
+                query = query.where(employees_table.c.endDate.is_(None))
+            elif status == "inactive":
+                query = query.where(employees_table.c.endDate.isnot(None))
+
+            query = query.offset(offset).limit(pageSize)
 
             if sortBy == "name":
                 if sortByDirection == "desc":
@@ -171,7 +182,8 @@ class Employee(BaseModel):
                     updatedBy=row.updatedBy,
                     deletedAt=row.deletedAt,
                     deletedBy=row.deletedBy,
-                    startDate=row.startDate
+                    startDate=row.startDate,
+                    endDate=row.endDate
                 )
                 response.append(employee_data)
 
@@ -183,6 +195,10 @@ class Employee(BaseModel):
                     employees_table.c.email.ilike(f"%{keyword}%")
                 )
             )
+            if status == "active":
+                total_count_query = total_count_query.where(employees_table.c.endDate.is_(None))
+            elif status == "inactive":
+                total_count_query = total_count_query.where(employees_table.c.endDate.isnot(None))
             total_count = await database.fetch_val(total_count_query)
 
             return {"data": response, "count": total_count}

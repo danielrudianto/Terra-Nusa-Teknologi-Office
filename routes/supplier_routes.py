@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from controllers.supplier_controller import SupplierController
 from schemas.supplier_schema import SupplierCreate, SupplierUpdate, SupplierBlacklistUpdate
 from utils.auth_utils import get_current_user
-from typing import Annotated
+from typing import Annotated, Optional
 from utils.auth_utils import User
 
 router = APIRouter()
@@ -34,10 +34,11 @@ async def get_suppliers(
     current_user: Annotated[User, Depends(get_current_user)],
     keyword: str = Query(None),
     page: int = Query(0, ge=0),
-    pageSize: int = Query(10, ge=10, le=100)
+    pageSize: int = Query(10, ge=10, le=100),
+    isBlacklist: Optional[bool] = Query(None)
 ):
     try:
-        result = await SupplierController.get_suppliers(keyword, page, pageSize)
+        result = await SupplierController.get_suppliers(keyword, page, pageSize, isBlacklist)
         if "error" in result:
             raise HTTPException(status_code=result["status"], detail=result["error"])
         return result

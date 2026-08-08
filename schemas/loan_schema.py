@@ -13,6 +13,8 @@ class LoanBase(BaseModel):
     bankAccountName: str
     bankAccountNumber: str
     bankName: str
+    # rekening perusahaan tujuan penerimaan dana (dari bank_accounts)
+    bankAccountID: Optional[int] = None
 
 class LoanCreate(LoanBase):
     pass

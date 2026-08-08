@@ -88,13 +88,27 @@ class PurchaseOrderRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
-    async def get_all(page: int = 1, page_size: int = 10):
-        """Get purchase orders with pagination (newest first)."""
+    async def get_all(page: int = 1, page_size: int = 10, keyword: str = None):
+        """Get purchase orders with pagination (newest first), optional keyword search."""
         try:
             offset = (page - 1) * page_size
+
+            # filter dasar: belum dihapus
+            base_filter = purchase_orders_table.c.isDelete == False
+
+            # filter keyword (opsional) di kolom teks yang relevan
+            if keyword:
+                like = f"%{keyword}%"
+                keyword_filter = (
+                    purchase_orders_table.c.name.ilike(like)
+                    | purchase_orders_table.c.purchaseType.ilike(like)
+                    | purchase_orders_table.c.projectName.ilike(like)
+                )
+                base_filter = base_filter & keyword_filter
+
             query = (
                 select(purchase_orders_table)
-                .where(purchase_orders_table.c.isDelete == False)
+                .where(base_filter)
                 .order_by(purchase_orders_table.c.createdAt.desc())
                 .offset(offset)
                 .limit(page_size)
@@ -104,7 +118,7 @@ class PurchaseOrderRepository:
             count_query = (
                 select(func.count())
                 .select_from(purchase_orders_table)
-                .where(purchase_orders_table.c.isDelete == False)
+                .where(base_filter)
             )
             total_count = await database.fetch_val(count_query) or 0
 

@@ -4,8 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from datetime import datetime as dt
 from repository.loan_repository import LoanRepository
-# Assuming you have a PaymentOutgoing repository for payments
-# from repository.payment_outgoing_repository import PaymentOutgoingRepository
+from repository.payment_income_repository import PaymentIncomingRepository
 
 class LoanController:
     @staticmethod 
@@ -23,8 +22,33 @@ class LoanController:
                 log_error(f"Error creating loan: {result['error']}")
                 raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
 
-            log_info(f"Loan created successfully with ID: {result['loan_id']}")
-            return {"message": "Loan created successfully", "loan_id": result['loan_id']}
+            loan_id = result["loan_id"]
+            log_info(f"Loan created successfully with ID: {loan_id}")
+
+            # Otomatis catat dana yang DITERIMA (received) sebagai payment_incoming,
+            # terhubung ke loan ini, dengan tanggal sesuai tanggal loan.
+            try:
+                payment_data = {
+                    "date": loan_data["date"],
+                    "amount": loan_data.get("received", 0) or 0,
+                    "loanID": loan_id,
+                    "bankAccountID": loan_data.get("bankAccountID"),
+                    "createdBy": user_id,
+                    "createdAt": dt.now(),
+                    "isApprove": True,
+                }
+                payment_result = await PaymentIncomingRepository.create(payment_data)
+                if "error" in payment_result:
+                    # Loan tetap berhasil; kegagalan payment_incoming hanya dicatat.
+                    log_error(
+                        f"Loan {loan_id} created but auto payment_incoming failed: {payment_result['error']}"
+                    )
+            except Exception as pay_err:
+                log_error(
+                    f"Loan {loan_id} created but auto payment_incoming raised: {str(pay_err)}"
+                )
+
+            return {"message": "Loan created successfully", "loan_id": loan_id}
         except IntegrityError as e:
             log_error(f"Integrity error: {str(e)}")
             raise HTTPException(status_code=400, detail="Loan already exists.")

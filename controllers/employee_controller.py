@@ -32,7 +32,7 @@ class EmployeeController:
             log_error(f"Unexpected error: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error.")
         
-    async def get_employees(keyword: str, page: int, pageSize: int = 10, sortBy: str = None, sortByDirection: str = "asc") -> Dict:
+    async def get_employees(keyword: str, page: int, pageSize: int = 10, sortBy: str = None, sortByDirection: str = "asc", status: str = None) -> Dict:
         """
         Retrieve a list of employees from the database.
 
@@ -56,7 +56,7 @@ class EmployeeController:
             sortBy = "name"
             sortByDirection = "asc"
 
-        employees = await Employee.get_employees(keyword, page, pageSize, sortBy, sortByDirection)
+        employees = await Employee.get_employees(keyword, page, pageSize, sortBy, sortByDirection, status)
         if "error" in employees:
             log_error(f"Error retrieving employees: {employees['error']}")
             raise HTTPException(status_code=employees["status"], detail=employees["error"])

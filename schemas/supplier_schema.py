@@ -48,6 +48,8 @@ class SupplierSearchDocument(BaseModel):
     npwp: Optional[str] = None
     itemsSold: list[str]
     serviceArea: list[str]
+    isBlacklist: bool = False
+    blacklistReason: Optional[str] = None
 
 class SupplierBlacklistUpdate(BaseModel):
     isBlacklist: bool

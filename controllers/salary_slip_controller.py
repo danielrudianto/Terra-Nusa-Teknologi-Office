@@ -1,6 +1,6 @@
 from services.user_service import UserService
 from utils.logger_utils import log_error, log_info
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 from schemas.salary_slip_schema import SalarySlipCreate
 from repository.salary_slip_repository import SalarySlipRepository, SalarySlipAllowanceRepository, SalarySlipDeductionRepository
 from datetime import datetime as dt
@@ -125,14 +125,21 @@ class SalarySlipController:
             month_name = SalarySlipController.get_indonesian_month(salarySlip["month"])
             year = salarySlip['year']
 
-            #Send the pdf file to front end
+            # Baca PDF sebagai bytes, lalu hapus file temp.
             with open(pdf_path, "rb") as file:
                 file_data = file.read()
-                return {"file": file_data, "filename": f"Slip Gaji {month_name} {year}.pdf"}
+            try:
+                os.remove(pdf_path)
+            except Exception:
+                pass
+
+            filename = f"Slip Gaji {month_name} {year}.pdf"
+            # Kembalikan sebagai objek biner; route yang membungkus jadi Response PDF.
+            return {"pdf_bytes": file_data, "filename": filename}
 
         except Exception as e:
             log_error(str(e))
-            raise HTTPException(status_code=500, detail="Failed to send salary slip")
+            raise HTTPException(status_code=500, detail="Failed to print salary slip")
 
     @staticmethod
     async def delete(id: int, userID: int):

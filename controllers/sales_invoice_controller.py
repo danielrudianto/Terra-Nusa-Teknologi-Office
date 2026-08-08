@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from utils.logger_utils import log_error, log_info
 from fastapi import HTTPException
 from schemas.sales_invoice_schema import SalesInvoiceCreate, SalesInvoiceWithPaymentsResponse
@@ -86,12 +86,13 @@ class SalesInvoiceController:
         page_size: int, 
         sort_by: str, 
         sort_direction: str, 
-        keyword: Optional[str] = None
+        keyword: Optional[str] = None,
+        filters: Optional[List[str]] = None
     ) -> Dict:
         """
         Get sales invoices with pagination.
         """
-        log_info(f"Fetching sales invoices - page: {page}, page_size: {page_size}, keyword: {keyword}")
+        log_info(f"Fetching sales invoices - page: {page}, page_size: {page_size}, keyword: {keyword}, filters: {filters}")
         try:
             # Validate pagination parameters
             if page < 1:
@@ -104,7 +105,8 @@ class SalesInvoiceController:
                 page_size=page_size,
                 sort_by=sort_by,
                 sort_direction=sort_direction,
-                keyword=keyword
+                keyword=keyword,
+                filters=filters
             )
             
             return result
@@ -133,14 +135,16 @@ class SalesInvoiceController:
             
             payments = await PaymentIncomingRepository.get_by_sales_invoice_id(sales_invoice_id)
 
-            # Combine sales invoice and payments
-            response_data = SalesInvoiceWithPaymentsResponse(
-                **sales_invoice.model_dump(),
-                payments=payments
-            )
+            # get_by_id sekarang return dict yang sudah di-enrich
+            # (taxingStatus, isPaid, incomeTaxInvoiceName, total_paid).
+            # Bypass schema ketat agar field turunan ikut terkirim.
+            response_data = {
+                **sales_invoice,
+                "payments": payments,
+            }
 
             log_info(f"Successfully fetched sales invoice with ID: {sales_invoice_id}")
-            return response_data.model_dump()
+            return response_data
             
         except HTTPException:
             raise
@@ -226,4 +230,49 @@ class SalesInvoiceController:
             raise
         except Exception as e:
             log_error(f"Error approving sales invoice {sales_invoice_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error")
+    @staticmethod
+    async def set_tax_invoice_name(sales_invoice_id: int, tax_invoice_name: str, user_id: int) -> Dict:
+        """Set nomor faktur pajak PPN."""
+        log_info(f"Setting tax invoice name for sales invoice ID: {sales_invoice_id}")
+        try:
+            if sales_invoice_id < 1:
+                raise HTTPException(status_code=400, detail="Sales invoice ID must be greater than 0")
+            if not tax_invoice_name or not tax_invoice_name.strip():
+                raise HTTPException(status_code=400, detail="Tax invoice name is required")
+
+            result = await SalesInvoiceRepository.set_tax_invoice_name(
+                sales_invoice_id, tax_invoice_name.strip(), user_id
+            )
+            if "error" in result:
+                raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
+            log_info(f"Tax invoice name saved for sales invoice ID: {sales_invoice_id}")
+            return result
+        except HTTPException:
+            raise
+        except Exception as e:
+            log_error(f"Error setting tax invoice name {sales_invoice_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error")
+
+    @staticmethod
+    async def set_income_tax_name(sales_invoice_id: int, income_tax_name: str, user_id: int) -> Dict:
+        """Set nomor bukti potong PPh."""
+        log_info(f"Setting income tax slip name for sales invoice ID: {sales_invoice_id}")
+        try:
+            if sales_invoice_id < 1:
+                raise HTTPException(status_code=400, detail="Sales invoice ID must be greater than 0")
+            if not income_tax_name or not income_tax_name.strip():
+                raise HTTPException(status_code=400, detail="Income tax slip number is required")
+
+            result = await SalesInvoiceRepository.set_income_tax_name(
+                sales_invoice_id, income_tax_name.strip(), user_id
+            )
+            if "error" in result:
+                raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
+            log_info(f"Income tax slip name saved for sales invoice ID: {sales_invoice_id}")
+            return result
+        except HTTPException:
+            raise
+        except Exception as e:
+            log_error(f"Error setting income tax name {sales_invoice_id}: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error")

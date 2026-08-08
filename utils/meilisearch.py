@@ -19,7 +19,8 @@ index = client.index(index_name)
 settings = {
     "displayedAttributes": [
         "id", "prefix", "name", "address", "city", "province", 
-        "phone_number", "email", "npwp", "items_sold", "service_area"
+        "phone_number", "email", "npwp", "items_sold", "service_area",
+        "isBlacklist", "blacklistReason"
     ],
     "searchableAttributes": [
         "name", "prefix", "items_sold", "service_area", "city", 
@@ -27,7 +28,7 @@ settings = {
     ],
     "filterableAttributes": [
         "city", "province", "service_area", "items_sold", "is_active",
-        "created_by", "prefix"
+        "created_by", "prefix", "isBlacklist"
     ],
     "sortableAttributes": ["name", "city", "province"],
     "rankingRules": [

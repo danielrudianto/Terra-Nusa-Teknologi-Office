@@ -48,9 +48,10 @@ async def get_employees(
     pageSize = int(request.query_params.get("pageSize", 10))
     sortBy = request.query_params.get("sortBy")
     sortByDirection = request.query_params.get("sortByDirection")
+    status = request.query_params.get("status")
 
     try:
-        result = await EmployeeController.get_employees(keyword, page, pageSize, sortBy, sortByDirection)
+        result = await EmployeeController.get_employees(keyword, page, pageSize, sortBy, sortByDirection, status)
         if "error" in result:
             raise HTTPException(status_code=result["status"], detail=result["error"])
         return result

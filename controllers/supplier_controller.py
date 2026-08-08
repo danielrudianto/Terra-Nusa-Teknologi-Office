@@ -60,18 +60,20 @@ class SupplierController:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
-    async def get_suppliers(keyword: str = None, page: int = 1, pageSize: int = 10) -> Dict[str, Any]:
+    async def get_suppliers(keyword: str = None, page: int = 1, pageSize: int = 10, isBlacklist: bool = None) -> Dict[str, Any]:
         """
         Get suppliers from the database with Meilisearch fallback.
+        Optionally filter by blacklist status (isBlacklist).
         """
-        log_info(f"Fetching suppliers with keyword: {keyword}, page: {page}, page_size: {pageSize}")
+        log_info(f"Fetching suppliers with keyword: {keyword}, page: {page}, page_size: {pageSize}, isBlacklist: {isBlacklist}")
         try:
             # Try Meilisearch first
             try:
-                result = client.index("suppliers").search(
-                    keyword, 
-                    {"limit": pageSize, "offset": (page) * pageSize}
-                )
+                search_opts = {"limit": pageSize, "offset": (page) * pageSize}
+                if isBlacklist is not None:
+                    search_opts["filter"] = f"isBlacklist = {str(bool(isBlacklist)).lower()}"
+
+                result = client.index("suppliers").search(keyword, search_opts)
 
                 if result["hits"]:
                     return {
@@ -82,7 +84,29 @@ class SupplierController:
                     }
             except Exception as search_error:
                 log_error(f"Meilisearch error, falling back to database: {str(search_error)}")
-            
+
+            # Fallback to database (also used when Meilisearch returns no hits)
+            db_page = page + 1 if page == 0 else page
+            db_result = await SupplierRepository.get_paginated(
+                page=db_page,
+                page_size=pageSize,
+                keyword=keyword,
+            )
+            suppliers = db_result.get("data", [])
+            # serialize + optional blacklist filter
+            data = []
+            for sup in suppliers:
+                sup_dict = sup.model_dump() if hasattr(sup, "model_dump") else dict(sup)
+                if isBlacklist is not None and bool(sup_dict.get("isBlacklist", False)) != bool(isBlacklist):
+                    continue
+                data.append(sup_dict)
+            return {
+                "data": data,
+                "count": db_result.get("total_count", len(data)),
+                "page": page,
+                "page_size": pageSize
+            }
+
         except Exception as e:
             log_error(f"Error fetching suppliers: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
@@ -185,6 +209,25 @@ class SupplierController:
                 (payload.blacklistReason or "").strip(),
                 user_id,
             )
+
+            # Re-index in Meilisearch so the search/selector reflects the
+            # blacklist status immediately (DB and search index must stay in sync).
+            try:
+                fresh = await SupplierRepository.get_by_id(supplier_id)
+                if fresh is not None:
+                    fresh_data = (
+                        fresh.model_dump()
+                        if hasattr(fresh, "model_dump")
+                        else dict(fresh)
+                    )
+                    await SupplierController._index_supplier_in_search(
+                        supplier_id, fresh_data
+                    )
+            except Exception as index_error:
+                log_error(
+                    f"Error re-indexing supplier blacklist in search: {str(index_error)}"
+                )
+
             return result
         except Exception as e:
             log_error(f"Error setting supplier blacklist: {str(e)}")
@@ -206,7 +249,9 @@ class SupplierController:
                 "email": "" if supplier_data["email"] is None else supplier_data.get("email"),
                 "npwp": supplier_data.get("npwp"),
                 "items_sold": supplier_data["itemsSold"].split(",") if supplier_data["itemsSold"] else [],
-                "service_area": supplier_data["serviceArea"].split(",") if supplier_data["serviceArea"] else []
+                "service_area": supplier_data["serviceArea"].split(",") if supplier_data["serviceArea"] else [],
+                "isBlacklist": bool(supplier_data.get("isBlacklist", False)),
+                "blacklistReason": supplier_data.get("blacklistReason") or "",
             }
             
             client.index("suppliers").add_documents([search_doc])

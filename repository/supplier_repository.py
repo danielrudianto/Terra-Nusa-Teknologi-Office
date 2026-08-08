@@ -17,7 +17,8 @@ class SupplierRepository:
             query = insert(suppliers_table).values(
                 **supplier_data.model_dump(exclude_none=True),
                 createdAt=dt.now().isoformat(),
-                isDelete=False
+                isDelete=False,
+                isBlacklist=False
             )
             supplier_id = await database.execute(query)
             return {"message": "Supplier created successfully", "supplier_id": supplier_id}
@@ -106,7 +107,8 @@ class SupplierRepository:
     async def get_paginated(
         page: int = 1,
         page_size: int = 10,
-        keyword: str = None
+        keyword: str = None,
+        is_blacklist: Optional[bool] = None
     ) -> Dict[str, Any]:
         """
         Get paginated suppliers with total count.
@@ -121,6 +123,15 @@ class SupplierRepository:
             count_query = select(func.count()).select_from(suppliers_table).where(
                 suppliers_table.c.isDelete == False
             )
+
+            # Filter by blacklist status when specified
+            if is_blacklist is not None:
+                data_query = data_query.where(
+                    suppliers_table.c.isBlacklist == is_blacklist
+                )
+                count_query = count_query.where(
+                    suppliers_table.c.isBlacklist == is_blacklist
+                )
             
             if keyword:
                 keyword_filter = f"%{keyword}%"

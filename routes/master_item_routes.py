@@ -30,8 +30,23 @@ async def get_master_items(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
     purchase_type: str = Query(None, description="Filter by available purchase type, e.g. G"),
+    brand: str = Query(None, description="Filter by exact brand"),
+    item_type: str = Query(None, description="Filter by exact type"),
 ):
-    result = await MasterItemController.get_master_items(keyword, page, page_size, purchase_type)
+    result = await MasterItemController.get_master_items(
+        keyword, page, page_size, purchase_type, brand, item_type
+    )
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
+    return result
+
+
+@router.get("/facets")
+async def get_master_item_facets(
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """Daftar brand & type unik untuk mengisi dropdown filter."""
+    result = await MasterItemController.get_facets()
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
     return result

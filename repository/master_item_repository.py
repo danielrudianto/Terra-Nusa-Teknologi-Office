@@ -64,7 +64,8 @@ class MasterItemRepository:
 
     @staticmethod
     async def get_paginated(
-        page: int = 1, page_size: int = 10, keyword: str = None, purchase_type: str = None
+        page: int = 1, page_size: int = 10, keyword: str = None,
+        purchase_type: str = None, brand: str = None, item_type: str = None
     ) -> Dict[str, Any]:
         """DB-side pagination (fallback when Meilisearch is unavailable)."""
         try:
@@ -92,6 +93,16 @@ class MasterItemRepository:
                 type_cond = master_item_table.c.availablePurchaseType.ilike(f"%{purchase_type}%")
                 data_query = data_query.where(type_cond)
                 count_query = count_query.where(type_cond)
+
+            if brand:
+                brand_cond = master_item_table.c.brand == brand
+                data_query = data_query.where(brand_cond)
+                count_query = count_query.where(brand_cond)
+
+            if item_type:
+                itype_cond = master_item_table.c.type == item_type
+                data_query = data_query.where(itype_cond)
+                count_query = count_query.where(itype_cond)
 
             offset = (page - 1) * page_size
             data_query = data_query.order_by(master_item_table.c.sku.asc()).offset(offset).limit(page_size)
@@ -138,6 +149,32 @@ class MasterItemRepository:
         except Exception as e:
             log_error(f"Error checking existing SKUs: {str(e)}")
             raise
+
+    @staticmethod
+    async def get_facets() -> Dict[str, Any]:
+        """Daftar brand & type unik (untuk mengisi dropdown filter)."""
+        try:
+            brand_q = (
+                select(master_item_table.c.brand)
+                .where(master_item_table.c.isDelete == False)
+                .distinct()
+                .order_by(master_item_table.c.brand.asc())
+            )
+            type_q = (
+                select(master_item_table.c.type)
+                .where(master_item_table.c.isDelete == False)
+                .distinct()
+                .order_by(master_item_table.c.type.asc())
+            )
+            brand_rows = await database.fetch_all(brand_q)
+            type_rows = await database.fetch_all(type_q)
+            return {
+                "brands": [r["brand"] for r in brand_rows if r["brand"]],
+                "types": [r["type"] for r in type_rows if r["type"]],
+            }
+        except Exception as e:
+            log_error(f"Error fetching master item facets: {str(e)}")
+            return {"brands": [], "types": []}
 
     @staticmethod
     async def bulk_create(rows: List[dict]) -> List[dict]:

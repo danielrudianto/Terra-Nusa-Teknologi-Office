@@ -71,7 +71,8 @@ class MasterItemController:
 
     @staticmethod
     async def get_master_items(
-        keyword: str = "", page: int = 1, page_size: int = 10, purchase_type: str = None
+        keyword: str = "", page: int = 1, page_size: int = 10,
+        purchase_type: str = None, brand: str = None, item_type: str = None
     ) -> Dict[str, Any]:
         """Search via Meilisearch, fall back to the database if it's unavailable.
 
@@ -81,9 +82,16 @@ class MasterItemController:
         try:
             try:
                 search_params = {"limit": page_size, "offset": (page - 1) * page_size}
+                filters = []
                 if purchase_type:
                     # availablePurchaseType is indexed as a list -> `= "G"` matches membership
-                    search_params["filter"] = f'availablePurchaseType = "{purchase_type}"'
+                    filters.append(f'availablePurchaseType = "{purchase_type}"')
+                if brand:
+                    filters.append(f'brand = "{brand}"')
+                if item_type:
+                    filters.append(f'type = "{item_type}"')
+                if filters:
+                    search_params["filter"] = " AND ".join(filters)
                 result = client.index(INDEX_NAME).search(keyword or "", search_params)
                 return {
                     "data": result["hits"],
@@ -94,11 +102,20 @@ class MasterItemController:
             except Exception as search_error:
                 log_error(f"Meilisearch error, falling back to database: {str(search_error)}")
                 return await MasterItemRepository.get_paginated(
-                    page, page_size, keyword or None, purchase_type
+                    page, page_size, keyword or None, purchase_type, brand, item_type
                 )
         except Exception as e:
             log_error(f"Error fetching master items: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def get_facets() -> Dict[str, Any]:
+        """Daftar brand & type unik untuk dropdown filter."""
+        try:
+            return await MasterItemRepository.get_facets()
+        except Exception as e:
+            log_error(f"Error fetching facets: {str(e)}")
+            return {"brands": [], "types": []}
 
     @staticmethod
     async def update_master_item(item_data: dict, user_id: int) -> Dict[str, Any]:

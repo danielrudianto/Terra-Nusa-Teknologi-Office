@@ -37,6 +37,7 @@ class SalesInvoiceUpdate(BaseModel):
     description: Optional[str] = None
     bankAccountID: Optional[int] = None
     taxInvoiceName: Optional[str] = None
+    incomeTaxInvoiceName: Optional[str] = None
     isApprove: bool = False
     isDelete: bool = False
     updatedBy: Optional[int] = None
@@ -63,3 +64,13 @@ class SalesInvoiceWithClientResponse(SalesInvoiceResponse):
 
 class SalesInvoiceWithPaymentsResponse(SalesInvoiceWithClientResponse):
     payments: list = []
+
+
+class SalesInvoiceTaxInvoiceUpdate(BaseModel):
+    """Set nomor faktur pajak PPN."""
+    taxInvoiceName: str
+
+
+class SalesInvoiceIncomeTaxUpdate(BaseModel):
+    """Set nomor bukti potong PPh."""
+    incomeTaxInvoiceName: str

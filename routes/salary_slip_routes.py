@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from utils.logger_utils import log_error, log_info
 from utils.auth_utils import get_current_user
 from typing import Annotated
@@ -18,8 +18,15 @@ async def print(salary_slip_id: int, current_user: Annotated[User, Depends(get_c
         result = await SalarySlipController.print(salary_slip_id)
         if "error" in result:
             raise HTTPException(status_code=result["status"], detail=result["error"])
-        
-        return result
+
+        # Kirim PDF sebagai file biner (bukan JSON) agar tidak kena UnicodeDecodeError.
+        return Response(
+            content=result["pdf_bytes"],
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'inline; filename="{result["filename"]}"'
+            },
+        )
     except HTTPException as e:
         log_error(f"HTTPException during print: {str(e.detail)}")
         raise e

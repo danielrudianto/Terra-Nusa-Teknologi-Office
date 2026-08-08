@@ -11,6 +11,13 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
 
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    authenticationLevel: Optional[int] = Field(default=None, ge=1, le=5)
+    isActive: Optional[bool] = None
+    password: Optional[str] = None
+
 class UserLogin(BaseModel):
     email: str
     password: str
