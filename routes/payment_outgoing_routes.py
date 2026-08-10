@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from datetime import datetime, timedelta, date
 from utils.logger_utils import log_error, log_info
 from utils.auth_utils import get_current_user
+from utils.permission import require
 from models.payment_outgoing_model import PaymentOutgoing
 from controllers.payment_outgoing_controller import PaymentOutgoingController
 from utils.auth_utils import User
@@ -11,7 +12,7 @@ from utils.auth_utils import User
 router = APIRouter()
 
 @router.post("/mutation")
-async def fetch_mutation(filterData: dict, user: Annotated[dict, Depends(get_current_user)]):
+async def fetch_mutation(filterData: dict, user: Annotated[dict, Depends(require("payment_outgoing", "create"))]):
     """
     Retrieve bank mutation data. Requires a valid token.
     """
@@ -37,7 +38,7 @@ async def fetch_mutation(filterData: dict, user: Annotated[dict, Depends(get_cur
     return result
 
 @router.post("/")
-async def create_payment(payment: PaymentOutgoing, user: Annotated[dict, Depends(get_current_user)]):
+async def create_payment(payment: PaymentOutgoing, user: Annotated[dict, Depends(require("payment_outgoing", "create"))]):
     """
     Create a new payment. Requires a valid token.
     """
@@ -51,7 +52,7 @@ async def create_payment(payment: PaymentOutgoing, user: Annotated[dict, Depends
     return result
 
 @router.get("/{paymentID}")
-async def get_payment_by_id(paymentID: int, user: Annotated[dict, Depends(get_current_user)]):
+async def get_payment_by_id(paymentID: int, user: Annotated[dict, Depends(require("payment_outgoing", "read"))]):
     """
     Get a payment by its ID. Requires a valid token.
     """
@@ -67,7 +68,7 @@ async def get_payment_by_id(paymentID: int, user: Annotated[dict, Depends(get_cu
 async def get_payments(
     page: int,
     pageSize: int,
-    user: Annotated[dict, Depends(get_current_user)],
+    user: Annotated[dict, Depends(require("payment_outgoing", "read"))],
     sortBy: str = "createdAt",
     sortByDirection: str = "desc",
     isPending: bool = False, 
@@ -95,7 +96,7 @@ async def get_payments(
 @router.post("/approve/bulk")
 async def approve_bulk_payment_status(
     payments: List[int],
-    user: Annotated[dict, Depends(get_current_user)]
+    user: Annotated[dict, Depends(require("payment_outgoing", "approve"))]
 ):
     """
     Approve multiple payments by their IDs. Requires a valid token.
@@ -111,7 +112,7 @@ async def approve_bulk_payment_status(
 @router.post("/reject/bulk")
 async def approve_bulk_payment_status(
     payments: List[int],
-    user: Annotated[dict, Depends(get_current_user)]
+    user: Annotated[dict, Depends(require("payment_outgoing", "approve"))]
 ):
     """
     Approve multiple payments by their IDs. Requires a valid token.
@@ -126,7 +127,7 @@ async def approve_bulk_payment_status(
     return result
 
 @router.post("/move")
-async def move_payment_date(payment: dict,user: Annotated[dict, Depends(get_current_user)]):
+async def move_payment_date(payment: dict,user: Annotated[dict, Depends(require("payment_outgoing", "create"))]):
     #Convert date from yyyy-mm-dd to date object
     date = payment.get("date")
     paymentID = payment.get("id")
@@ -142,7 +143,7 @@ async def move_payment_date(payment: dict,user: Annotated[dict, Depends(get_curr
 @router.put("/approve/{paymentID}")
 async def update_payment_status(
     paymentID: int,
-    user: Annotated[dict, Depends(get_current_user)]
+    user: Annotated[dict, Depends(require("payment_outgoing", "approve"))]
 ):
     """
     Approve a payment by its ID. Requires a valid token.
@@ -159,7 +160,7 @@ async def update_payment_status(
 @router.put("/reject/{paymentID}")
 async def reject_payment_status(
     paymentID: int,
-    user: Annotated[dict, Depends(get_current_user)]
+    user: Annotated[dict, Depends(require("payment_outgoing", "approve"))]
 ):
     """
     Reject a payment by its ID. Requires a valid token.

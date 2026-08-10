@@ -19,6 +19,11 @@ purchase_order_items_table = Table(
     Column("remarks_2", Text, nullable=True),
     Column("remarks_3", Text, nullable=True),
     Column("remarks_4", Text, nullable=True),
+    # Penanggung jawab per baris. Dipakai pada SPK jasa antar berbasis
+    # aplikasi: satu SPK memuat banyak pengiriman yang ditangani orang
+    # berbeda, sehingga PIC tidak bisa ditaruh di tingkat kontrak.
+    Column("remarks_5", Text, nullable=True),
+    Column("remarks_6", Text, nullable=True),
     Column("unit", String(45), nullable=False, server_default=""),
     Column("purchaseOrderID", Integer, ForeignKey("purchase_orders.id"), nullable=False),
 )

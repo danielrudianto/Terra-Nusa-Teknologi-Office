@@ -60,10 +60,18 @@ class SalesInvoiceRepository:
                 createdAt=dt.now()
             )
             result = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="sales_invoices",
+                entityID=result,
+                action="create",
+            )
             return {"message": "Sales invoice created successfully", "sales_invoice_id": result}
         except Exception as e:
             log_error(f"Error creating sales invoice: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_by_project(projectName: str):
@@ -526,7 +534,7 @@ class SalesInvoiceRepository:
             return {"message": "Sales invoice rejected successfully"}
         except Exception as e:
             log_error(f"Error rejecting sales invoice: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def set_tax_invoice_name(
@@ -549,7 +557,7 @@ class SalesInvoiceRepository:
             return {"message": "Tax invoice number saved successfully"}
         except Exception as e:
             log_error(f"Error setting tax invoice name: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def set_income_tax_name(
@@ -572,7 +580,7 @@ class SalesInvoiceRepository:
             return {"message": "Income tax slip number saved successfully"}
         except Exception as e:
             log_error(f"Error setting income tax name: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def approve(
@@ -609,7 +617,7 @@ class SalesInvoiceRepository:
             return {"message": "Sales invoice approved successfully"}
         except Exception as e:
             log_error(f"Error approving sales invoice: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def exists(sales_invoice_id: int) -> bool:

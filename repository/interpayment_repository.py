@@ -17,13 +17,21 @@ class InterpaymentRepository:
             query = insert(interpayment_table).values(interpayment_data)
             result = await database.execute(query)
             
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="interpayments",
+                entityID=result,
+                action="create",
+            )
+            
             if not result:
                 return {"error": "Failed to create interpayment", "status": 500}
             
             return {"interpaymentID": result}
         except Exception as e:
             log_error(f"Error creating interpayment: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     async def get_by_id(interpaymentID: int):
         try:
@@ -94,7 +102,7 @@ class InterpaymentRepository:
             return {"interpayment": dict(row)}
         except Exception as e:
             log_error(f"Error fetching interpayment detail: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def delete(interpaymentID: int, userID: int):
@@ -102,10 +110,19 @@ class InterpaymentRepository:
         try:
             query = interpayment_table.update().where(interpayment_table.c.id == interpaymentID).values(isDelete=True, deletedAt=datetime.now(), deletedBy=userID)
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="interpayments",
+                entityID=interpaymentID,
+                action="delete",
+                userID=userID,
+            )
+            
             return {"message": "Interpayment deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting interpayment: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_interpayments(page: int, pageSize: int, startDate: datetime, endDate: datetime, filterObject: dict, sortBy: str, sortByDirection: str):
@@ -164,7 +181,7 @@ class InterpaymentRepository:
             }
         except Exception as e:
             log_error(f"Error fetching interpayments: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_calendar_data(month: int, year: int, bankAccountID: list[int] | None):
@@ -220,7 +237,7 @@ class InterpaymentRepository:
 
         except Exception as e:
             log_error(f"Error fetching interpayment calendar data: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_calendar_data_by_date(date: int, month: int, year: int, bankAccountID: list[int] | None):
@@ -272,4 +289,4 @@ class InterpaymentRepository:
             return [dict(row) for row in result]
         except Exception as e:
             log_error(f"Error fetching interpayment calendar data by date: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}

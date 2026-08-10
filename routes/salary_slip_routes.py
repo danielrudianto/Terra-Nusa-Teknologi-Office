@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Query
 from utils.logger_utils import log_error, log_info
 from utils.auth_utils import get_current_user
+from utils.permission import require
 from typing import Annotated
 from repository.user_repository import UserRepository
 from controllers.salary_slip_controller import SalarySlipController
@@ -10,7 +11,7 @@ from utils.auth_utils import User
 router = APIRouter()
 
 @router.get("/print/{salary_slip_id}")
-async def print(salary_slip_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+async def print(salary_slip_id: int, current_user: Annotated[User, Depends(require("salary_slip", "read"))]):
     """
     Print a salary slip by ID.
     """
@@ -32,7 +33,7 @@ async def print(salary_slip_id: int, current_user: Annotated[User, Depends(get_c
         raise e
 
 @router.get("/{salary_slip_id}")
-async def fetch(salary_slip_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+async def fetch(salary_slip_id: int, current_user: Annotated[User, Depends(require("salary_slip", "read"))]):
     """
     Fetch salary slip by ID.
     """
@@ -53,7 +54,7 @@ async def fetch(
     keyword: str,
     month: int,
     year: int,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("salary_slip", "read"))],
     sortBy: str = Query(None, description="Kolom: name, basicSalary, isPaid, department, position"),
     sortByDirection: str = Query("asc", description="asc atau desc"),
 ):
@@ -71,7 +72,7 @@ async def fetch(
         raise e
 
 @router.post("/check")
-async def check(salarySlipCheck: SalarySlipCheck, current_user: Annotated[User, Depends(get_current_user)]):
+async def check(salarySlipCheck: SalarySlipCheck, current_user: Annotated[User, Depends(require("salary_slip", "create"))]):
     """
     Check if a salary slip exists for the given user, month, and year.
     """
@@ -89,7 +90,7 @@ async def check(salarySlipCheck: SalarySlipCheck, current_user: Annotated[User, 
         raise e
 
 @router.post("/send")
-async def send_salary_slip(salarySlipSend: dict, current_user: Annotated[User, Depends(get_current_user)]):
+async def send_salary_slip(salarySlipSend: dict, current_user: Annotated[User, Depends(require("salary_slip", "create"))]):
     """
     Send a salary slip.
     """
@@ -106,7 +107,7 @@ async def send_salary_slip(salarySlipSend: dict, current_user: Annotated[User, D
         raise e
 
 @router.post("/")
-async def create_salary_slip(salarySlip: dict, current_user: Annotated[User, Depends(get_current_user)]):
+async def create_salary_slip(salarySlip: dict, current_user: Annotated[User, Depends(require("salary_slip", "create"))]):
     """
     Create a new salary slip.
     
@@ -129,7 +130,7 @@ async def create_salary_slip(salarySlip: dict, current_user: Annotated[User, Dep
         raise e 
     
 @router.delete("/{id}")
-async def delete_salary_slip(id: int, current_user: Annotated[User, Depends(get_current_user)]):
+async def delete_salary_slip(id: int, current_user: Annotated[User, Depends(require("salary_slip", "delete"))]):
     try:
         userID = current_user.id
         deleteResult = await SalarySlipController.delete(id, userID)

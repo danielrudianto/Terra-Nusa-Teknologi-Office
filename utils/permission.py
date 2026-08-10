@@ -1,0 +1,108 @@
+import time
+from typing import Annotated
+
+from fastapi import Depends, HTTPException
+from sqlalchemy import select
+
+from constants.permission_matrix import (
+    NOT_APPLICABLE,
+    SPECIAL_ONLY,
+    required_level,
+)
+from models.user_permission_model import user_permissions_table
+from utils.auth_utils import get_current_user
+from utils.database import database
+from utils.logger_utils import log_error
+
+"""
+Pemeriksa izin.
+
+Urutan penentuan:
+
+    1. Izin khusus pengguna (bila ada) -> nilainya menang, izin maupun larangan
+    2. Level pengguna dibanding level minimum modul
+
+Menyembunyikan tombol di layar bukan pengamanan; pemeriksaan di sinilah yang
+menentukan. Setiap rute yang mengubah data harus melewatinya.
+"""
+
+# Izin khusus jarang berubah, sementara satu layar bisa memicu banyak
+# permintaan. Hasilnya disimpan sebentar agar tidak menambah satu query pada
+# setiap permintaan.
+_CACHE: dict[int, tuple[float, dict[tuple[str, str], bool]]] = {}
+_CACHE_TTL = 60.0
+
+
+def invalidate_permission_cache(user_id: int | None = None) -> None:
+    """
+    Dipanggil setelah izin diubah agar perubahannya langsung berlaku dan tidak
+    menunggu masa simpan habis.
+    """
+    if user_id is None:
+        _CACHE.clear()
+    else:
+        _CACHE.pop(user_id, None)
+
+
+async def _overrides(user_id: int) -> dict[tuple[str, str], bool]:
+    cached = _CACHE.get(user_id)
+    if cached and (time.monotonic() - cached[0]) < _CACHE_TTL:
+        return cached[1]
+
+    try:
+        rows = await database.fetch_all(
+            select(user_permissions_table).where(
+                user_permissions_table.c.userID == user_id
+            )
+        )
+        data = {(r["module"], r["action"]): bool(r["allowed"]) for r in rows}
+    except Exception as e:
+        # Bila tabel izin tidak terbaca, jangan menganggap semuanya boleh:
+        # kembalikan kosong sehingga penentuan jatuh ke level pengguna.
+        log_error(f"Izin khusus tidak dapat dibaca: {str(e)}")
+        return {}
+
+    _CACHE[user_id] = (time.monotonic(), data)
+    return data
+
+
+async def is_allowed(user, module: str, action: str) -> bool:
+    """Apakah pengguna boleh melakukan aksi ini pada modul tersebut."""
+    if user is None:
+        return False
+
+    user_id = user["id"]
+    level = user["authenticationLevel"] or 1
+
+    override = (await _overrides(user_id)).get((module, action))
+    if override is not None:
+        return override
+
+    minimum = required_level(module, action)
+    if minimum in (NOT_APPLICABLE, SPECIAL_ONLY):
+        # Aksi yang tidak berlaku, atau yang sengaja hanya lewat izin khusus
+        # (mis. slip gaji) — tidak pernah terbuka lewat level.
+        return False
+
+    return level >= minimum
+
+
+def require(module: str, action: str):
+    """
+    Dependency FastAPI.
+
+    Mengembalikan objek pengguna yang sama seperti `get_current_user`, sehingga
+    isi rute tidak perlu diubah — cukup menukar isi `Depends`.
+
+        async def approve(id: int, current_user = Depends(require("expenses", "approve"))):
+    """
+
+    async def _cek(current_user: Annotated[dict, Depends(get_current_user)]):
+        if not await is_allowed(current_user, module, action):
+            raise HTTPException(
+                status_code=403,
+                detail="Anda tidak memiliki akses untuk tindakan ini.",
+            )
+        return current_user
+
+    return _cek
