@@ -21,6 +21,14 @@ class SupplierRepository:
                 isBlacklist=False
             )
             supplier_id = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="suppliers",
+                entityID=supplier_id,
+                action="create",
+            )
             return {"message": "Supplier created successfully", "supplier_id": supplier_id}
         except IntegrityError as e:
             log_error(f"Integrity error while creating supplier: {str(e)}")
@@ -35,6 +43,11 @@ class SupplierRepository:
         Update an existing supplier.
         """
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(suppliers_table).where(suppliers_table.c.id == supplier_id)
+            )
             update_values = supplier_data.model_dump(exclude_none=True)
             update_values['updatedAt'] = dt.now().isoformat()
             
@@ -45,6 +58,25 @@ class SupplierRepository:
             )
             
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="suppliers",
+                entityID=supplier_id,
+                action="update",
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(suppliers_table).where(
+                                suppliers_table.c.id == supplier_id
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+
             return {"message": "Supplier updated successfully", "supplier_id": supplier_id}
         except IntegrityError as e:
             log_error(f"Integrity error while updating supplier: {str(e)}")
@@ -71,9 +103,11 @@ class SupplierRepository:
 
     @staticmethod
     async def get_all(
-        skip: int = 0, 
+        skip: int = 0,
         limit: int = 100,
-        keyword: str = None
+        keyword: str = None,
+        sortBy: str = None,
+        sortByDirection: str = "asc",
     ) -> List[SupplierResponse]:
         """
         Get all suppliers with optional pagination and keyword search.
@@ -95,6 +129,33 @@ class SupplierRepository:
                     suppliers_table.c.itemsSold.ilike(keyword_filter) |
                     suppliers_table.c.serviceArea.ilike(keyword_filter)
                 )
+            
+            # Kolom yang boleh dipakai mengurutkan; daftar putih mencegah nama
+            
+            # kolom sembarang ikut masuk ke query.
+            
+            SORTABLE = {
+            
+                "name": suppliers_table.c.name,
+            
+                "city": suppliers_table.c.city,
+            
+                "npwp": suppliers_table.c.npwp,
+            
+            }
+            
+            _kolom = SORTABLE.get(sortBy, suppliers_table.c.name)
+            
+            query = query.order_by(
+            
+                _kolom.desc()
+            
+                if str(sortByDirection).lower() == "desc"
+            
+                else _kolom.asc()
+            
+            )
+
             
             query = query.offset(skip).limit(limit)
             result = await database.fetch_all(query)
@@ -186,6 +247,14 @@ class SupplierRepository:
                 )
             )
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="suppliers",
+                entityID=supplier_id,
+                action="delete",
+            )
+            
             return {"message": "Supplier deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting supplier: {str(e)}")

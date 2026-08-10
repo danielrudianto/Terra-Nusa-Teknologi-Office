@@ -69,12 +69,16 @@ async def get_all_purchase_orders(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(10, ge=1, le=100, description="Items per page"),
     keyword: str = Query(None, description="Search by PO number, project, or supplier"),
+    sortBy: str = Query(None, description="Sort column: date, value, supplier, project, name, status"),
+    sortByDirection: str = Query("desc", description="Sort direction: asc or desc"),
 ):
     """
     Get all purchase orders with pagination.
     """
     try:
-        result = await PurchaseOrderController.get_all_purchase_orders(page, page_size, keyword)
+        result = await PurchaseOrderController.get_all_purchase_orders(
+            page, page_size, keyword, sortBy, sortByDirection
+        )
         
         if "error" in result:
             raise HTTPException(

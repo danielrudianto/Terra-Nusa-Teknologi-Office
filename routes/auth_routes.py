@@ -3,19 +3,40 @@ from models.auth_model import LoginData
 from controllers.user_controller import UserController
 from datetime import datetime, timedelta
 from utils.logger_utils import log_error, log_info
-from utils.auth_utils import create_access_token, validate_token
+from utils.auth_utils import create_access_token, validate_token, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_MINUTES
+from utils.login_guard import cek_terkunci, catat_gagal, bersihkan
 from utils.auth_utils import User
 
 router = APIRouter()
 
 @router.post("/")
-async def login(loginData: LoginData):
+async def login(loginData: LoginData, request: Request):
+    ip = request.client.host if request.client else None
+
+    # Diperiksa sebelum kata sandi dicocokkan, supaya percobaan yang sudah
+    # melewati batas tidak ikut membebani proses hashing.
+    sisa = cek_terkunci(loginData.email, ip)
+    if sisa:
+        log_error(f"Login diblokir sementara untuk {loginData.email}")
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "Terlalu banyak percobaan masuk. "
+                f"Coba lagi dalam {max(1, sisa // 60)} menit."
+            ),
+        )
+
     result = await UserController.login(loginData.model_dump())
-        
+
     # Check for errors in the result
     if "error" in result:
+        catat_gagal(loginData.email, ip)
         log_error(f"Login failed for user {loginData.email}")
+        # Pesan sengaja tidak membedakan email salah dan kata sandi salah,
+        # agar tidak bisa dipakai menebak email mana yang terdaftar.
         raise HTTPException(status_code=400, detail="Invalid credentials")
+
+    bersihkan(loginData.email, ip)
     
     now = datetime.utcnow()
 
@@ -23,7 +44,9 @@ async def login(loginData: LoginData):
     payload = {
         "user_id": result["id"],
         "name": result["name"],
-        "exp": int((now + timedelta(hours=12)).timestamp()),  # Token expires in 1 hour
+        "exp": int(
+            (now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)).timestamp()
+        ),
         "iat": int(now.timestamp()),  # Issued at
     }
 
@@ -39,8 +62,14 @@ async def login(loginData: LoginData):
         "authenticationLevel": result["authenticationLevel"],
     }
 
-    token = create_access_token(payload, timedelta(hours=12))
-    refresh_token = create_access_token(refresh_payload, timedelta(hours=7))
+    # Masa berlaku diambil dari satu tempat agar tidak berbeda antar
+    # pemanggilan; refresh selalu lebih panjang dari access.
+    token = create_access_token(
+        payload, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    refresh_token = create_access_token(
+        refresh_payload, timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES)
+    )
     
     return {"access_token": token, "refresh_token": refresh_token, "token_type": "bearer", "user": user}
     

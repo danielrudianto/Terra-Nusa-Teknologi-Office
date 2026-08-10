@@ -25,11 +25,11 @@ class UserController:
             raise HTTPException(status_code=500, detail="Internal server error")
 
     @staticmethod
-    async def get_users(keyword: str = None, page: int = 1, pageSize: int = 10):
+    async def get_users(keyword: str = None, page: int = 1, pageSize: int = 10, sortBy: str = None, sortByDirection: str = "asc"):
         try:
             if page < 1:
                 return {"error": "Page number must be greater than 0", "status": 400}
-            result = await UserRepository.get_users(keyword, page, pageSize)
+            result = await UserRepository.get_users(keyword, page, pageSize, sortBy, sortByDirection)
             # strip password from every row
             result["data"] = [_strip_password(u) for u in result["data"]]
             return result

@@ -61,3 +61,7 @@ tzdata
 urllib3
 uvicorn
 Werkzeug
+
+# pengujian
+pytest
+pytest-asyncio

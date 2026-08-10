@@ -44,6 +44,41 @@ class PaymentOutgoingRepository:
         try:
             query = payments_outgoing_table.insert().values(payment_data)
             result = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="payment_outgoing",
+                entityID=result,
+                action="create",
+            )
+
+            # Pembayaran yang melunasi dokumen lain juga dicatat pada dokumen
+            # itu sendiri. Tanpa ini, riwayat pinjaman/pembelian tidak
+            # menunjukkan apa pun saat cicilannya dibayar — padahal di situlah
+            # orang mencarinya.
+            _induk = [
+                ("loans", payment_data.get("loanID")),
+                ("purchases", payment_data.get("purchaseID")),
+                ("expenses", payment_data.get("expenseID")),
+                ("reimbursements", payment_data.get("reimbursementID")),
+                ("salary_slips", payment_data.get("salarySlipID")),
+            ]
+            for _entitas, _id in _induk:
+                if not _id:
+                    continue
+                await AuditLogRepository.record(
+                    entity=_entitas,
+                    entityID=_id,
+                    action="payment",
+                    changes={
+                        "amount": {
+                            "from": None,
+                            "to": payment_data.get("amount"),
+                        }
+                    },
+                )
+
             return {"message": "Payment created successfully", "payment_id": result}
         except Exception as e:
             log_error(f"Error creating payment: {str(e)}")
@@ -569,7 +604,32 @@ class PaymentOutgoingRepository:
         )
         
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(payments_outgoing_table).where(payments_outgoing_table.c.id == paymentID)
+            )
             result = await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="payment_outgoing",
+                entityID=paymentID,
+                action="update_status",
+                userID=userID,
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(payments_outgoing_table).where(
+                                payments_outgoing_table.c.id == paymentID
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+            
             return {"message": "Payment status updated successfully"}
         except Exception as e:
             log_error(f"Error updating payment status: {str(e)}")
@@ -601,6 +661,20 @@ class PaymentOutgoingRepository:
             )
             
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+
+            # Dicatat per pembayaran, bukan sekali untuk seluruh kumpulan:
+            # riwayat dibaca per dokumen, sehingga satu catatan gabungan
+            # tidak akan muncul di detail pembayaran mana pun.
+            for _pid in payment_ids:
+                await AuditLogRepository.record(
+                    entity="payment_outgoing",
+                    entityID=_pid,
+                    action="update_status",
+                    userID=userID,
+                    changes={"status": {"from": None, "to": status}},
+                )
+
             return {"message": "Status updated successfully"}
         except Exception as e:
             log_error(f"Error updating status for payments with IDs {payment_ids}: {str(e)}")
@@ -647,6 +721,15 @@ class PaymentOutgoingRepository:
         
         try:
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="payment_outgoing",
+                entityID=purchaseID,
+                action="delete",
+                userID=userID,
+            )
+
             return {"message": "Payments deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting payments for purchase ID {purchaseID}: {str(e)}")

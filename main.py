@@ -1,16 +1,23 @@
 import utils.config
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from utils.logger_utils import log_info, log_error
 from contextlib import asynccontextmanager
 from routes.routes import router
 from fastapi.middleware.cors import CORSMiddleware
 from utils.meilisearch import setup_meilisearch, sync_meilisearch
 from utils.meilisearch_item import setup_master_item_meilisearch, sync_master_item_meilisearch
+from utils.meilisearch_equipment import (
+    setup_master_equipment_meilisearch,
+    sync_master_equipment_meilisearch,
+)
 from utils.redis import sync_redis
 from utils.database import database
 from utils.redis import sync_redis
 import sqlalchemy
+import os
+import jwt
+from utils.audit_context import set_current_user, clear_current_user
 
 log_info("Testing logger functionality")
 
@@ -35,8 +42,15 @@ async def lifespan(app: FastAPI):
 
     try:
         await sync_meilisearch()
+        # Pengaturan indeks (termasuk sortableAttributes) harus diterapkan
+        # sebelum data disinkronkan; tanpa ini pengurutan ditolak Meilisearch.
+        await setup_master_item_meilisearch()
         await sync_master_item_meilisearch()
-        log_info("Master item Meilisearch setup & sync completed successfully!")
+        # Indeks alat sewa sebelumnya tidak pernah ikut disegarkan, sehingga
+        # pencarian alat memakai data lama sampai di-sync manual.
+        await setup_master_equipment_meilisearch()
+        await sync_master_equipment_meilisearch()
+        log_info("Meilisearch setup & sync completed successfully!")
     except Exception as e:
         log_error(f"Error setting up master item meilisearch: {e}")
         
@@ -55,6 +69,37 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan, redirect_slashes=True)
 
 # Add CORS middleware
+
+@app.middleware("http")
+async def audit_context_middleware(request: Request, call_next):
+    """
+    Simpan identitas pengguna untuk pencatatan jejak audit.
+
+    Diambil dari token yang sama dengan autentikasi, tanpa kueri basis data
+    tambahan. Token tidak sah cukup diabaikan: middleware ini hanya melengkapi
+    catatan audit, penolakan akses tetap ditangani get_current_user.
+    """
+    set_current_user(None, None, None)
+    try:
+        header = request.headers.get("authorization") or ""
+        if header.lower().startswith("bearer "):
+            payload = jwt.decode(
+                header[7:], os.getenv("SECRET_KEY"), algorithms=["HS256"]
+            )
+            set_current_user(
+                payload.get("user_id"),
+                payload.get("name") or payload.get("sub"),
+                request.client.host if request.client else None,
+            )
+    except Exception:
+        pass
+
+    try:
+        return await call_next(request)
+    finally:
+        clear_current_user()
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Replace "*" with specific origins for production

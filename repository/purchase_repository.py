@@ -15,10 +15,18 @@ class PurchaseRepository:
         try:
             query = insert(purchases_table).values(purchase_data)
             purchase_id = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="purchases",
+                entityID=purchase_id,
+                action="create",
+            )
             return purchase_id
         except Exception as e:
             log_error(f"Error creating purchase: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_all(page: int, pageSize: int, filterObject: dict, sortBy: str, sortByDirection: str, keyword: str | None):
@@ -140,7 +148,7 @@ class PurchaseRepository:
             return {"data": purchase_result, "count": count}
         except Exception as e:
             log_error(f"Error fetching purchases: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def check_exists(invoiceName: str, purchaseOrderName: str):
@@ -163,7 +171,7 @@ class PurchaseRepository:
             return {"exists": count > 0}
         except Exception as e:
             log_error(f"Error checking purchase: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_by_id(purchaseID: int):
@@ -179,9 +187,30 @@ class PurchaseRepository:
                 suppliers_table.c.province.label("supplier_province"),
                 suppliers_table.c.prefix.label("supplier_prefix"),
             ]
+            # Nama pembuat ikut diambil agar tampilan detail bisa
+            # menampilkannya tanpa permintaan tambahan.
+            #
+            # Impor ditaruh di dalam fungsi: menaruhnya di kepala berkas
+            # menambah ketergantungan saat modul dimuat, dan pada sebagian
+            # susunan proyek itu memicu impor melingkar sehingga
+            # PurchaseRepository gagal terbaca.
+            from models.user_model import users_table
+
             query = (
-                select(*purchases_table.c, *supplier_columns)
-                .join(suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id)
+                select(
+                    *purchases_table.c,
+                    *supplier_columns,
+                    users_table.c.name.label("createdByName"),
+                )
+                .select_from(
+                    purchases_table.join(
+                        suppliers_table,
+                        purchases_table.c.supplierID == suppliers_table.c.id,
+                    ).outerjoin(
+                        users_table,
+                        purchases_table.c.createdBy == users_table.c.id,
+                    )
+                )
                 .where(purchases_table.c.id == purchaseID)
             )
             purchase = await database.fetch_one(query)
@@ -205,7 +234,7 @@ class PurchaseRepository:
             return purchase_dict
         except Exception as e:
             log_error(f"Error fetching purchase by ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_purchases_by_purchase_order_name(purchase_order_name: str):
@@ -238,7 +267,7 @@ class PurchaseRepository:
             return {"data": purchases}
         except Exception as e:
             log_error(f"Error fetching purchases: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_by_project(projectName: str):
@@ -294,7 +323,7 @@ class PurchaseRepository:
             return purchase_list
         except Exception as e:
             log_error(f"Error fetching purchase report by project: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_ppn_report(month: int, year: int):
@@ -352,7 +381,7 @@ class PurchaseRepository:
             return purchase_list
         except Exception as e:
             log_error(f"Error fetching PPN report: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_monthly_recap(month: int, year: int):
@@ -382,7 +411,7 @@ class PurchaseRepository:
             return results
         except Exception as e:
             log_error(f"Error fetching monthly purchase report: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
         
     @staticmethod
     async def get_monthly_ap(month: int, year: int):
@@ -520,7 +549,7 @@ class PurchaseRepository:
             }
         except Exception as e:
             log_error(f"Error fetching frequent payment by supplier ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def update_status(purchase_id: int, status_data: dict, userID: int):
@@ -528,6 +557,11 @@ class PurchaseRepository:
         Update purchase status and details.
         """
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(purchases_table).where(purchases_table.c.id == purchase_id)
+            )
             update_query = (
                 update(purchases_table)
                 .where(purchases_table.c.id == purchase_id)
@@ -552,10 +586,30 @@ class PurchaseRepository:
             if result == 0:
                 return {"error": "Purchase not found", "status": 404}
             
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="purchases",
+                entityID=purchase_id,
+                action="update_status",
+                userID=userID,
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(purchases_table).where(
+                                purchases_table.c.id == purchase_id
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+            
             return {"message": "Purchase status updated successfully"}
         except Exception as e:
             log_error(f"Error updating purchase status: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def update_payment_status(purchaseID: int, isPaid: bool):
@@ -563,6 +617,11 @@ class PurchaseRepository:
         Update the payment status of a purchase.
         """
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(purchases_table).where(purchases_table.c.id == purchaseID)
+            )
             query = (
                 update(purchases_table)
                 .where(purchases_table.c.id == purchaseID)
@@ -571,10 +630,29 @@ class PurchaseRepository:
             result = await database.execute(query)
             if result == 0:
                 return {"error": "Purchase not found", "status": 404}
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="purchases",
+                entityID=purchaseID,
+                action="update_payment_status",
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(purchases_table).where(
+                                purchases_table.c.id == purchaseID
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+
             return {"message": "Payment status updated successfully"}
         except Exception as e:
             log_error(f"Error updating payment status: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def delete(purchaseID: int, userID: int):
@@ -590,10 +668,19 @@ class PurchaseRepository:
             result = await database.execute(query)
             if result == 0:
                 return {"error": "Purchase not found", "status": 404}
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="purchases",
+                entityID=purchaseID,
+                action="delete",
+                userID=userID,
+            )
+
             return {"message": "Purchase deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting purchase: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
 class PurchaseStatusRepository:
     @staticmethod
@@ -604,10 +691,18 @@ class PurchaseStatusRepository:
         try:
             query = insert(purchase_status_table).values(status_data)
             purchase_status_id = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="purchases",
+                entityID=purchase_status_id,
+                action="create",
+            )
             return purchase_status_id
         except Exception as e:
             log_error(f"Error creating purchase status: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_by_purchase_id(purchaseID: int):
@@ -624,4 +719,4 @@ class PurchaseStatusRepository:
             return [dict(status) for status in statuses]
         except Exception as e:
             log_error(f"Error fetching purchase statuses: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}

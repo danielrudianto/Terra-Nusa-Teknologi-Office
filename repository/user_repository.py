@@ -13,6 +13,17 @@ class UserRepository:
         user_data.setdefault("createdAt", datetime.now())
         query = insert(users_table).values(**user_data)
         user_id = await database.execute(query)
+        
+        from repository.audit_log_repository import AuditLogRepository
+        
+        await AuditLogRepository.record(
+            entity="users",
+            changes=AuditLogRepository.diff(
+                dict(_sebelum) if _sebelum else {}, values
+            ),
+            entityID=user_id,
+            action="create",
+        )
         return user_id
 
     @staticmethod
@@ -28,7 +39,7 @@ class UserRepository:
         return result
 
     @staticmethod
-    async def get_users(keyword: str = None, page: int = 1, pageSize: int = 10):
+    async def get_users(keyword: str = None, page: int = 1, pageSize: int = 10, sortBy: str = None, sortByDirection: str = "asc"):
         """Paginated list of non-deleted users with optional keyword search."""
         offset = (page - 1) * pageSize
 
@@ -45,8 +56,33 @@ class UserRepository:
             data_query = data_query.where(cond)
             count_query = count_query.where(cond)
 
+        # Kolom yang boleh dipakai mengurutkan; daftar putih mencegah nama
+
+        # kolom sembarang ikut masuk ke query.
+
+        SORTABLE = {
+
+            "name": users_table.c.name,
+
+            "email": users_table.c.email,
+
+        }
+
+        _kolom = SORTABLE.get(sortBy, users_table.c.name)
+
+        _urut = (
+
+            _kolom.desc()
+
+            if str(sortByDirection).lower() == "desc"
+
+            else _kolom.asc()
+
+        )
+
+
         data_query = (
-            data_query.order_by(users_table.c.name.asc())
+            data_query.order_by(_urut)
             .offset(offset)
             .limit(pageSize)
         )
@@ -57,12 +93,28 @@ class UserRepository:
 
     @staticmethod
     async def update_user(user_id: int, values: dict):
+        # Keadaan sebelum dibaca lebih dulu; setelah update nilai lamanya
+        # sudah tertimpa dan tidak bisa direkam lagi.
+        _sebelum = await database.fetch_one(
+            select(users_table).where(users_table.c.id == user_id)
+        )
         query = (
             update(users_table)
             .where(users_table.c.id == user_id)
             .values(**values, updatedAt=datetime.now())
         )
         await database.execute(query)
+        from repository.audit_log_repository import AuditLogRepository
+
+        await AuditLogRepository.record(
+            entity="users",
+            changes=AuditLogRepository.diff(
+                dict(_sebelum) if _sebelum else {}, values
+            ),
+            entityID=user_id,
+            action="update",
+        )
+
         return {"message": "User updated successfully", "user_id": user_id}
 
     @staticmethod
@@ -73,4 +125,16 @@ class UserRepository:
             .values(isDeleted=True, deletedAt=datetime.now())
         )
         await database.execute(query)
+        from repository.audit_log_repository import AuditLogRepository
+
+        await AuditLogRepository.record(
+            entity="users",
+            changes=AuditLogRepository.diff(
+                dict(_sebelum) if _sebelum else {}, values
+            ),
+            entityID=user_id,
+            action="delete",
+            userID=user_id,
+        )
+
         return {"message": "User deleted successfully"}

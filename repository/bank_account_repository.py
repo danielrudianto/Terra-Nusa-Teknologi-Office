@@ -51,6 +51,14 @@ class BankAccount(BaseModel):
                 isDelete=self.isDelete,
             )
             result = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="bank_accounts",
+                entityID=result,
+                action="create",
+            )
             return {"message": "Bank account created successfully", "bank_account_id": result}
         except IntegrityError as e:
             # Handle integrity errors, such as unique constraint violations
@@ -62,7 +70,12 @@ class BankAccount(BaseModel):
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
-    async def get_banks(page: int = 1, pageSize: int = 10) -> dict:
+    async def get_banks(
+        page: int = 1,
+        pageSize: int = 10,
+        sortBy: str = None,
+        sortByDirection: str = "asc",
+    ) -> dict:
         """
         Retrieve all bank accounts from the database with pagination.
         
@@ -77,7 +90,27 @@ class BankAccount(BaseModel):
         ba = bank_accounts_table
 
         offset = (page - 1) * pageSize
-        query = bank_accounts_table.select().order_by(bank_accounts_table.c.isDelete, bank_accounts_table.c.bankAccountNumber).limit(pageSize).offset(offset)
+        # Kolom yang boleh dipakai mengurutkan; daftar putih mencegah nama
+        # kolom sembarang ikut masuk ke query.
+        SORTABLE = {
+            "bankName": bank_accounts_table.c.bankName,
+            "bankAccountName": bank_accounts_table.c.bankAccountName,
+            "bankAccountNumber": bank_accounts_table.c.bankAccountNumber,
+        }
+        _kolom = SORTABLE.get(sortBy, bank_accounts_table.c.bankAccountNumber)
+        _urut = (
+            _kolom.desc()
+            if str(sortByDirection).lower() == "desc"
+            else _kolom.asc()
+        )
+
+        # Rekening terhapus tetap ditaruh di bawah, apa pun kolom pengurutnya.
+        query = (
+            bank_accounts_table.select()
+            .order_by(bank_accounts_table.c.isDelete, _urut)
+            .limit(pageSize)
+            .offset(offset)
+        )
         try:
             query = (
                 select(

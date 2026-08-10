@@ -24,13 +24,53 @@ class SalarySlipRepository:
         query = salary_slips_table.insert().values(salary_slip_data)
         try:
             result = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="salary_slips",
+                entityID=result,
+                action="create",
+            )
             return result
         except Exception as e:
             log_error(f"Error creating salary slip: {str(e)}")
             return {"error": str(e), "status": 500}
 
     @staticmethod
-    async def fetch(page: int, pageSize: int, keyword: str, month: int, year: int):
+    async def fetch(
+        page: int,
+        pageSize: int,
+        keyword: str,
+        month: int,
+        year: int,
+        sortBy: str = None,
+        sortByDirection: str = "asc",
+    ):
+        # Kolom yang boleh dipakai mengurutkan; daftar putih mencegah nama
+        # kolom sembarang ikut masuk ke query.
+        SORTABLE = {
+            "name": employees_table.c.name,
+            "basicSalary": salary_slips_table.c.basicSalary,
+            "isPaid": salary_slips_table.c.isPaid,
+            "department": salary_slips_table.c.department,
+            "position": salary_slips_table.c.position,
+        }
+        if sortBy in SORTABLE:
+            _kolom = SORTABLE[sortBy]
+            _urut = [
+                _kolom.desc()
+                if str(sortByDirection).lower() == "desc"
+                else _kolom.asc()
+            ]
+        else:
+            # Bawaan: periode terbaru lebih dulu, lalu nama karyawan.
+            _urut = [
+                salary_slips_table.c.year.desc(),
+                salary_slips_table.c.month.desc(),
+                employees_table.c.name.asc(),
+            ]
+
         allowance_subq = (
             select(
                 salary_slips_allowance_table.c.salarySlipID,
@@ -75,9 +115,7 @@ class SalarySlipRepository:
             employees_table.c.name.ilike(f"%{keyword}%"),
             salary_slips_table.c.month == month,
             salary_slips_table.c.year == year
-        ).order_by(
-            salary_slips_table.c.year.desc(), salary_slips_table.c.month.desc(), employees_table.c.name.asc()
-        ).offset((page - 1) * pageSize).limit(pageSize)
+        ).order_by(*_urut).offset((page - 1) * pageSize).limit(pageSize)
         
         try:
             result = await database.fetch_all(query)
@@ -157,10 +195,26 @@ class SalarySlipRepository:
         if result == 0:
             return {"error": "Update failed or salary slip not found", "status": 404}
         
+        from repository.audit_log_repository import AuditLogRepository
+
+        await AuditLogRepository.record(
+            entity="salary_slips",
+            # entityID adalah id slip gaji. Kolom `userID` pada tabel ini
+            # merujuk ke employees.id, sedangkan parameter userID di sini
+            # adalah pelaku penghapusan — keduanya berbeda.
+            entityID=id,
+            action="delete",
+            userID=userID,
+        )
+
         return {"message": "Salary slip updated successfully"}
 
     @staticmethod
     async def update_payment_status(id: int, isPaid: bool, userID: int):
+        # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut terekam.
+        _sebelum = await database.fetch_one(
+            select(salary_slips_table).where(salary_slips_table.c.id == id)
+        )
         query = (
             update(salary_slips_table)
             .where(salary_slips_table.c.id == id)
@@ -175,6 +229,27 @@ class SalarySlipRepository:
         if result == 0:
             return {"error": "Update failed or salary slip not found", "status": 404}
         
+        from repository.audit_log_repository import AuditLogRepository
+
+        await AuditLogRepository.record(
+            entity="salary_slips",
+            # entityID adalah id slip gaji, bukan id pengguna yang mengubah.
+            entityID=id,
+            action="update_payment_status",
+            userID=userID,
+            changes=AuditLogRepository.diff(
+                dict(_sebelum) if _sebelum else {},
+                dict(
+                    await database.fetch_one(
+                        select(salary_slips_table).where(
+                            salary_slips_table.c.id == id
+                        )
+                    )
+                    or {}
+                ),
+            ),
+        )
+
         return {"message": "Salary slip updated successfully"}
 
     @staticmethod
@@ -293,6 +368,16 @@ class SalarySlipAllowanceRepository:
     @staticmethod
     async def create_allowances(salarySlipID: int, allowances: list):
         if not allowances:
+            from repository.audit_log_repository import AuditLogRepository
+
+            # Baris turunan dicatat pada dokumen induknya: riwayat dibaca
+            # per dokumen, sehingga catatan terpisah tidak akan terlihat.
+            await AuditLogRepository.record(
+                entity="salary_slips",
+                entityID=salarySlipID,
+                action="create_allowances",
+            )
+
             return {"message": "No allowances to create."}
         
         query = salary_slips_allowance_table.insert().values([
@@ -326,6 +411,16 @@ class SalarySlipDeductionRepository:
     @staticmethod
     async def create_deductions(salarySlipID: int, deductions: list):
         if not deductions:
+            from repository.audit_log_repository import AuditLogRepository
+
+            # Baris turunan dicatat pada dokumen induknya: riwayat dibaca
+            # per dokumen, sehingga catatan terpisah tidak akan terlihat.
+            await AuditLogRepository.record(
+                entity="salary_slips",
+                entityID=salarySlipID,
+                action="create_deductions",
+            )
+
             return {"message": "No deductions to create."}
         
         query = salary_slips_deduction_table.insert().values([

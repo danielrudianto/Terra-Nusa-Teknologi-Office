@@ -43,8 +43,8 @@ class ClientController:
     async def get_clients(
         page: int, 
         page_size: int = 10, 
-        sort_by: Optional[str] = None, 
-        sort_direction: Optional[str] = "asc", 
+        sortBy: Optional[str] = None, 
+        sortByDirection: Optional[str] = "asc", 
         keyword: Optional[str] = None
     ) -> Dict:
         """
@@ -59,8 +59,8 @@ class ClientController:
             clients = await ClientRepository.get_paginated(
                 page=page,
                 page_size=page_size,
-                sort_by=sort_by,
-                sort_direction=sort_direction,
+                sortBy=sortBy,
+                sortByDirection=sortByDirection,
                 keyword=keyword
             )
             

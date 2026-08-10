@@ -514,6 +514,15 @@ class SalesInvoiceRepository:
             result = await database.execute(query)
             if result == 0:
                 return {"error": "Sales invoice not found", "status": 404}
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="sales_invoices",
+                entityID=sales_invoice_id,
+                action="reject",
+                userID=user_id,
+            )
+            
             return {"message": "Sales invoice rejected successfully"}
         except Exception as e:
             log_error(f"Error rejecting sales invoice: {str(e)}")
@@ -588,6 +597,15 @@ class SalesInvoiceRepository:
             result = await database.execute(query)
             if result == 0:
                 return {"error": "Sales invoice not found", "status": 404}
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="sales_invoices",
+                entityID=sales_invoice_id,
+                action="approve",
+                userID=user_id,
+            )
+
             return {"message": "Sales invoice approved successfully"}
         except Exception as e:
             log_error(f"Error approving sales invoice: {str(e)}")

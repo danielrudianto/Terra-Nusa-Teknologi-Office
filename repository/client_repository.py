@@ -20,6 +20,14 @@ class ClientRepository:
                 isDelete=False
             )
             client_id = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="clients",
+                entityID=client_id,
+                action="create",
+            )
             return {"message": "Client created successfully", "client_id": client_id}
         except IntegrityError as e:
             log_error(f"Integrity error while creating client: {str(e)}")
@@ -34,6 +42,11 @@ class ClientRepository:
         Update an existing client.
         """
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(clients_table).where(clients_table.c.id == client_id)
+            )
             update_values = client_data.model_dump(exclude_none=True)
             update_values['updatedAt'] = dt.now()
             
@@ -48,6 +61,25 @@ class ClientRepository:
             if result == 0:
                 return {"error": "Client not found", "status": 404}
                 
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="clients",
+                entityID=client_id,
+                action="update",
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(clients_table).where(
+                                clients_table.c.id == client_id
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+
             return {"message": "Client updated successfully", "client_id": client_id}
         except IntegrityError as e:
             log_error(f"Integrity error while updating client: {str(e)}")
@@ -89,8 +121,8 @@ class ClientRepository:
     async def get_paginated(
         page: int = 1,
         page_size: int = 10,
-        sort_by: str = None,
-        sort_direction: str = "asc",
+        sortBy: str = None,
+        sortByDirection: str = "asc",
         keyword: str = None
     ) -> Dict[str, Any]:
         """
@@ -117,12 +149,12 @@ class ClientRepository:
             data_query = select(clients_table).where(*conditions)
             
             # Apply sorting
-            if sort_by == "name":
+            if sortBy == "name":
                 order_column = clients_table.c.name
             else:
                 order_column = clients_table.c.createdAt
                 
-            if sort_direction.lower() == "desc":
+            if sortByDirection.lower() == "desc":
                 data_query = data_query.order_by(desc(order_column))
             else:
                 data_query = data_query.order_by(asc(order_column))
@@ -200,6 +232,14 @@ class ClientRepository:
             if result == 0:
                 return {"error": "Client not found", "status": 404}
                 
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="clients",
+                entityID=client_id,
+                action="delete",
+            )
+            
             return {"message": "Client deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting client: {str(e)}")

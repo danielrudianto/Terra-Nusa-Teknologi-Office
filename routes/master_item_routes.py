@@ -32,9 +32,11 @@ async def get_master_items(
     purchase_type: str = Query(None, description="Filter by available purchase type, e.g. G"),
     brand: str = Query(None, description="Filter by exact brand"),
     item_type: str = Query(None, description="Filter by exact type"),
+    sortBy: str = Query(None, description="Sort column: sku, brand, type"),
+    sortByDirection: str = Query("asc", description="asc or desc"),
 ):
     result = await MasterItemController.get_master_items(
-        keyword, page, page_size, purchase_type, brand, item_type
+        keyword, page, page_size, purchase_type, brand, item_type, sortBy, sortByDirection
     )
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
@@ -96,7 +98,38 @@ async def import_master_items(
     """Bulk import master items from a CSV file."""
     if not (file.filename or "").lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Hanya menerima file .csv")
-    contents = await file.read()
+
+    # Dibaca bertahap dengan batas ukuran: `await file.read()` tanpa batas
+    # memuat seluruh berkas ke memori, sehingga satu unggahan besar bisa
+    # menjatuhkan server. Nama berkas saja tidak cukup — berkas apa pun bisa
+    # dinamai .csv.
+    MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+    potongan = []
+    terbaca = 0
+    while True:
+        bagian = await file.read(64 * 1024)
+        if not bagian:
+            break
+        terbaca += len(bagian)
+        if terbaca > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail="Ukuran file melebihi 5 MB.",
+            )
+        potongan.append(bagian)
+
+    contents = b"".join(potongan)
+    if not contents:
+        raise HTTPException(status_code=400, detail="File kosong.")
+
+    # Isi harus benar-benar teks agar tidak diproses sebagai berkas biner.
+    try:
+        contents.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="File bukan CSV teks yang sah.",
+        )
     result = await MasterItemController.import_csv(contents, current_user["id"])
     if "error" in result:
         raise HTTPException(status_code=result.get("status", 500), detail=result["error"])

@@ -14,7 +14,18 @@ from utils.database import database
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
-ACCESS_TOKEN_EXPIRE_MINUTES = 1
+# Masa berlaku token, dapat diatur lewat variabel lingkungan.
+#
+# Sebelumnya access token hanya 1 menit sementara pemanggilan dari halaman
+# login memakai 12 jam — dua angka berbeda untuk hal yang sama. Nilai di sini
+# dijadikan satu-satunya acuan.
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
+
+# Refresh token harus LEBIH PANJANG dari access token; kalau lebih pendek,
+# pengguna tetap terlempar keluar meski access token-nya masih berlaku.
+REFRESH_TOKEN_EXPIRE_MINUTES = int(
+    os.getenv("REFRESH_TOKEN_EXPIRE_MINUTES", str(60 * 24 * 7))
+)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 class Token(BaseModel):

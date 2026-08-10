@@ -24,6 +24,14 @@ class PaymentIncomingRepository:
             query = insert(payment_incoming_table).values(**payment_data)
             result = await database.execute(query)
             
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="payment_incoming",
+                entityID=result,
+                action="create",
+            )
+            
             log_info(f"Payment incoming created with ID: {result}")
             return {"payment_id": result}
         except Exception as e:
@@ -162,6 +170,13 @@ class PaymentIncomingRepository:
         """Update a payment incoming."""
         try:
             from sqlalchemy import update
+
+            # Keadaan lama dibaca lebih dulu agar nilai sebelumnya terekam.
+            _sebelum = await database.fetch_one(
+                select(payment_incoming_table).where(
+                    payment_incoming_table.c.id == payment_id
+                )
+            )
             
             update_data["updatedAt"] = datetime.now()
             
@@ -172,6 +187,26 @@ class PaymentIncomingRepository:
             )
             
             result = await database.execute(query)
+
+            
+            from repository.audit_log_repository import AuditLogRepository
+
+            
+            await AuditLogRepository.record(
+            
+                entity="payment_incoming",
+            
+                entityID=payment_id,
+            
+                action="update",
+            
+                changes=AuditLogRepository.diff(
+            
+                    dict(_sebelum) if _sebelum else {}, update_data
+            
+                ),
+            
+            )
             log_info(f"Payment incoming updated: {payment_id}")
             return {"affected_rows": result}
         except Exception as e:
@@ -196,6 +231,15 @@ class PaymentIncomingRepository:
             
             await database.execute(query)
             log_info(f"Payment incoming soft deleted: {payment_id}")
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="payment_incoming",
+                entityID=payment_id,
+                action="delete",
+                userID=user_id,
+            )
+            
             return {"message": "Payment deleted successfully"}
         except Exception as e:
             log_error(f"Error soft deleting payment incoming: {str(e)}")

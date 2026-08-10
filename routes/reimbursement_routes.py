@@ -48,7 +48,7 @@ async def reject_reimbursement(
 @router.get("/")
 async def get_reimbursements(
     page: int = Query(1, ge=1),
-    pageSize: int = Query(10, ge=1),
+    pageSize: int = Query(10, ge=1, le=100),
     filter: int = Query(0, ge=0),
     sortBy: str = Query("date"),
     sortByDirection: str = Query("desc"),

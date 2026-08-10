@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, Query
 from utils.logger_utils import log_error, log_info
 from utils.auth_utils import get_current_user
 from typing import Annotated
@@ -47,12 +47,21 @@ async def fetch(salary_slip_id: int, current_user: Annotated[User, Depends(get_c
         raise e
 
 @router.get("/")
-async def fetch(page: int, pageSize: int, keyword: str, month: int, year: int, current_user: Annotated[User, Depends(get_current_user)]):
+async def fetch(
+    page: int,
+    pageSize: int,
+    keyword: str,
+    month: int,
+    year: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    sortBy: str = Query(None, description="Kolom: name, basicSalary, isPaid, department, position"),
+    sortByDirection: str = Query("asc", description="asc atau desc"),
+):
     """
     Fetch salary slips with pagination and optional keyword filtering.
     """
     try:
-        result = await SalarySlipController.fetch(page, pageSize, keyword, month, year)
+        result = await SalarySlipController.fetch(page, pageSize, keyword, month, year, sortBy, sortByDirection)
         if "error" in result:
             raise HTTPException(status_code=result["status"], detail=result["error"])
         

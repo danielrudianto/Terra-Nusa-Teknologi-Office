@@ -21,17 +21,30 @@ class MasterItemRepository:
                 isDelete=False,
             )
             item_id = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="master_item",
+                entityID=item_id,
+                action="create",
+            )
             return {"message": "Master item created successfully", "master_item_id": item_id}
         except IntegrityError as e:
             log_error(f"Integrity error while creating master item: {str(e)}")
             return {"error": "SKU already exists or invalid input.", "status": 400}
         except Exception as e:
             log_error(f"Error creating master item: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def update(item_id: int, item_data: MasterItemUpdate) -> Dict[str, Any]:
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(master_item_table).where(master_item_table.c.id == item_id)
+            )
             values = item_data.model_dump(exclude_none=True)
             values.pop("id", None)
             values["updatedAt"] = dt.now()
@@ -41,13 +54,32 @@ class MasterItemRepository:
                 .values(values)
             )
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="master_item",
+                entityID=item_id,
+                action="update",
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(master_item_table).where(
+                                master_item_table.c.id == item_id
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+
             return {"message": "Master item updated successfully", "master_item_id": item_id}
         except IntegrityError as e:
             log_error(f"Integrity error while updating master item: {str(e)}")
             return {"error": "SKU already exists or invalid input.", "status": 400}
         except Exception as e:
             log_error(f"Error updating master item: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_by_id(item_id: int) -> Optional[MasterItemResponse]:
@@ -65,8 +97,7 @@ class MasterItemRepository:
     @staticmethod
     async def get_paginated(
         page: int = 1, page_size: int = 10, keyword: str = None,
-        purchase_type: str = None, brand: str = None, item_type: str = None
-    ) -> Dict[str, Any]:
+        purchase_type: str = None, brand: str = None, item_type: str = None, sortBy: str = None, sortByDirection: str = "asc") -> Dict[str, Any]:
         """DB-side pagination (fallback when Meilisearch is unavailable)."""
         try:
             data_query = select(master_item_table).where(
@@ -104,8 +135,37 @@ class MasterItemRepository:
                 data_query = data_query.where(itype_cond)
                 count_query = count_query.where(itype_cond)
 
+            # Kolom yang boleh dipakai mengurutkan; daftar putih mencegah nama
+
+            # kolom sembarang ikut masuk ke query.
+
+            SORTABLE = {
+
+                "sku": master_item_table.c.sku,
+
+                "description": master_item_table.c.description,
+
+                "brand": master_item_table.c.brand,
+
+                "type": master_item_table.c.type,
+
+            }
+
+            _kolom = SORTABLE.get(sortBy, master_item_table.c.sku)
+
+            order_by = (
+
+                _kolom.desc()
+
+                if str(sortByDirection).lower() == "desc"
+
+                else _kolom.asc()
+
+            )
+
+
             offset = (page - 1) * page_size
-            data_query = data_query.order_by(master_item_table.c.sku.asc()).offset(offset).limit(page_size)
+            data_query = data_query.order_by(order_by).offset(offset).limit(page_size)
 
             rows = await database.fetch_all(data_query)
             total = await database.fetch_val(count_query) or 0
@@ -129,10 +189,18 @@ class MasterItemRepository:
                 .values(isDelete=True, deletedBy=deleted_by, deletedAt=dt.now())
             )
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="master_item",
+                entityID=item_id,
+                action="delete",
+            )
+            
             return {"message": "Master item deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting master item: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_existing_skus(skus: List[str]) -> set:

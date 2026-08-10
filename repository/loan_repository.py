@@ -14,6 +14,14 @@ class LoanRepository:
         try:
             query = loans_table.insert().values(**loan_data)
             result = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="loans",
+                entityID=result,
+                action="create",
+            )
             return {"loan_id": result}
         except IntegrityError as e:
             log_error(f"Integrity error while creating loan data: {str(e.orig)}")
@@ -114,12 +122,37 @@ class LoanRepository:
     async def update_payment_status(loan_id: int, status: bool, user_id: int):
         """Update the payment status of a loan."""
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(loans_table).where(loans_table.c.id == loan_id)
+            )
             query = (
                 loans_table.update()
                 .where(loans_table.c.id == loan_id)
                 .values(isPaid=status, updatedBy=user_id, updatedAt=dt.now())
             )
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="loans",
+                entityID=loan_id,
+                action="update_payment_status",
+                userID=user_id,
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(loans_table).where(
+                                loans_table.c.id == loan_id
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+            
             return {"message": "Loan payment status updated successfully."}
         except IntegrityError as e:
             log_error(f"Integrity error while updating loan data: {str(e.orig)}")

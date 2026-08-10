@@ -24,8 +24,8 @@ async def get_clients(
     keyword: str = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
-    sort_by: str = Query(None),
-    sort_direction: str = Query("asc", regex="^(asc|desc)$")
+    sortBy: str = Query(None),
+    sortByDirection: str = Query("asc", regex="^(asc|desc)$")
 ):
     """
     Get all clients with pagination, sorting, and search.
@@ -33,8 +33,8 @@ async def get_clients(
     result = await ClientController.get_clients(
         page=page,
         page_size=page_size,
-        sort_by=sort_by,
-        sort_direction=sort_direction,
+        sortBy=sortBy,
+        sortByDirection=sortByDirection,
         keyword=keyword
     )
     return result

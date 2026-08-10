@@ -37,7 +37,10 @@ class MasterEquipmentController:
 
     @staticmethod
     async def get_equipments(keyword: str = "", page: int = 1, page_size: int = 10,
-                             category: str = None) -> Dict[str, Any]:
+                             category: str = None,
+        sortBy: str = None,
+        sortByDirection: str = "asc",
+    ) -> Dict[str, Any]:
         try:
             try:
                 params = {"limit": page_size, "offset": (page - 1) * page_size}
@@ -52,8 +55,7 @@ class MasterEquipmentController:
             except Exception as search_error:
                 log_error(f"Meilisearch error, DB fallback: {str(search_error)}")
                 return await MasterEquipmentRepository.get_paginated(
-                    page, page_size, keyword or None, category
-                )
+                    page, page_size, keyword or None, category, sortBy, sortByDirection)
         except Exception as e:
             log_error(f"Error fetching equipments: {str(e)}")
             return {"error": "Internal server error.", "status": 500}

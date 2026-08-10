@@ -22,7 +22,9 @@ class InterpaymentController:
             
             return {"message": "Interpayment created successfully", "interpaymentID": result.get("interpaymentID")}
         except Exception as e:
-            return {"error": str(e), "status": 500}
+            # Rincian galat dicatat di log; klien hanya menerima pesan umum.
+            log_error(f"Interpayment error: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
         
     @staticmethod
     async def delete_interpayment(interpaymentID: int, userID: int):
@@ -51,7 +53,9 @@ class InterpaymentController:
             
             return {"message": "Interpayment deleted successfully"}
         except Exception as e:
-            return {"error": str(e), "status": 500}
+            # Rincian galat dicatat di log; klien hanya menerima pesan umum.
+            log_error(f"Interpayment error: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_interpayments(page: int, pageSize: int, start: str, end: str, filterObject: dict, sortBy: str, sortByDirection: str):
@@ -70,7 +74,9 @@ class InterpaymentController:
             
             return result
         except Exception as e:
-            return {"error": str(e), "status": 500}
+            # Rincian galat dicatat di log; klien hanya menerima pesan umum.
+            log_error(f"Interpayment error: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
 
     
     @staticmethod
@@ -83,7 +89,9 @@ class InterpaymentController:
 
             return result
         except Exception as e:
-            return {"error": str(e), "status": 500}
+            # Rincian galat dicatat di log; klien hanya menerima pesan umum.
+            log_error(f"Interpayment error: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
 
 
     @staticmethod
@@ -98,7 +106,9 @@ class InterpaymentController:
             
             return result
         except Exception as e:
-            return {"error": str(e), "status": 500}
+            # Rincian galat dicatat di log; klien hanya menerima pesan umum.
+            log_error(f"Interpayment error: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
         
     @staticmethod
     async def get_interpayment_calendar_data_by_date(date: int, month: int, year: int, bankAccountID: list[int] | None):
@@ -112,4 +122,6 @@ class InterpaymentController:
             
             return result
         except Exception as e:
-            return {"error": str(e), "status": 500}
+            # Rincian galat dicatat di log; klien hanya menerima pesan umum.
+            log_error(f"Interpayment error: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}

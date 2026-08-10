@@ -37,6 +37,9 @@ class PurchaseOrderCreate(PurchaseOrderBase):
     # field yang tidak dideklarasikan di sini akan dibuang sebelum sampai ke
     # controller — itulah sebabnya purchase_order_items selalu kosong.
     items: Optional[List[Dict[str, Any]]] = None
+    pphCode: Optional[str] = None
+    pphTaxObject: Optional[str] = None
+    pphPercentage: Optional[float] = None
 
 
 class PurchaseOrderUpdate(BaseModel):
@@ -79,8 +82,11 @@ class PurchaseOrderResponse(BaseModel):
     # item dan data supplier dari response.
     number: Optional[int] = None
     items: Optional[List[Dict[str, Any]]] = None
-    supplier: Optional[Dict[str, Any]] = None
+    pphCode: Optional[str] = None
+    pphTaxObject: Optional[str] = None
+    pphPercentage: Optional[float] = None
     supplierName: Optional[str] = None
+    supplierPrefix: Optional[str] = None
     supplierAddress: Optional[str] = None
     supplierCity: Optional[str] = None
     supplierNpwp: Optional[str] = None

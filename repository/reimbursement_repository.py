@@ -23,6 +23,14 @@ class ReimbursementRepository:
         try:
             query = insert(reimbursements_table).values(**reimbursement_data)
             reimbursement_id = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="reimbursements",
+                entityID=reimbursement_id,
+                action="create",
+            )
             return reimbursement_id
         except Exception as e:
             log_error(f"Error creating reimbursement: {str(e)}")
@@ -32,6 +40,16 @@ class ReimbursementRepository:
     async def create_reimbursement_items(reimbursement_items_data: list):
         try:
             if not reimbursement_items_data:
+                from repository.audit_log_repository import AuditLogRepository
+
+                # Baris turunan dicatat pada dokumen induknya: riwayat dibaca
+                # per dokumen, sehingga catatan terpisah tidak akan terlihat.
+                await AuditLogRepository.record(
+                    entity="reimbursements",
+                    entityID=reimbursement_items_data[0]["reimbursementID"],
+                    action="create_items",
+                )
+
                 return {"message": "No reimbursement items to create."}
             
             query = insert(reimbursement_items_table).values(reimbursement_items_data)
@@ -198,6 +216,15 @@ class ReimbursementRepository:
                 )
             )
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="reimbursements",
+                entityID=reimbursementID,
+                action="approve",
+                userID=userID,
+            )
+            
             return {"message": "Reimbursement approved successfully"}
         except Exception as e:
             log_error(f"Error approving reimbursement by ID: {str(e)}")
@@ -219,6 +246,15 @@ class ReimbursementRepository:
                 )
             )
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="reimbursements",
+                entityID=reimbursementID,
+                action="reject",
+                userID=userID,
+            )
+
             return {"message": "Reimbursement rejected successfully"}
         except Exception as e:
             log_error(f"Error rejecting reimbursement by ID: {str(e)}")
@@ -227,6 +263,11 @@ class ReimbursementRepository:
     @staticmethod
     async def update_payment_status(reimbursementID: int, isPaid: bool, userID: int):
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(reimbursements_table).where(reimbursements_table.c.id == reimbursementID)
+            )
             query = (
                 reimbursements_table.update()
                 .where(
@@ -239,6 +280,26 @@ class ReimbursementRepository:
                 )
             )
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="reimbursements",
+                entityID=reimbursementID,
+                action="update_payment_status",
+                userID=userID,
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(reimbursements_table).where(
+                                reimbursements_table.c.id == reimbursementID
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+
             return {"message": f"Reimbursement payment status updated successfully"}
         except Exception as e:
             log_error(f"Error updating reimbursement payment status: {str(e)}")

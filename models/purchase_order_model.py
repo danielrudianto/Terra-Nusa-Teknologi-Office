@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    Float,
     text,
     func,
     Table,
@@ -57,6 +58,12 @@ purchase_orders_table = Table(
     ),
     Column("customData", JSON, nullable=True, default=None),
     Column("ppn", DECIMAL(5, 2), nullable=False, server_default="0.00", default=0.00),
+    # Selaras dengan tabel purchases agar PO mudah disambungkan ke pembelian.
+    # pphPercentage dibuat nullable: sebagian besar PO tidak memotong PPh,
+    # sedangkan pada purchases kolomnya wajib terisi.
+    Column("pphCode", String(100), nullable=True),
+    Column("pphTaxObject", String(500), nullable=True),
+    Column("pphPercentage", Float(), nullable=True),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
     Column("createdAt", DateTime, nullable=False, server_default=func.now(), default=dt.now),
     Column("isDelete", Boolean, server_default=text("0"), default=False),

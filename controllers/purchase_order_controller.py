@@ -168,9 +168,17 @@ class PurchaseOrderController:
             return {"error": str(e), "status": 500}
 
     @staticmethod
-    async def get_all_purchase_orders(page: int = 1, page_size: int = 10, keyword: str = None):
+    async def get_all_purchase_orders(
+        page: int = 1,
+        page_size: int = 10,
+        keyword: str = None,
+        sortBy: str = None,
+        sortByDirection: str = "desc",
+    ):
         try:
-            result = await PurchaseOrderRepository.get_all(page, page_size, keyword)
+            result = await PurchaseOrderRepository.get_all(
+                page, page_size, keyword, sortBy, sortByDirection
+            )
             if "error" in result:
                 return {"error": result["error"], "status": result.get("status", 500)}
             return result

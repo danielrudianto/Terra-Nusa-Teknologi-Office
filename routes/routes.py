@@ -26,6 +26,7 @@ from routes.master_item_routes import router as master_item_router
 from routes.master_equipment_routes import router as master_equipment_router
 from routes.user_routes import router as user_router
 from routes.user_avatar_routes import router as user_avatar_router
+from routes.audit_log_routes import router as audit_log_router
 
 # Create a router instance
 router = APIRouter()
@@ -57,3 +58,4 @@ router.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])
 router.include_router(master_item_router, prefix="/master-items", tags=["Master Items"])
 router.include_router(master_equipment_router, prefix="/master-equipment", tags=["Master Equipment"])
 router.include_router(user_avatar_router, prefix="/user-avatars", tags=["User Avatars"])
+router.include_router(audit_log_router, prefix="/audit-logs", tags=["Audit Logs"])

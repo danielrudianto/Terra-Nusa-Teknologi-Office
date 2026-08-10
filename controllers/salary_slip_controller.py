@@ -15,9 +15,9 @@ import os
 class SalarySlipController:
     
     @staticmethod
-    async def fetch(page: int, pageSize: int, keyword: str, month: int, year: int):
+    async def fetch(page: int, pageSize: int, keyword: str, month: int, year: int, sortBy: str = None, sortByDirection: str = "asc"):
         try:
-            result = await SalarySlipRepository.fetch(page, pageSize, keyword, month, year)
+            result = await SalarySlipRepository.fetch(page, pageSize, keyword, month, year, sortBy, sortByDirection)
             if "error" in result:
                 raise HTTPException(status_code=result["status"], detail=result["error"])
             

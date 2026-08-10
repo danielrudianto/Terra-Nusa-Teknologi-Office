@@ -72,7 +72,9 @@ class MasterItemController:
     @staticmethod
     async def get_master_items(
         keyword: str = "", page: int = 1, page_size: int = 10,
-        purchase_type: str = None, brand: str = None, item_type: str = None
+        purchase_type: str = None, brand: str = None, item_type: str = None,
+        sortBy: str = None,
+        sortByDirection: str = "asc",
     ) -> Dict[str, Any]:
         """Search via Meilisearch, fall back to the database if it's unavailable.
 
@@ -82,6 +84,14 @@ class MasterItemController:
         try:
             try:
                 search_params = {"limit": page_size, "offset": (page - 1) * page_size}
+
+                # Meilisearch hanya menerima kolom yang terdaftar sebagai
+                # sortableAttributes; nama lain diabaikan agar tidak menggagalkan
+                # pencarian.
+                _sortable = ["sku", "brand", "type"]
+                if sortBy in _sortable:
+                    _arah = "desc" if str(sortByDirection).lower() == "desc" else "asc"
+                    search_params["sort"] = [f"{sortBy}:{_arah}"]
                 filters = []
                 if purchase_type:
                     # availablePurchaseType is indexed as a list -> `= "G"` matches membership
@@ -102,8 +112,7 @@ class MasterItemController:
             except Exception as search_error:
                 log_error(f"Meilisearch error, falling back to database: {str(search_error)}")
                 return await MasterItemRepository.get_paginated(
-                    page, page_size, keyword or None, purchase_type, brand, item_type
-                )
+                    page, page_size, keyword or None, purchase_type, brand, item_type, sortBy, sortByDirection)
         except Exception as e:
             log_error(f"Error fetching master items: {str(e)}")
             return {"error": "Internal server error.", "status": 500}

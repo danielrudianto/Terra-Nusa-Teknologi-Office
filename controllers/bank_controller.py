@@ -58,12 +58,16 @@ class BankController:
             raise HTTPException(status_code=500, detail="Internal server error.")
 
     @staticmethod
-    async def get_bank_accounts(page: int) -> Dict:
+    async def get_bank_accounts(
+        page: int,
+        sortBy: str = None,
+        sortByDirection: str = "asc",
+    ) -> Dict:
         """
         Retrieve all bank accounts from the database.
         
         Args:
-            page (int): The page number for pagination.
+            page (int, sortBy: str = None, sortByDirection: str = "asc"): The page number for pagination.
         
         Returns:
             Dict: A list of all bank accounts.
@@ -73,7 +77,12 @@ class BankController:
             return {"error": "Page number must be greater than 0", "status": 400}
         
         try:
-            result = await BankAccount.get_banks(page=page, pageSize = 10)
+            result = await BankAccount.get_banks(
+                page=page,
+                pageSize=10,
+                sortBy=sortBy,
+                sortByDirection=sortByDirection,
+            )
             if "error" in result:
                 log_error(f"Error retrieving bank accounts: {result['error']}")
                 return {"error": result["error"], "status": result["status"]}

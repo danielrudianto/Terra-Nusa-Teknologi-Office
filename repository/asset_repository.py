@@ -21,6 +21,14 @@ class AssetRepository:
                 createdAt=dt.now()
             )
             result = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="assets",
+                entityID=result,
+                action="create",
+            )
             return {"message": "Asset created successfully", "asset_id": result}
         except IntegrityError as e:
             log_error(f"Integrity error while creating asset: {str(e.orig)}")
@@ -116,6 +124,11 @@ class AssetRepository:
         Update an existing asset.
         """
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(asset_table).where(asset_table.c.id == asset_id)
+            )
             update_values = update_data.model_dump(exclude_none=True)
             if update_values:  # Only update if there are changes
                 update_values['updatedAt'] = dt.now()
@@ -124,6 +137,25 @@ class AssetRepository:
                 if result == 0:
                     return {"error": "Asset not found", "status": 404}
             
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="assets",
+                entityID=asset_id,
+                action="update",
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(asset_table).where(
+                                asset_table.c.id == asset_id
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+
             return {"message": "Asset updated successfully"}
         except IntegrityError as e:
             log_error(f"Integrity error while updating asset: {str(e)}")
@@ -142,6 +174,14 @@ class AssetRepository:
             result = await database.execute(query)
             if result == 0:
                 return {"error": "Asset not found", "status": 404}
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="assets",
+                entityID=asset_id,
+                action="delete",
+            )
+            
             return {"message": "Asset deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting asset {asset_id}: {str(e)}")

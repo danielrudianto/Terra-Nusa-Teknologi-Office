@@ -14,6 +14,14 @@ class ExpenseRepository:
         try:
             query = insert(expenses_table).values(expense_data)
             expense_id = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="expenses",
+                entityID=expense_id,
+                action="create",
+            )
             return expense_id
         except Exception as e:
             log_error(f"Error creating expense: {str(e)}")
@@ -168,6 +176,16 @@ class ExpenseRepository:
             result = await database.execute(query)
             if result == 0:
                 return {"error": "Expense not found", "status": 404}
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="expenses",
+                # entityID adalah id biaya; userID adalah pelaku persetujuan.
+            entityID=id,
+                action="approve",
+                userID=userID,
+            )
+            
             return {"message": "Expense approved successfully"}
         except Exception as e:
             log_error(f"Error approving expense: {str(e)}")
@@ -179,6 +197,11 @@ class ExpenseRepository:
         Update the payment status of an expense.
         """
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(expenses_table).where(expenses_table.c.id == expenseID)
+            )
             query = (
                 expenses_table.update()
                 .where(expenses_table.c.id == expenseID)
@@ -191,6 +214,26 @@ class ExpenseRepository:
             result = await database.execute(query)
             if result == 0:
                 return {"error": "Expense not found", "status": 404}
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="expenses",
+                entityID=expenseID,
+                action="update_payment_status",
+                userID=userID,
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(expenses_table).where(
+                                expenses_table.c.id == expenseID
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+
             return {"message": "Expense payment status updated successfully"}
         except Exception as e:
             log_error(f"Error updating expense payment status: {str(e)}")
@@ -202,6 +245,11 @@ class ExpenseRepository:
         Update an expense in the database.
         """
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(expenses_table).where(expenses_table.c.id == expense_id)
+            )
             query = (
                 expenses_table.update()
                 .where(expenses_table.c.id == expense_id)
@@ -210,6 +258,25 @@ class ExpenseRepository:
             result = await database.execute(query)
             if result == 0:
                 return {"error": "Expense not found", "status": 404}
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="expenses",
+                entityID=expense_id,
+                action="update",
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(expenses_table).where(
+                                expenses_table.c.id == expense_id
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+
             return {"message": "Expense updated successfully"}
         except Exception as e:
             log_error(f"Error updating expense: {str(e)}")
@@ -233,6 +300,15 @@ class ExpenseRepository:
             result = await database.execute(query)
             if result == 0:
                 return {"error": "Expense not found", "status": 404}
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="expenses",
+                entityID=expense_id,
+                action="delete",
+                userID=user_id,
+            )
+
             return {"message": "Expense deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting expense: {str(e)}")

@@ -22,8 +22,12 @@ async def create_equipment(item: MasterEquipmentCreate,
 async def get_equipments(current_user: Annotated[User, Depends(get_current_user)],
                          keyword: str = Query(""), page: int = Query(1, ge=1),
                          page_size: int = Query(10, ge=1, le=100),
-                         category: str = Query(None)):
-    result = await MasterEquipmentController.get_equipments(keyword, page, page_size, category)
+                         category: str = Query(None),
+                         sortBy: str = Query(None, description="Sort column: name, category"),
+                         sortByDirection: str = Query("asc", description="asc or desc")):
+    result = await MasterEquipmentController.get_equipments(
+        keyword, page, page_size, category, sortBy, sortByDirection
+    )
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
     return result

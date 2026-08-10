@@ -17,6 +17,7 @@ async def create_asset(
 
 @router.get("/")
 async def get_assets(
+    current_user: Annotated[User, Depends(get_current_user)],
     page: int = Query(0, ge=0),
     pageSize: int = Query(10, ge=10, le=100),
     keyword: str = Query(""),
@@ -26,7 +27,10 @@ async def get_assets(
     return await AssetController.get_assets(page, pageSize, keyword, sortBy, sortByDirection)
 
 @router.get("/{asset_id}")
-async def get_asset(asset_id: int):
+async def get_asset(
+    asset_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+):
     return await AssetController.get_asset_by_id(asset_id)
 
 @router.put("/{asset_id}")
@@ -38,9 +42,15 @@ async def update_asset(
     return await AssetController.update_asset(asset_id, update_data.model_dump(), user_id)
 
 @router.delete("/{asset_id}")
-async def delete_asset(asset_id: int):
+async def delete_asset(
+    asset_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+):
     return await AssetController.delete_asset(asset_id)
 
 @router.get("/search/{keyword}")
-async def search_assets(keyword: str):
+async def search_assets(
+    keyword: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+):
     return await AssetController.search_assets(keyword)

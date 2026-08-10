@@ -86,10 +86,18 @@ class PurchaseOrderRepository:
         try:
             query = insert(purchase_orders_table).values(**purchase_order_data)
             result = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="purchase_orders",
+                entityID=result,
+                action="create",
+            )
             return {"purchase_order_id": result}
         except IntegrityError as e:
             log_error(f"Integrity error while creating purchase order: {str(e.orig)}")
-            return {"error": str(e.orig), "status": 400}
+            return {"error": "Internal server error.", "status": 400}
         except Exception as e:
             log_error(f"Unexpected error while creating purchase order: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
@@ -110,8 +118,49 @@ class PurchaseOrderRepository:
             log_error(f"Unexpected error while fetching purchase order: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
 
+    # Kolom yang boleh dipakai mengurutkan. Daftar putih ini mencegah nama
+
+    # kolom sembarang ikut masuk ke query.
+
+    SORTABLE = {
+
+        "date": purchase_orders_table.c.date,
+
+        "value": purchase_orders_table.c.dpp,
+
+        "supplier": suppliers_table.c.name,
+
+        "project": purchase_orders_table.c.projectName,
+
+        "name": purchase_orders_table.c.name,
+
+        # Tabel ini tidak punya kolom "status"; yang setara adalah isApproved.
+        "status": purchase_orders_table.c.isApproved,
+
+    }
+
+
     @staticmethod
-    async def get_all(page: int = 1, page_size: int = 10, keyword: str = None):
+    def _order_clause(sortBy: str = None, sortByDirection: str = "desc"):
+        """Kolom pengurut; jatuh ke createdAt bila kolomnya tidak dikenal."""
+        column = PurchaseOrderRepository.SORTABLE.get(
+            sortBy, purchase_orders_table.c.createdAt
+        )
+        return (
+            column.asc()
+            if str(sortByDirection).lower() == "asc"
+            else column.desc()
+        )
+
+
+    @staticmethod
+    async def get_all(
+        page: int = 1,
+        page_size: int = 10,
+        keyword: str = None,
+        sortBy: str = None,
+        sortByDirection: str = "desc",
+    ):
         """
         Get purchase orders with pagination (newest first).
 
@@ -148,7 +197,7 @@ class PurchaseOrderRepository:
                     )
                 )
                 .where(*conditions)
-                .order_by(purchase_orders_table.c.createdAt.desc())
+                .order_by(PurchaseOrderRepository._order_clause(sortBy, sortByDirection))
                 .offset(offset)
                 .limit(page_size)
             )
@@ -172,21 +221,51 @@ class PurchaseOrderRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
-    async def update(purchase_order_id: int, fields: dict):
+    async def update(
+        purchase_order_id: int,
+        fields: dict,
+        user_id: int = None,
+        user_name: str = None,
+    ):
         """Update editable fields of a purchase order and bump its revision."""
         try:
             if not fields:
                 return {"message": "No changes"}
+
+            # Keadaan sebelum diubah diambil lebih dulu; setelah update,
+            # nilai lamanya sudah tertimpa dan tidak bisa direkam lagi.
+            sebelum = await database.fetch_one(
+                select(purchase_orders_table).where(
+                    purchase_orders_table.c.id == purchase_order_id
+                )
+            )
+
             query = (
                 update(purchase_orders_table)
                 .where(purchase_orders_table.c.id == purchase_order_id)
                 .values(revision=purchase_orders_table.c.revision + 1, **fields)
             )
             await database.execute(query)
+
+            # Impor lokal agar modul repository tidak saling bergantung
+            # saat dimuat.
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="purchase_orders",
+                entityID=purchase_order_id,
+                action="update",
+                userID=user_id,
+                userName=user_name,
+                changes=AuditLogRepository.diff(
+                    dict(sebelum) if sebelum else {}, fields
+                ),
+            )
+
             return {"message": "Purchase order updated successfully"}
         except IntegrityError as e:
             log_error(f"Integrity error while updating purchase order: {str(e.orig)}")
-            return {"error": str(e.orig), "status": 400}
+            return {"error": "Internal server error.", "status": 400}
         except Exception as e:
             log_error(f"Unexpected error while updating purchase order: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
@@ -195,12 +274,37 @@ class PurchaseOrderRepository:
     async def update_status(purchase_order_id: int, status: str, user_id: int):
         """Update only the status of a purchase order."""
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(purchase_orders_table).where(purchase_orders_table.c.id == purchase_order_id)
+            )
             query = (
                 update(purchase_orders_table)
                 .where(purchase_orders_table.c.id == purchase_order_id)
                 .values(status=status)
             )
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="purchase_orders",
+                entityID=purchase_order_id,
+                action="update_status",
+                userID=user_id,
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(purchase_orders_table).where(
+                                purchase_orders_table.c.id == purchase_order_id
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+            
             return {"message": "Purchase order status updated successfully"}
         except Exception as e:
             log_error(f"Unexpected error while updating purchase order status: {str(e)}")
@@ -221,6 +325,15 @@ class PurchaseOrderRepository:
                 )
             )
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="purchase_orders",
+                entityID=purchase_order_id,
+                action="approve",
+                userID=user_id,
+            )
+
             return {"message": "Purchase order approved successfully"}
         except Exception as e:
             log_error(f"Unexpected error while approving purchase order: {str(e)}")
@@ -236,6 +349,15 @@ class PurchaseOrderRepository:
                 .values(isDelete=True, deletedBy=user_id, deletedAt=dt.now())
             )
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="purchase_orders",
+                entityID=purchase_order_id,
+                action="delete",
+                userID=user_id,
+            )
+
             return {"message": "Purchase order deleted successfully"}
         except Exception as e:
             log_error(f"Unexpected error while deleting purchase order: {str(e)}")
