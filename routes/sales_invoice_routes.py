@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from utils.auth_utils import get_current_user
+from utils.permission import require
 from utils.logger_utils import log_error
 from typing import Annotated, Optional, List
 from controllers.sales_invoice_controller import SalesInvoiceController
@@ -13,7 +14,7 @@ router = APIRouter()
 @router.post("/")
 async def create_sales_invoice(
     sales_invoice: SalesInvoiceCreate, 
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("sales_invoice", "create"))]
 ):
     """
     Create a new sales invoice.
@@ -26,7 +27,7 @@ async def create_sales_invoice(
 
 @router.get("/exists")
 async def check_sales_invoice(
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("sales_invoice", "read"))],
     description: str = Query(...),
     projectName: str = Query(...),
     clientID: int = Query(...),
@@ -43,7 +44,7 @@ async def check_sales_invoice(
 @router.get("/{sales_invoice_id}")
 async def get_sales_invoice_by_id(
     sales_invoice_id: int,
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("sales_invoice", "read"))]
 ):
     """
     Get sales invoice by ID.
@@ -53,7 +54,7 @@ async def get_sales_invoice_by_id(
 
 @router.get("/")
 async def get_sales_invoices(
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("sales_invoice", "read"))],
     page: int = Query(1, ge=1),
     pageSize: int = Query(10, ge=1, le=100),
     sortBy: str = Query("date"),
@@ -73,7 +74,7 @@ async def get_sales_invoices(
 @router.put("/reject/{sales_invoice_id}")
 async def reject_sales_invoice(
     sales_invoice_id: int,
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("sales_invoice", "approve"))]
 ):
     """
     Reject sales invoice by ID.
@@ -86,7 +87,7 @@ async def reject_sales_invoice(
 async def approve_sales_invoice(
     sales_invoice_id: int,
     data: dict,
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("sales_invoice", "approve"))]
 ):
     """
     Approve sales invoice by ID.
@@ -102,7 +103,7 @@ async def approve_sales_invoice(
 async def set_tax_invoice_name(
     sales_invoice_id: int,
     data: SalesInvoiceTaxInvoiceUpdate,
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("sales_invoice", "update"))]
 ):
     """Set nomor faktur pajak PPN pada sales invoice."""
     user_id = current_user["id"]
@@ -115,7 +116,7 @@ async def set_tax_invoice_name(
 async def set_income_tax_name(
     sales_invoice_id: int,
     data: SalesInvoiceIncomeTaxUpdate,
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("sales_invoice", "update"))]
 ):
     """Set nomor bukti potong PPh pada sales invoice (hanya yang sudah dibayar & ada PPh)."""
     user_id = current_user["id"]

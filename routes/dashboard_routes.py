@@ -3,6 +3,7 @@ from typing import Annotated, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from utils.auth_utils import get_current_user, User
+from utils.permission import require
 from controllers.dashboard_controller import DashboardController
 
 router = APIRouter()
@@ -10,7 +11,7 @@ router = APIRouter()
 
 @router.get("/cash-position")
 async def get_cash_position(
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("dashboard", "read"))],
     bankAccounts: List[int] = Query(None),
 ):
     """Current cash position across bank accounts.

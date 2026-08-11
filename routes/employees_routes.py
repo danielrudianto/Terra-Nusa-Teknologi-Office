@@ -2,6 +2,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
 from utils.logger_utils import log_error, log_info
 from utils.auth_utils import get_current_user
+from utils.permission import require
 from models.employee_model import Employee
 from controllers.employee_controller import EmployeeController
 from utils.auth_utils import User
@@ -9,7 +10,7 @@ from utils.auth_utils import User
 router = APIRouter()
 
 @router.post("/")
-async def create_employee(employee: Employee, user: Annotated[dict, Depends(get_current_user)]):
+async def create_employee(employee: Employee, user: Annotated[dict, Depends(require("employees", "create"))]):
     """
     Create a new payment. Requires a valid token.
     """
@@ -23,7 +24,7 @@ async def create_employee(employee: Employee, user: Annotated[dict, Depends(get_
     return result
 
 @router.get("/{employee_id}")
-async def get_employee(employee_id: int, user: Annotated[dict, Depends(get_current_user)]):
+async def get_employee(employee_id: int, user: Annotated[dict, Depends(require("employees", "read"))]):
     """
     Get an employee by ID. Requires a valid token.
     """
@@ -38,7 +39,7 @@ async def get_employee(employee_id: int, user: Annotated[dict, Depends(get_curre
 @router.get("/")
 async def get_employees(
     request: Request,
-    user: Annotated[dict, Depends(get_current_user)]
+    user: Annotated[dict, Depends(require("employees", "read"))]
 ):
     """
     Get a list of employees. Requires a valid token.
@@ -60,7 +61,7 @@ async def get_employees(
         raise e
     
 @router.put("/")
-async def update_employee(employee: Employee, user: Annotated[dict, Depends(get_current_user)]):
+async def update_employee(employee: Employee, user: Annotated[dict, Depends(require("employees", "update"))]):
     """
     Update an existing employee. Requires a valid token.
     """

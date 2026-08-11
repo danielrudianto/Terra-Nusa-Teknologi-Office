@@ -1,6 +1,7 @@
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from utils.auth_utils import get_current_user
+from utils.permission import require
 from schemas.user_schema import UserLogin
 from schemas.purchase_schema import (
     PurchaseCreate, PurchaseUpdateStatus, PurchaseCheckRequest,
@@ -15,7 +16,7 @@ router = APIRouter()
 @router.post("/", response_model=dict)
 async def create_purchase(
     purchase: PurchaseCreate, 
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("purchase", "create"))]
 ):
     """
     Create a new purchase.
@@ -30,7 +31,7 @@ async def create_purchase(
 @router.post("/check", response_model=dict)
 async def check_purchase(
     data: PurchaseCheckRequest, 
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("purchase", "create"))]
 ):
     """
     Check if a purchase exists with the given invoice name and purchase order name.
@@ -45,7 +46,7 @@ async def check_purchase(
 @router.get("/purchase-order/{purchase_order_name}")
 async def get_purchases_by_purchase_order_name(
     purchase_order_name: str,
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("purchase", "read"))]
 ):
     """
     Get purchases by purchase order name.
@@ -59,7 +60,7 @@ async def get_purchases_by_purchase_order_name(
 @router.get("/frequent-payment/{supplier_id}", response_model=dict)
 async def get_frequent_payment_by_supplier_id(
     supplier_id: int, 
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("purchase", "read"))]
 ):
     """
     Get a report of frequent payments by supplier ID.
@@ -73,7 +74,7 @@ async def get_frequent_payment_by_supplier_id(
 @router.get("/report/project/{projectName}", response_model=dict)
 async def get_purchase_report_by_project(
     projectName: str, 
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("purchase", "read"))]
 ):
     """
     Get a report of purchases by project name.
@@ -87,7 +88,7 @@ async def get_purchase_report_by_project(
 @router.get("/payments/{purchase_id}")
 async def get_payments_by_purchase_id(
     purchase_id: int, 
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("purchase", "read"))]
 ):
     """
     Get payments by purchase ID.
@@ -101,7 +102,7 @@ async def get_payments_by_purchase_id(
 @router.get("/{purchase_id}")
 async def get_purchase_by_id(
     purchase_id: int, 
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("purchase", "read"))]
 ):
     """
     Get a purchase by ID.
@@ -119,7 +120,7 @@ async def get_purchases(
     sortBy: str, 
     sortByDirection: str, 
     keyword: str | None, 
-    current_user: Annotated[User, Depends(get_current_user)], 
+    current_user: Annotated[User, Depends(require("purchase", "read"))], 
     isDue: bool = False, 
     isNotDue: bool = False, 
     isPaid: bool = False, 
@@ -165,7 +166,7 @@ async def get_purchases(
 @router.put("/update-status", response_model=dict)
 async def update_status(
     purchaseStatus: PurchaseUpdateStatus, 
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("purchase", "update"))]
 ):
     """
     Update the status of a purchase.
@@ -180,7 +181,7 @@ async def update_status(
 @router.delete("/{purchase_id}", response_model=dict)
 async def delete_purchase(
     purchase_id: int, 
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("purchase", "delete"))]
 ):
     """
     Delete a purchase by ID.

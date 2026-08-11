@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from controllers.supplier_controller import SupplierController
 from schemas.supplier_schema import SupplierCreate, SupplierUpdate, SupplierBlacklistUpdate
 from utils.auth_utils import get_current_user
+from utils.permission import require
 from typing import Annotated, Optional
 from utils.auth_utils import User
 
@@ -10,7 +11,7 @@ router = APIRouter()
 @router.post("/")
 async def create_supplier(
     supplier: SupplierCreate, 
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("supplier", "create"))]
 ):
     user_id = current_user["id"]
     result = await SupplierController.create_supplier(supplier.model_dump(), user_id)
@@ -21,7 +22,7 @@ async def create_supplier(
 @router.get("/{supplier_id}")
 async def get_supplier(
     supplier_id: int, 
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("supplier", "read"))]
 ):
     result = await SupplierController.get_supplier(supplier_id)
     if "error" in result:
@@ -31,7 +32,7 @@ async def get_supplier(
 @router.get("/")
 async def get_suppliers(
     request: Request,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("supplier", "read"))],
     keyword: str = Query(None),
     page: int = Query(0, ge=0),
     pageSize: int = Query(10, ge=10, le=100),
@@ -48,7 +49,7 @@ async def get_suppliers(
 @router.put("/")
 async def update_supplier(
     supplier: SupplierUpdate, 
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("supplier", "update"))]
 ):
     user_id = current_user["id"]
     # Note: You'll need to include the ID in the update request body
@@ -60,7 +61,7 @@ async def update_supplier(
 @router.delete("/{supplier_id}")
 async def delete_supplier(
     supplier_id: int,
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("supplier", "delete"))]
 ):
     user_id = current_user["id"]
     result = await SupplierController.delete_supplier(supplier_id, user_id)
@@ -73,7 +74,7 @@ async def delete_supplier(
 async def set_supplier_blacklist(
     supplier_id: int,
     payload: SupplierBlacklistUpdate,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("supplier", "update"))],
 ):
     """
     Flag / unflag a supplier as blacklisted. Warning only — it never blocks

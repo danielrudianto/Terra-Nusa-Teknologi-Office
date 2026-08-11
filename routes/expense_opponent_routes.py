@@ -1,6 +1,7 @@
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from utils.auth_utils import get_current_user
+from utils.permission import require
 from schemas.expense_opponent_schema import ExpenseOpponentCreate, ExpenseOpponentUpdate
 from controllers.expense_opponent_controller import ExpenseOpponentController
 from utils.auth_utils import User
@@ -10,7 +11,7 @@ router = APIRouter()
 @router.post("/")
 async def create_expense_opponent(
     expense_opponent: ExpenseOpponentCreate, 
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("expense_opponent", "create"))]
 ):
     """
     Create a new expense opponent.
@@ -31,7 +32,7 @@ async def get_expense_opponents(
     sortBy: str | None, 
     sortByDirection: str, 
     keyword: str, 
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("expense_opponent", "read"))]
 ):
     """
     Get expense opponents with pagination and filtering.
@@ -51,7 +52,7 @@ async def get_expense_opponents(
 @router.get("/{opponent_id}")
 async def get_expense_opponent_by_id(
     opponent_id: int, 
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("expense_opponent", "read"))]
 ):
     """
     Get an expense opponent by ID.
@@ -68,7 +69,7 @@ async def get_expense_opponent_by_id(
 async def update_expense_opponent(
     opponent_id: int, 
     expense_opponent: ExpenseOpponentUpdate, 
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("expense_opponent", "update"))]
 ):
     """
     Update an expense opponent.
@@ -89,7 +90,7 @@ async def update_expense_opponent(
 @router.delete("/{opponent_id}")
 async def delete_expense_opponent(
     opponent_id: int, 
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("expense_opponent", "delete"))]
 ):
     """
     Delete an expense opponent.
@@ -107,7 +108,7 @@ async def delete_expense_opponent(
 async def search_expense_opponents(
     keyword: str,
     limit: int,
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("expense_opponent", "read"))]
 ):
     """
     Search expense opponents by name.

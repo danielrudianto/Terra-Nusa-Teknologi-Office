@@ -44,6 +44,11 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     "supplier": (1, 3, 3, 5, 0),
     "tax": (3, 3, 3, 5, 0),
     "user": (5, 5, 5, 5, 0),
+    # Foto profil dipisahkan dari modul "user": avatar tampil di hampir
+    # semua layar (aktivitas, riwayat dokumen), sehingga membacanya tidak
+    # bisa dibatasi level 5. Mengubahnya terbuka di level 1 karena rutenya
+    # sudah menjaga sendiri bahwa seseorang hanya boleh mengubah avatarnya.
+    "user_avatar": (1, 0, 1, 0, 0),
 }
 
 

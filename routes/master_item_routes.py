@@ -8,6 +8,7 @@ from schemas.master_item_schema import (
     ImportResult,
 )
 from utils.auth_utils import get_current_user, User
+from utils.permission import require
 
 router = APIRouter()
 
@@ -15,7 +16,7 @@ router = APIRouter()
 @router.post("/")
 async def create_master_item(
     item: MasterItemCreate,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("master_item", "create"))],
 ):
     result = await MasterItemController.create_master_item(item.model_dump(), current_user["id"])
     if "error" in result:
@@ -25,7 +26,7 @@ async def create_master_item(
 
 @router.get("/")
 async def get_master_items(
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("master_item", "read"))],
     keyword: str = Query("", description="Search keyword"),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
@@ -45,7 +46,7 @@ async def get_master_items(
 
 @router.get("/facets")
 async def get_master_item_facets(
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("master_item", "read"))],
 ):
     """Daftar brand & type unik untuk mengisi dropdown filter."""
     result = await MasterItemController.get_facets()
@@ -57,7 +58,7 @@ async def get_master_item_facets(
 @router.get("/{item_id}", response_model=MasterItemResponse)
 async def get_master_item(
     item_id: int,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("master_item", "read"))],
 ):
     result = await MasterItemController.get_master_item(item_id)
     if "error" in result:
@@ -69,7 +70,7 @@ async def get_master_item(
 async def update_master_item(
     item_id: int,
     item: MasterItemUpdate,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("master_item", "update"))],
 ):
     payload = item.model_dump()
     payload["id"] = item_id
@@ -82,7 +83,7 @@ async def update_master_item(
 @router.delete("/{item_id}")
 async def delete_master_item(
     item_id: int,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("master_item", "delete"))],
 ):
     result = await MasterItemController.delete_master_item(item_id, current_user["id"])
     if "error" in result:
@@ -92,7 +93,7 @@ async def delete_master_item(
 
 @router.post("/import", response_model=ImportResult)
 async def import_master_items(
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("master_item", "create"))],
     file: UploadFile = File(..., description="CSV file"),
 ):
     """Bulk import master items from a CSV file."""

@@ -5,13 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from controllers.user_avatar_controller import UserAvatarController
 from schemas.user_avatar_schema import UserAvatarUpdate
 from utils.auth_utils import get_current_user
+from utils.permission import require
 
 router = APIRouter()
 
 
 @router.get("/batch")
 async def get_avatars(
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[dict, Depends(require("user_avatar", "read"))],
     ids: List[int] = Query(default=[]),
 ):
     """Batch fetch avatars for list views (cache first, DB for misses)."""
@@ -24,7 +25,7 @@ async def get_avatars(
 @router.get("/{user_id}")
 async def get_avatar(
     user_id: int,
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[dict, Depends(require("user_avatar", "read"))],
 ):
     result = await UserAvatarController.get_avatar(user_id)
     if isinstance(result, dict) and "error" in result:
@@ -36,7 +37,7 @@ async def get_avatar(
 async def save_avatar(
     user_id: int,
     avatar: UserAvatarUpdate,
-    current_user: Annotated[dict, Depends(get_current_user)],
+    current_user: Annotated[dict, Depends(require("user_avatar", "update"))],
 ):
     # a user may only edit their own avatar unless they are an administrator.
     # current_user is a database Row, so read the fields by attribute.

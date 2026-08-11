@@ -1,6 +1,7 @@
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from utils.auth_utils import get_current_user
+from utils.permission import require
 from schemas.expense_schema import ExpenseCreate, ExpenseUpdate, ExpenseFilter
 from controllers.expense_controller import ExpenseController
 from utils.auth_utils import User
@@ -8,7 +9,7 @@ from utils.auth_utils import User
 router = APIRouter()
 
 @router.post("/")
-async def create_expense(expense: ExpenseCreate, current_user: Annotated[User, Depends(get_current_user)]):
+async def create_expense(expense: ExpenseCreate, current_user: Annotated[User, Depends(require("expenses", "create"))]):
     """
     Create a new expense.
     """
@@ -32,7 +33,7 @@ async def get_expenses(
     start: str, 
     end: str, 
     ignore: bool, 
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("expenses", "read"))],
     isDue: bool = False, 
     isNotDue: bool = False, 
     isPaid: bool = False, 
@@ -70,7 +71,7 @@ async def get_expenses(
         raise e
 
 @router.get("/{expense_id}")
-async def get_expense_by_id(expense_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+async def get_expense_by_id(expense_id: int, current_user: Annotated[User, Depends(require("expenses", "read"))]):
     """
     Get an expense by ID.
     """
@@ -84,7 +85,7 @@ async def get_expense_by_id(expense_id: int, current_user: Annotated[User, Depen
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{expense_id}")
-async def update_expense(expense_id: int, expense: ExpenseUpdate, current_user: Annotated[User, Depends(get_current_user)]):
+async def update_expense(expense_id: int, expense: ExpenseUpdate, current_user: Annotated[User, Depends(require("expenses", "update"))]):
     """
     Update an expense.
     """
@@ -98,7 +99,7 @@ async def update_expense(expense_id: int, expense: ExpenseUpdate, current_user: 
         raise e
 
 @router.delete("/{expense_id}")
-async def delete_expense(expense_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+async def delete_expense(expense_id: int, current_user: Annotated[User, Depends(require("expenses", "delete"))]):
     """
     Delete an expense.
     """
@@ -112,7 +113,7 @@ async def delete_expense(expense_id: int, current_user: Annotated[User, Depends(
         raise e
 
 @router.put("/{expense_id}/approve")
-async def approve_expense_by_id(expense_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+async def approve_expense_by_id(expense_id: int, current_user: Annotated[User, Depends(require("expenses", "approve"))]):
     """
     Approve an expense by ID.
     """
@@ -123,7 +124,7 @@ async def approve_expense_by_id(expense_id: int, current_user: Annotated[User, D
     return result
 
 @router.get("/{expense_id}/payments")
-async def get_payments_by_expense_id(expense_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+async def get_payments_by_expense_id(expense_id: int, current_user: Annotated[User, Depends(require("expenses", "read"))]):
     """
     Get payments by expense ID.
     """
@@ -132,7 +133,7 @@ async def get_payments_by_expense_id(expense_id: int, current_user: Annotated[Us
     return expense
 
 @router.patch("/{expense_id}/payment-status")
-async def update_payment_status(expense_id: int, isPaid: bool, current_user: Annotated[User, Depends(get_current_user)]):
+async def update_payment_status(expense_id: int, isPaid: bool, current_user: Annotated[User, Depends(require("expenses", "update"))]):
     """
     Update payment status of an expense.
     """

@@ -3,12 +3,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from controllers.interpayment_controller import InterpaymentController
 from schemas.interpayment_schema import InterpaymentCreate, CreateInterpaymentResponse, InterpaymentListResponse
 from utils.auth_utils import get_current_user, User
+from utils.permission import require
 from utils.logger_utils import log_error
 
 router = APIRouter()
 
 @router.post("/", response_model=CreateInterpaymentResponse)
-async def create_interpayment(interpayment: InterpaymentCreate, user: Annotated[User, Depends(get_current_user)]):
+async def create_interpayment(interpayment: InterpaymentCreate, user: Annotated[User, Depends(require("interpayment", "create"))]):
     """
     Create a new interpayment. Requires a valid token.
     """
@@ -23,7 +24,7 @@ async def create_interpayment(interpayment: InterpaymentCreate, user: Annotated[
     return result
 
 @router.delete("/{interpaymentID}")
-async def delete_interpayment(interpaymentID: int, user: Annotated[User, Depends(get_current_user)]):
+async def delete_interpayment(interpaymentID: int, user: Annotated[User, Depends(require("interpayment", "delete"))]):
     userID = user["id"]
     result = await InterpaymentController.delete_interpayment(interpaymentID, userID)
     if "error" in result:
@@ -38,7 +39,7 @@ async def get_interpayments(
     pageSize: int,
     start: str,
     end: str,
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(require("interpayment", "read"))],
     sortBy: str = "date",
     sortByDirection: str = "desc",
 ):
@@ -59,7 +60,7 @@ async def get_interpayments(
 @router.get("/{interpaymentID}")
 async def get_interpayment_detail(
     interpaymentID: int,
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(require("interpayment", "read"))],
 ):
     """
     Get the full detail of a single interpayment, including both bank accounts
@@ -79,7 +80,7 @@ async def get_interpayment_calendar_data(
     month: int,
     year: int,
     bankAccountID: list[int],
-    user: Annotated[User, Depends(get_current_user)]
+    user: Annotated[User, Depends(require("interpayment", "read"))]
 ):
     """
     Get interpayment data for calendar view.
@@ -97,7 +98,7 @@ async def get_interpayment_calendar_data_by_date(
     date: int,
     month: int,
     year: int,
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(require("interpayment", "read"))],
     bankAccountID: list[int] | None = None,
 ):
     """

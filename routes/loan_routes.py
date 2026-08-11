@@ -3,11 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from controllers.loan_controller import LoanController
 from schemas.loan_schema import LoanCreate, CreateLoanResponse, LoanListResponse, LoanPaymentsResponse
 from utils.auth_utils import get_current_user, User
+from utils.permission import require
 
 router = APIRouter()
 
 @router.post("/", response_model=CreateLoanResponse)
-async def create_loan(loan_data: LoanCreate, current_user: Annotated[User, Depends(get_current_user)]):
+async def create_loan(loan_data: LoanCreate, current_user: Annotated[User, Depends(require("loan", "create"))]):
     """Create a new loan."""
     try:
         user_id = current_user["id"]
@@ -17,7 +18,7 @@ async def create_loan(loan_data: LoanCreate, current_user: Annotated[User, Depen
         raise e
 
 @router.get("/payments/{loan_id}", response_model=LoanPaymentsResponse)
-async def get_loan_payments(loan_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+async def get_loan_payments(loan_id: int, current_user: Annotated[User, Depends(require("loan", "read"))]):
     """Get loan details with its payments."""
     try:
         user_id = current_user["id"]
@@ -38,7 +39,7 @@ async def get_loans(
     isPaid: bool, 
     isUnpaid: bool, 
     sortBy: str, 
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("loan", "read"))],
     sortByDirection: str, 
     keyword: str | None = None, 
 ):

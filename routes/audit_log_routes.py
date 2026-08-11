@@ -2,13 +2,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 from repository.audit_log_repository import AuditLogRepository
 from utils.auth_utils import get_current_user, User
+from utils.permission import require
 
 router = APIRouter()
 
 
 @router.get("/")
 async def get_audit_logs(
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("audit_log", "read"))],
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
     entity: str = Query(None, description="Saring per entitas, mis. purchase_orders"),
@@ -29,7 +30,7 @@ async def get_audit_logs(
 
 @router.get("/{entity}/{entity_id}")
 async def get_entity_history(
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("audit_log", "read"))],
     entity: str,
     entity_id: int,
     limit: int = Query(50, ge=1, le=200),

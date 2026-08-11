@@ -1,6 +1,7 @@
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from utils.auth_utils import get_current_user
+from utils.permission import require
 from utils.logger_utils import log_error
 from controllers.income_controller import IncomeController
 from controllers.payment_incoming_controller import PaymentIncomingController
@@ -9,7 +10,7 @@ from utils.auth_utils import User
 router = APIRouter()
 
 @router.post("/")
-async def create_income(income_data: dict, user: Annotated[User, Depends(get_current_user)]):
+async def create_income(income_data: dict, user: Annotated[User, Depends(require("income", "create"))]):
     """
     Create a new income. Requires a valid token.
     """
@@ -47,7 +48,7 @@ async def fetch_income(
     sortByDirection: str, 
     keyword: str | None, 
     ignore: bool,
-    user: Annotated[User, Depends(get_current_user)]
+    user: Annotated[User, Depends(require("income", "read"))]
 ):
     """
     Get incomes with pagination and filtering.
@@ -65,7 +66,7 @@ async def fetch_income(
         raise e
 
 @router.get("/{income_id}")
-async def get_income(income_id: int, user: Annotated[User, Depends(get_current_user)]):
+async def get_income(income_id: int, user: Annotated[User, Depends(require("income", "read"))]):
     """
     Get a single income by ID.
     """
@@ -82,7 +83,7 @@ async def get_income(income_id: int, user: Annotated[User, Depends(get_current_u
 async def update_income(
     income_id: int, 
     income_data: dict, 
-    user: Annotated[User, Depends(get_current_user)]
+    user: Annotated[User, Depends(require("income", "update"))]
 ):
     """
     Update an income.
@@ -98,7 +99,7 @@ async def update_income(
         raise e
 
 @router.delete("/{income_id}")
-async def delete_income(income_id: int, user: Annotated[User, Depends(get_current_user)]):
+async def delete_income(income_id: int, user: Annotated[User, Depends(require("income", "delete"))]):
     """
     Delete an income.
     """

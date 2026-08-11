@@ -4,6 +4,7 @@ from controllers.payment_outgoing_controller import PaymentOutgoingController
 from controllers.bank_controller import BankController
 from controllers.payment_incoming_controller import PaymentIncomingController
 from utils.auth_utils import get_current_user
+from utils.permission import require
 from datetime import datetime
 from utils.auth_utils import User
 from controllers.calendar_controller import CalendarController
@@ -11,7 +12,7 @@ from controllers.calendar_controller import CalendarController
 router = APIRouter()
 
 @router.get("/")
-async def get_calendar_data(month: int, year: int, current_user: Annotated[User, Depends(get_current_user)], bankAccounts: List[int] =  Query(None)):
+async def get_calendar_data(month: int, year: int, current_user: Annotated[User, Depends(require("calendar", "read"))], bankAccounts: List[int] =  Query(None)):
     """
     Get calendar data for a specific month and year.
     """
@@ -26,7 +27,7 @@ async def get_calendar_data(month: int, year: int, current_user: Annotated[User,
         raise e # Re-raise to return the HTTPException response
 
 @router.get("/daily")    
-async def get_calendar_data_by_date(date: str, current_user: Annotated[User, Depends(get_current_user)], bankAccounts: List[int] = Query(None)):
+async def get_calendar_data_by_date(date: str, current_user: Annotated[User, Depends(require("calendar", "read"))], bankAccounts: List[int] = Query(None)):
     """
     Get calendar data for a specific date.
     """
@@ -42,7 +43,7 @@ async def get_calendar_data_by_date(date: str, current_user: Annotated[User, Dep
         raise e # Re-raise to return the HTTPException response
 
 @router.get("/download")
-async def download_calendar(month: int, year: int, current_user: Annotated[User, Depends(get_current_user)], bankAccounts: List[int] =  Query(None)):
+async def download_calendar(month: int, year: int, current_user: Annotated[User, Depends(require("calendar", "read"))], bankAccounts: List[int] =  Query(None)):
     """
     Download calendar data for a specific month and year.
     """
