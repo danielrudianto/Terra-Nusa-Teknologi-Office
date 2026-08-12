@@ -97,7 +97,21 @@ class PurchaseOrderItemRepository:
 
     @staticmethod
     def compute_dpp(items: List[dict], ppn_percent: float) -> float:
-        """Server-side DPP from items: total = Σ(price*qty); strip PPN if included."""
+        """
+        JANGAN DIPAKAI tanpa diperiksa ulang. Tidak dipanggil di mana pun.
+
+        Fungsi ini mengandaikan harga satuan SUDAH TERMASUK PPN, lalu
+        mengeluarkannya dengan membagi (1 + ppn/100).
+
+        Seluruh formulir purchase order memakai kebalikannya: harga yang
+        diisi adalah DPP, dan PPN ditambahkan di atasnya. Bila fungsi ini
+        disambungkan apa adanya, DPP yang tersimpan menjadi sekitar 9,9%
+        lebih kecil daripada yang tercetak pada dokumen — dan selisihnya
+        tidak terlihat sebagai galat, hanya sebagai angka yang tidak cocok
+        saat dibandingkan.
+
+        Bila suatu saat memang dibutuhkan, hapus pembagian PPN-nya.
+        """
         total = sum(
             (float(i.get("price") or 0) * float(i.get("quantity") or 1)) for i in (items or [])
         )

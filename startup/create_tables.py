@@ -21,6 +21,7 @@ import models.expense_opponent_model  # Import the expense opponent model to cre
 import models.salary_slip_model  # Import the salary slip model to create the table
 import models.interpayment_model  # Import the interpayment model to create the table
 import models.sales_invoice_model  # Import the sales invoice model to create the table
+import models.reminder_model  # pengingat agenda beserta orang yang ditandai
 
 if __name__ == "__main__":
     metadata.create_all(engine, checkfirst=True)

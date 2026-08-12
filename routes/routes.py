@@ -27,6 +27,7 @@ from routes.dashboard_routes import router as dashboard_router
 from routes.master_item_routes import router as master_item_router
 from routes.master_equipment_routes import router as master_equipment_router
 from routes.user_routes import router as user_router
+from routes.project_routes import router as project_router
 from routes.user_avatar_routes import router as user_avatar_router
 from routes.audit_log_routes import router as audit_log_router
 
@@ -56,6 +57,7 @@ router.include_router(tax_router, prefix="/taxes", tags=["Taxes"])
 router.include_router(purchase_draft_router, prefix="/purchase-draft", tags=["Purchase draft"])
 router.include_router(income_router, prefix="/income", tags=["Income"])
 router.include_router(user_router, prefix="/users", tags=["Users"])
+router.include_router(project_router, prefix="/projects", tags=["Projects"])
 router.include_router(loan_router, prefix="/loans", tags=["Loan"])
 router.include_router(purchase_order_router, prefix="/purchase-orders", tags=["Purchase Orders"])
 router.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])

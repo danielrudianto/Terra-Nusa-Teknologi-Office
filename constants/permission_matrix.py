@@ -61,6 +61,20 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     # tersendiri di payment_outgoing_controller: pembayaran tidak dapat
     # disetujui oleh orang yang membuatnya, berapa pun levelnya.
     "payment_outgoing": (3, 3, 3, 3, 4),
+    # Proyek adalah data induk, tetapi pembuatannya dibatasi akses 4.
+    #
+    # Kode proyek tidak dapat diubah setelah dibuat — ia satu-satunya
+    # penghubung ke seluruh dokumen yang menunjuknya. Proyek yang terlanjur
+    # dibuat dengan kode keliru hanya bisa dihapus, bukan diperbaiki, jadi
+    # pembuatannya sengaja tidak diserahkan ke tangga level yang lebih bawah.
+    #
+    # Nilai kontrak ikut modul ini dan bukan modul tersendiri — yang boleh
+    # mengubah nilai kontrak adalah yang boleh mengubah proyeknya. Karena itu
+    # `update` disamakan dengan `create` di akses 4: menambah adendum berarti
+    # mengubah nilai kontrak, dan itu bukan kewenangan setingkat di bawahnya.
+    #
+    # Proyek yang batal ditandai lewat `isDelete`, bukan keadaan tersendiri.
+    "project": (1, 4, 4, 4, 0),
     "purchase": (1, 1, 1, 2, 3),
     "purchase_draft": (1, 1, 1, 2, 3),
     "purchase_order": (1, 1, 1, 2, 3),

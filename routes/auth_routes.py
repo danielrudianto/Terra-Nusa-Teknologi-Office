@@ -65,6 +65,13 @@ async def login(loginData: LoginData, request: Request):
     }
 
     user = {
+        # Id ikut dikirim karena layar memakainya untuk mengenali "saya":
+        # menyembunyikan tombol setujui pada dokumen buatan sendiri, dan
+        # menyaring diri sendiri dari daftar orang yang dapat ditandai.
+        #
+        # Tanpa id, keduanya diam-diam tidak berfungsi — tidak ada galat,
+        # hanya penjagaan yang tidak pernah menyala.
+        "id": result["id"],
         "name": result["name"],
         "email": result["email"],
         "authenticationLevel": result["authenticationLevel"],

@@ -25,6 +25,14 @@ UMUM = {
     "dashboard",
     "calendar",
     "user_avatar",
+    # Proyek dibaca hampir setiap divisi: kodenya dipakai di purchase order,
+    # pembelian, reimbursement, dan faktur penjualan. Menutupnya per divisi
+    # membuat orang tidak dapat memastikan kode yang sedang ia ketik benar.
+    #
+    # Aman berada di sini karena yang dibatasi bukan divisinya melainkan
+    # levelnya: matriks menetapkan baca 1, tetapi buat dan ubah 4 — jadi
+    # semua orang melihat daftarnya, hanya sedikit yang bisa mengubahnya.
+    "project",
 }
 
 DEPARTMENT_MODULES: dict[str, set[str]] = {
