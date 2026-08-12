@@ -2,11 +2,15 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy import select, func
 from utils.database import metadata, database
 from utils.logger_utils import log_error
-from models.balance_model import BalanceResponse, balance_view
+# Nama kelasnya `Balance`; `BalanceResponse` tidak pernah ada dan impornya
+# selalu gagal. Berkas ini belum dipakai di mana pun, sehingga kegagalannya
+# tidak pernah terlihat — tetapi akan langsung menghentikan aplikasi begitu
+# ada yang mengimpornya.
+from models.balance_model import Balance, balance_view
 
 class BalanceRepository:
     @staticmethod
-    async def fetch_by_bank_account_ids(account_ids: List[int]) -> List[BalanceResponse]:
+    async def fetch_by_bank_account_ids(account_ids: List[int]) -> List[Balance]:
         """
         Fetch balances for multiple bank account IDs.
         
@@ -14,7 +18,7 @@ class BalanceRepository:
             account_ids: List of bank account IDs
             
         Returns:
-            List of BalanceResponse objects
+            List of Balance objects
         """
         try:
             if not account_ids:
@@ -23,14 +27,14 @@ class BalanceRepository:
             query = balance_view.select().where(balance_view.c.id.in_(account_ids))
             result = await database.fetch_all(query)
 
-            return [BalanceResponse.model_validate(dict(row)) for row in result]
+            return [Balance.model_validate(dict(row)) for row in result]
             
         except Exception as e:
             log_error(f"Error fetching bank account balances: {str(e)}")
             raise
 
     @staticmethod
-    async def fetch_by_bank_account_id(account_id: int) -> Optional[BalanceResponse]:
+    async def fetch_by_bank_account_id(account_id: int) -> Optional[Balance]:
         """
         Fetch balance for a single bank account ID.
         
@@ -38,31 +42,31 @@ class BalanceRepository:
             account_id: Bank account ID
             
         Returns:
-            BalanceResponse object or None if not found
+            Balance object or None if not found
         """
         try:
             query = balance_view.select().where(balance_view.c.id == account_id)
             result = await database.fetch_one(query)
             
-            return BalanceResponse.model_validate(dict(result)) if result else None
+            return Balance.model_validate(dict(result)) if result else None
             
         except Exception as e:
             log_error(f"Error fetching bank account balance for ID {account_id}: {str(e)}")
             raise
 
     @staticmethod
-    async def fetch_all_balances() -> List[BalanceResponse]:
+    async def fetch_all_balances() -> List[Balance]:
         """
         Fetch balances for all bank accounts.
         
         Returns:
-            List of BalanceResponse objects
+            List of Balance objects
         """
         try:
             query = balance_view.select()
             result = await database.fetch_all(query)
             
-            return [BalanceResponse.model_validate(dict(row)) for row in result]
+            return [Balance.model_validate(dict(row)) for row in result]
             
         except Exception as e:
             log_error(f"Error fetching all bank account balances: {str(e)}")
@@ -108,7 +112,7 @@ class BalanceRepository:
             # Get paginated results
             query = balance_view.select().limit(page_size).offset(offset)
             result = await database.fetch_all(query)
-            balances = [BalanceResponse.model_validate(dict(row)) for row in result]
+            balances = [Balance.model_validate(dict(row)) for row in result]
             
             # Get total count
             count_query = select(func.count()).select_from(balance_view)

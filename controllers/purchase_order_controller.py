@@ -12,11 +12,21 @@ class PurchaseOrderController:
         project_code: str = "", purchase_type: str = ""
     ) -> tuple[str, int]:
         """
-        Build the PO number using a per-project running sequence.
-        Format: {seq:03d}-PO-{projectCode}-{purchaseType}  e.g. 025-PO-MICZ-G
+        Nomor dokumen dengan urutan berjalan per proyek.
+
+        Format: {seq:03d}-SPK-{projectCode}-{purchaseType}
+        contoh: 025-SPK-MICZ-G
+
+        Seluruh jenis memakai awalan SPK dan satu deret nomor yang sama.
+        Memisahkan deret per jenis akan menghasilkan dua dokumen bernomor 001
+        pada proyek yang sama, dan itu menyulitkan saat dokumen dicari kembali.
 
         Urutan dihitung per proyek: proyek baru mulai dari 001 lagi, dan
-        menambah PO di satu proyek tidak menggeser nomor proyek lain.
+        menambah dokumen di satu proyek tidak menggeser nomor proyek lain.
+
+        Nomor lama yang sudah terbit tidak ikut berubah — nomor adalah
+        identitas dokumen, dan mengubahnya memutus jejak ke faktur maupun
+        pembayaran yang sudah mengacu padanya.
         """
         try:
             if project_code:
@@ -30,9 +40,9 @@ class PurchaseOrderController:
                 ) + 1
             seq = f"{number:03d}"
             if project_code and purchase_type:
-                name = f"{seq}-PO-{project_code}-{purchase_type}"
+                name = f"{seq}-SPK-{project_code}-{purchase_type}"
             elif project_code:
-                name = f"{seq}-PO-{project_code}"
+                name = f"{seq}-SPK-{project_code}"
             else:
                 name = seq
             log_info(

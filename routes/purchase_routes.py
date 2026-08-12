@@ -87,8 +87,10 @@ async def get_purchase_report_by_project(
 
 @router.get("/payments/{purchase_id}")
 async def get_payments_by_purchase_id(
-    purchase_id: int, 
-    current_user: Annotated[User, Depends(require("purchase", "read"))]
+    purchase_id: int,
+    # Balikannya memuat nama dan nomor rekening pembayar, bukan sekadar
+    # nominalnya — sehingga dijaga seperti data pembayaran, bukan pembelian.
+    current_user: Annotated[User, Depends(require("payment_outgoing", "read"))],
 ):
     """
     Get payments by purchase ID.

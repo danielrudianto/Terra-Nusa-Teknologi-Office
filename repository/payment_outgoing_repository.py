@@ -637,6 +637,11 @@ class PaymentOutgoingRepository:
       
     @staticmethod
     async def update_bulk_status(payment_ids: List[int], status: str, userID: int):
+        # Dibaca lebih dulu: setelah diperbarui, pembuat aslinya tetap sama
+        # tetapi lebih murah membacanya sekali di sini daripada per dokumen.
+        payments_awal = await PaymentOutgoingRepository.get_payments_by_ids(
+            payment_ids
+        )
         """
         Update the status of multiple payments in the database.
         
@@ -666,13 +671,31 @@ class PaymentOutgoingRepository:
             # Dicatat per pembayaran, bukan sekali untuk seluruh kumpulan:
             # riwayat dibaca per dokumen, sehingga satu catatan gabungan
             # tidak akan muncul di detail pembayaran mana pun.
+            # Persetujuan atas dokumen sendiri ditandai tersendiri.
+            #
+            # Hal itu hanya mungkin dilakukan pemilik usaha, dan memang
+            # diizinkan — tetapi harus terbaca sebagai keadaan yang berbeda
+            # saat riwayat ditelusuri, bukan tenggelam di antara persetujuan
+            # biasa.
+            # `get_payments_by_ids` mengembalikan objek PaymentOutgoing,
+            # bukan baris basis data — nilainya dibaca lewat atribut, bukan
+            # kunci. Memakai p["id"] di sini melempar TypeError dan seluruh
+            # persetujuan gagal.
+            pembuat = {
+                p.id: getattr(p, "createdBy", None) for p in (payments_awal or [])
+            }
+
             for _pid in payment_ids:
+                perubahan = {"status": {"from": None, "to": status}}
+                if status == "approve" and pembuat.get(_pid) == userID:
+                    perubahan["selfApproved"] = True
+
                 await AuditLogRepository.record(
                     entity="payment_outgoing",
                     entityID=_pid,
                     action="update_status",
                     userID=userID,
-                    changes={"status": {"from": None, "to": status}},
+                    changes=perubahan,
                 )
 
             return {"message": "Status updated successfully"}

@@ -102,7 +102,18 @@ async def approve_bulk_payment_status(
     Approve multiple payments by their IDs. Requires a valid token.
     """
     userID = user["id"]
-    result = await PaymentOutgoingController.update_bulk_payment_status(payments, "approve", userID)
+    # Level diteruskan karena aturan "tidak boleh menyetujui buatan sendiri"
+    # dikecualikan untuk pemilik usaha; keputusannya ada di controller.
+    # Objek pengguna berupa Record dari pustaka `databases`, yang TIDAK
+    # memiliki metode `.get()` — pemanggilannya melempar AttributeError dan
+    # persetujuan gagal dengan galat yang tidak menyebut sebabnya.
+    #
+    # Bila levelnya tidak terbaca, jangan diperlakukan sebagai akses tinggi:
+    # yang aman adalah menganggapnya paling rendah.
+    userLevel = int(user["authenticationLevel"] or 1)
+    result = await PaymentOutgoingController.update_bulk_payment_status(
+        payments, "approve", userID, userLevel
+    )
     if "error" in result:
         log_error(f"Error approving payments: {result['error']}")
         raise HTTPException(status_code=result['status'], detail=result['error'])
@@ -149,7 +160,16 @@ async def update_payment_status(
     Approve a payment by its ID. Requires a valid token.
     """
     userID = user["id"]
-    result = await PaymentOutgoingController.update_payment_status(paymentID, "approve", userID)
+    # Objek pengguna berupa Record dari pustaka `databases`, yang TIDAK
+    # memiliki metode `.get()` — pemanggilannya melempar AttributeError dan
+    # persetujuan gagal dengan galat yang tidak menyebut sebabnya.
+    #
+    # Bila levelnya tidak terbaca, jangan diperlakukan sebagai akses tinggi:
+    # yang aman adalah menganggapnya paling rendah.
+    userLevel = int(user["authenticationLevel"] or 1)
+    result = await PaymentOutgoingController.update_payment_status(
+        paymentID, "approve", userID, userLevel
+    )
     
     if "error" in result:
         log_error(f"Error approving payment with ID {paymentID}: {result['error']}")

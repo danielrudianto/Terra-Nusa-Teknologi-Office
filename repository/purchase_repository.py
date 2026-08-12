@@ -2,6 +2,7 @@ from sqlalchemy import select, func, or_, insert, update
 from utils.database import database
 from utils.logger_utils import log_error
 from models.purchase_model import purchases_table, purchase_status_table
+from models.purchase_order_model import purchase_orders_table
 from models.supplier_model import suppliers_table
 from models.payment_outgoing_model import payments_outgoing_table
 from datetime import datetime as dt
@@ -110,9 +111,23 @@ class PurchaseRepository:
             else:
                 order_by = purchases_table.c.date.desc()
 
+            # Tabel purchases hanya menyimpan NAMA purchase order, bukan
+            # id-nya. Id diambil lewat sambungan nama agar dokumennya dapat
+            # dibuka langsung dari daftar pembelian — tanpa ini, pengguna
+            # harus menyalin nomornya lalu mencarinya di halaman lain.
             query = (
-                select(*purchases_table.c, *supplier_columns)
+                select(
+                    *purchases_table.c,
+                    *supplier_columns,
+                    purchase_orders_table.c.id.label("purchase_order_id"),
+                )
                 .join(suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id)
+                .join(
+                    purchase_orders_table,
+                    purchases_table.c.purchaseOrderName
+                    == purchase_orders_table.c.name,
+                    isouter=True,
+                )
                 .where(*conditions)
                 .order_by(order_by)
                 .offset(offset)
@@ -201,6 +216,10 @@ class PurchaseRepository:
                     *purchases_table.c,
                     *supplier_columns,
                     users_table.c.name.label("createdByName"),
+                    # Id purchase order disambungkan lewat namanya, sama
+                    # seperti pada daftar: tabel purchases hanya menyimpan
+                    # nomornya sebagai teks.
+                    purchase_orders_table.c.id.label("purchase_order_id"),
                 )
                 .select_from(
                     purchases_table.join(
@@ -209,6 +228,10 @@ class PurchaseRepository:
                     ).outerjoin(
                         users_table,
                         purchases_table.c.createdBy == users_table.c.id,
+                    ).outerjoin(
+                        purchase_orders_table,
+                        purchases_table.c.purchaseOrderName
+                        == purchase_orders_table.c.name,
                     )
                 )
                 .where(purchases_table.c.id == purchaseID)

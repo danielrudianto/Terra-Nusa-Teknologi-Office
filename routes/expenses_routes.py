@@ -124,7 +124,12 @@ async def approve_expense_by_id(expense_id: int, current_user: Annotated[User, D
     return result
 
 @router.get("/{expense_id}/payments")
-async def get_payments_by_expense_id(expense_id: int, current_user: Annotated[User, Depends(require("expenses", "read"))]):
+async def get_payments_by_expense_id(
+    expense_id: int,
+    # Balikannya memuat nama dan nomor rekening pembayar, bukan sekadar
+    # nominalnya — sehingga dijaga seperti data pembayaran.
+    current_user: Annotated[User, Depends(require("payment_outgoing", "read"))],
+):
     """
     Get payments by expense ID.
     """

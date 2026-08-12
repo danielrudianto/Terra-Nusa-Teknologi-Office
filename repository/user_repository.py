@@ -13,18 +13,26 @@ class UserRepository:
         user_data.setdefault("createdAt", datetime.now())
         query = insert(users_table).values(**user_data)
         user_id = await database.execute(query)
-        
+
         from repository.audit_log_repository import AuditLogRepository
-        
+
+        # Pada pembuatan tidak ada keadaan sebelumnya untuk dibandingkan;
+        # yang dicatat cukup nilai awalnya, tanpa kata sandi.
+        awal = {k: v for k, v in user_data.items() if k != "password"}
         await AuditLogRepository.record(
             entity="users",
-            changes=AuditLogRepository.diff(
-                dict(_sebelum) if _sebelum else {}, values
-            ),
             entityID=user_id,
             action="create",
+            changes=awal or None,
         )
-        return user_id
+
+        # Dikembalikan sebagai baris utuh, bukan sekadar id: rutenya memakai
+        # UserResponse sebagai response_model, dan angka tidak dapat
+        # dipetakan ke sana.
+        dibuat = await database.fetch_one(
+            select(users_table).where(users_table.c.id == user_id)
+        )
+        return dict(dibuat) if dibuat else {"id": user_id}
 
     @staticmethod
     async def get_user_by_email(email: str):
@@ -119,10 +127,14 @@ class UserRepository:
 
     @staticmethod
     async def soft_delete(user_id: int):
+        # Keadaan sebelum dibaca lebih dulu; setelah ditandai terhapus,
+        # nilai lamanya tidak bisa direkam lagi.
+        _sebelum = await database.fetch_one(
+            select(users_table).where(users_table.c.id == user_id)
+        )
+        nilai = {"isDeleted": True, "deletedAt": datetime.now()}
         query = (
-            update(users_table)
-            .where(users_table.c.id == user_id)
-            .values(isDeleted=True, deletedAt=datetime.now())
+            update(users_table).where(users_table.c.id == user_id).values(**nilai)
         )
         await database.execute(query)
         from repository.audit_log_repository import AuditLogRepository
@@ -130,11 +142,10 @@ class UserRepository:
         await AuditLogRepository.record(
             entity="users",
             changes=AuditLogRepository.diff(
-                dict(_sebelum) if _sebelum else {}, values
+                dict(_sebelum) if _sebelum else {}, nilai
             ),
             entityID=user_id,
             action="delete",
-            userID=user_id,
         )
 
         return {"message": "User deleted successfully"}

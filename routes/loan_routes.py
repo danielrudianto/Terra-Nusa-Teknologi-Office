@@ -43,11 +43,20 @@ async def get_loan_payments(loan_id: int, current_user: Annotated[User, Depends(
     try:
         user_id = current_user["id"]
         loan = await LoanController.get_loan_by_id(loan_id)
+
+        # Pinjaman yang tidak ada dijawab dengan galat, bukan objek kosong.
+        #
+        # Objek kosong tetap dianggap berhasil oleh layar, sehingga yang
+        # tampil adalah halaman berisi "NaN%" dan nilai kosong — pengguna
+        # melihat tampilan rusak, bukan keterangan bahwa datanya tidak ada.
+        if not loan:
+            raise HTTPException(status_code=404, detail="Pinjaman tidak ditemukan")
+
         payments = await LoanController.get_payments_by_loan_id(loan_id)
-        
+
         return {
-            "loan": dict(loan) if loan else {},
-            "payments": payments
+            "loan": dict(loan),
+            "payments": payments or [],
         }
     except HTTPException as e:
         raise e

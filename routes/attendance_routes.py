@@ -1,3 +1,18 @@
+"""
+BERKAS TIDAK TERPAKAI — jangan didaftarkan sebelum diperbaiki.
+
+Isinya salinan persis `asset_routes.py` dengan nama modul izin diganti
+menjadi "attendance". Modul itu tidak ada di `constants/permission_matrix.py`,
+sehingga setiap permintaannya akan selalu ditolak.
+
+Berkas ini tidak terdaftar di `routes/routes.py`, jadi tidak berpengaruh
+apa-apa sekarang. Tetapi bila suatu saat didaftarkan tanpa diperiksa,
+seluruh rutenya akan menolak siapa pun tanpa sebab yang terlihat.
+
+Bila absensi memang akan dibuat: tulis rutenya sendiri, dan daftarkan
+"attendance" pada matriks izin lebih dulu.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from controllers.asset_controller import AssetController
 from schemas.asset_schema import AssetCreate, AssetUpdate

@@ -11,7 +11,16 @@ router = APIRouter()
 
 @router.get("/cash-position")
 async def get_cash_position(
-    current_user: Annotated[User, Depends(require("dashboard", "read"))],
+    # Dijaga `bank:read`, bukan `dashboard:read`.
+    #
+    # Yang dikembalikan adalah nama bank, nama dan nomor rekening, beserta
+    # saldonya. Menjaganya dengan izin dasbor membuat data itu terbaca oleh
+    # siapa pun yang dapat membuka beranda — termasuk staf procurement —
+    # padahal membuka daftar rekeningnya sendiri memerlukan akses 3.
+    #
+    # Batas sebuah data ditentukan oleh isinya, bukan oleh halaman yang
+    # kebetulan menampilkannya.
+    current_user: Annotated[User, Depends(require("bank", "read"))],
     bankAccounts: List[int] = Query(None),
 ):
     """Current cash position across bank accounts.

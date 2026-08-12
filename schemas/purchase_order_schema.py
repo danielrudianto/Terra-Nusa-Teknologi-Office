@@ -28,7 +28,7 @@ class PurchaseOrderBase(BaseModel):
 
 
 class PurchaseOrderCreate(PurchaseOrderBase):
-    # Optional helper used only to build the PO number (e.g. "MICZ" -> 025-PO-MICZ-G).
+    # Hanya dipakai untuk membentuk nomor dokumen (mis. "MICZ" -> 025-SPK-MICZ-G).
     # Not persisted as a column.
     projectCode: Optional[str] = None
     # If provided, use this exact PO number instead of auto-generating.

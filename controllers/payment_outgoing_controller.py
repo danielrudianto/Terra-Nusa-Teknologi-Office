@@ -223,7 +223,9 @@ class PaymentOutgoingController:
             return {"error": str(e), "status": 500}
 
     @staticmethod
-    async def update_payment_status(id: int, status: str, userID: int):
+    async def update_payment_status(
+        id: int, status: str, userID: int, userLevel: int = 1
+    ):
         """
         Update the status of a payment.
         
@@ -253,6 +255,26 @@ class PaymentOutgoingController:
                 log_info(f"Payment with ID: {id} is already approved or deleted")
                 #raise HTTPException(status_code=400, detail="Payment is already approved or deleted")
                 return {"error": "Payment is already approved or deleted", "status": 400}
+
+            # Aturan yang sama seperti persetujuan sekaligus: yang menyiapkan
+            # uang bukan yang mengizinkan, dengan pengecualian pemilik usaha.
+            #
+            # Ditulis di kedua tempat karena keduanya adalah pintu yang
+            # berbeda — persetujuan satu per satu dipakai dari kalender,
+            # sedangkan yang sekaligus dari daftar pembayaran. Menjaga hanya
+            # salah satunya berarti aturannya dapat dilewati lewat pintu lain.
+            if (
+                status == "approve"
+                and payment.createdBy == userID
+                and int(userLevel or 1) < 5
+            ):
+                return {
+                    "error": (
+                        "Pembayaran tidak dapat disetujui oleh pembuatnya "
+                        "sendiri. Mintakan persetujuan kepada pengguna lain."
+                    ),
+                    "status": 403,
+                }
             
             result = await PaymentOutgoingRepository.update_status(id, userID, status)
             if "error" in result:
@@ -363,7 +385,9 @@ class PaymentOutgoingController:
             return {"error": "Internal Server Error", "status": 500}
 
     @staticmethod
-    async def update_bulk_payment_status(payment_ids: List[int], status: str, userID: int):
+    async def update_bulk_payment_status(
+        payment_ids: List[int], status: str, userID: int, userLevel: int = 1
+    ):
         """
         Update the status of multiple payments in the database.
         
@@ -385,6 +409,30 @@ class PaymentOutgoingController:
                     return {"error": "Payment has been deleted", "status": 400}
                 if payment.isApprove:
                     return {"error": "Payment has been approved", "status": 400}
+
+                # Yang menyiapkan uang bukan yang mengizinkan.
+                #
+                # Pemilik usaha dikecualikan. Pada perusahaan sekecil ini,
+                # mewajibkan orang kedua untuk pembayaran yang dibuat pemilik
+                # di luar jam kerja tidak menambah pengendalian — yang terjadi
+                # justru pembayarannya diselesaikan di luar sistem, dan pada
+                # saat itu tidak ada jejak sama sekali.
+                #
+                # Pengecualiannya bukan berarti tanpa catatan: persetujuan
+                # atas dokumen sendiri ditandai tersendiri pada jejak
+                # aktivitas, sehingga tetap dapat ditelusuri.
+                if (
+                    status == "approve"
+                    and payment.createdBy == userID
+                    and int(userLevel or 1) < 5
+                ):
+                    return {
+                        "error": (
+                            "Pembayaran tidak dapat disetujui oleh pembuatnya "
+                            "sendiri. Mintakan persetujuan kepada pengguna lain."
+                        ),
+                        "status": 403,
+                    }
             
             result = await PaymentOutgoingRepository.update_bulk_status(payment_ids, status, userID)
             if "error" in result:
