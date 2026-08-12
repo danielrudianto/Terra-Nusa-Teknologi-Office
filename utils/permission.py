@@ -9,6 +9,8 @@ from constants.permission_matrix import (
     SPECIAL_ONLY,
     required_level,
 )
+from constants.department_modules import modules_for
+from models.user_department_model import user_departments_table
 from models.user_permission_model import user_permissions_table
 from utils.auth_utils import get_current_user
 from utils.database import database
@@ -20,7 +22,13 @@ Pemeriksa izin.
 Urutan penentuan:
 
     1. Izin khusus pengguna (bila ada) -> nilainya menang, izin maupun larangan
-    2. Level pengguna dibanding level minimum modul
+    2. Modul harus berada dalam wilayah departemen pengguna
+    3. Level pengguna dibanding level minimum modul
+
+Level dan departemen menjawab hal berbeda: level menentukan sejauh apa yang
+boleh dilakukan, departemen menentukan modul mana yang menjadi urusannya.
+Tanpa sumbu departemen, level 1 procurement dan level 1 accounting terpaksa
+melihat hal yang sama padahal pekerjaannya berbeda.
 
 Menyembunyikan tombol di layar bukan pengamanan; pemeriksaan di sinilah yang
 menentukan. Setiap rute yang mengubah data harus melewatinya.
@@ -30,6 +38,7 @@ menentukan. Setiap rute yang mengubah data harus melewatinya.
 # permintaan. Hasilnya disimpan sebentar agar tidak menambah satu query pada
 # setiap permintaan.
 _CACHE: dict[int, tuple[float, dict[tuple[str, str], bool]]] = {}
+_DEPT_CACHE: dict[int, tuple[float, set[str]]] = {}
 _CACHE_TTL = 60.0
 
 
@@ -40,8 +49,10 @@ def invalidate_permission_cache(user_id: int | None = None) -> None:
     """
     if user_id is None:
         _CACHE.clear()
+        _DEPT_CACHE.clear()
     else:
         _CACHE.pop(user_id, None)
+        _DEPT_CACHE.pop(user_id, None)
 
 
 async def _overrides(user_id: int) -> dict[tuple[str, str], bool]:
@@ -66,6 +77,29 @@ async def _overrides(user_id: int) -> dict[tuple[str, str], bool]:
     return data
 
 
+async def _departments(user_id: int) -> set[str]:
+    cached = _DEPT_CACHE.get(user_id)
+    if cached and (time.monotonic() - cached[0]) < _CACHE_TTL:
+        return cached[1]
+
+    try:
+        rows = await database.fetch_all(
+            select(user_departments_table).where(
+                user_departments_table.c.userID == user_id
+            )
+        )
+        data = {r["department"] for r in rows}
+    except Exception as e:
+        # Tabel belum ada atau tidak terbaca. Dikembalikan kosong, yang
+        # artinya penentuan jatuh sepenuhnya ke level — perilaku sebelum
+        # departemen diperkenalkan.
+        log_error(f"Departemen pengguna tidak dapat dibaca: {str(e)}")
+        return set()
+
+    _DEPT_CACHE[user_id] = (time.monotonic(), data)
+    return data
+
+
 async def is_allowed(user, module: str, action: str) -> bool:
     """Apakah pengguna boleh melakukan aksi ini pada modul tersebut."""
     if user is None:
@@ -77,6 +111,21 @@ async def is_allowed(user, module: str, action: str) -> bool:
     override = (await _overrides(user_id)).get((module, action))
     if override is not None:
         return override
+
+    """
+    Batas wilayah departemen.
+
+    Level 5 tidak dibatasi: superadmin memang perlu melihat seluruh sistem.
+
+    Pengguna yang BELUM punya departemen sama sekali juga tidak dibatasi,
+    sehingga penambahan tabel ini tidak mengunci siapa pun sebelum datanya
+    diisi. Begitu seseorang diberi departemen, batas ini langsung berlaku
+    baginya. Bila kelak seluruh pengguna sudah terisi dan ingin diperketat,
+    hilangkan syarat `departments` pada baris di bawah.
+    """
+    departments = await _departments(user_id)
+    if level < 5 and departments and module not in modules_for(departments):
+        return False
 
     minimum = required_level(module, action)
     if minimum in (NOT_APPLICABLE, SPECIAL_ONLY):

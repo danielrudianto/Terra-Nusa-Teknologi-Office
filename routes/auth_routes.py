@@ -1,9 +1,17 @@
 from fastapi import APIRouter, HTTPException, Request
 from models.auth_model import LoginData
 from controllers.user_controller import UserController
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from utils.logger_utils import log_error, log_info
-from utils.auth_utils import create_access_token, validate_token, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_MINUTES
+import jwt
+from utils.auth_utils import (
+    ALGORITHM,
+    SECRET_KEY,
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    REFRESH_TOKEN_EXPIRE_MINUTES,
+    create_access_token,
+    validate_token,
+)
 from utils.login_guard import cek_terkunci, catat_gagal, bersihkan
 from utils.auth_utils import User
 
@@ -75,13 +83,38 @@ async def login(loginData: LoginData, request: Request):
     
 @router.post("/refresh")
 async def refresh_token(request: Request):
-    refresh_token = request.headers.get("x-refresh-token").split(" ")[1]
+    """
+    Perbarui access token, sekaligus menerbitkan refresh token baru.
+
+    Sebelumnya hanya access token yang dikembalikan, sehingga refresh token
+    tidak pernah diperbarui: yang dipegang pengguna tetap milik login
+    pertamanya, dan masa berlakunya terus berjalan. Setelah 7 hari, ia
+    kedaluwarsa dan penyegaran gagal — meski orang tersebut memakai aplikasi
+    setiap hari.
+
+    Gejalanya menyesatkan: pengguna yang jarang menutup aplikasi justru yang
+    lebih dulu terlempar, sementara yang rutin masuk-keluar tidak pernah
+    mengalaminya karena selalu mendapat token baru dari proses login.
+    """
+    header = request.headers.get("x-refresh-token") or ""
+    bagian = header.split(" ")
+    refresh_token = bagian[1] if len(bagian) > 1 else ""
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Refresh token not provided")
-    
+
     # Decode the refresh token
     token_data = validate_token(refresh_token)
-    if "error" in token_data:
+    if isinstance(token_data, dict) and "error" in token_data:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
-    
-    return {"access_token": token_data, "token_type": "bearer"}
+
+    payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+    new_refresh = create_access_token(
+        {"user_id": payload.get("user_id"), "iat": datetime.now(timezone.utc)},
+        timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES),
+    )
+
+    return {
+        "access_token": token_data,
+        "refresh_token": new_refresh,
+        "token_type": "bearer",
+    }

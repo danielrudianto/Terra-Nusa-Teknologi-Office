@@ -1,7 +1,7 @@
 from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from controllers.loan_controller import LoanController
-from schemas.loan_schema import LoanCreate, CreateLoanResponse, LoanListResponse, LoanPaymentsResponse
+from schemas.loan_schema import LoanCreate, LoanUpdate, CreateLoanResponse, UpdateLoanResponse, LoanListResponse, LoanPaymentsResponse
 from utils.auth_utils import get_current_user, User
 from utils.permission import require
 
@@ -16,6 +16,26 @@ async def create_loan(loan_data: LoanCreate, current_user: Annotated[User, Depen
         return result
     except HTTPException as e:
         raise e
+
+@router.put("/{loan_id}", response_model=UpdateLoanResponse)
+async def update_loan(
+    loan_id: int,
+    loan_data: LoanUpdate,
+    current_user: Annotated[User, Depends(require("loan", "update"))],
+):
+    """
+    Perbarui data pinjaman.
+
+    Terbatas pada data kreditur dan rekening; nilai pinjaman serta sisa utang
+    tidak dapat diubah karena sudah menjadi dasar pencatatan pembayaran.
+    """
+    try:
+        return await LoanController.update_loan(
+            loan_id, loan_data.dict(exclude_unset=True), current_user["id"]
+        )
+    except HTTPException as e:
+        raise e
+
 
 @router.get("/payments/{loan_id}", response_model=LoanPaymentsResponse)
 async def get_loan_payments(loan_id: int, current_user: Annotated[User, Depends(require("loan", "read"))]):

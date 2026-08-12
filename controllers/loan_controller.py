@@ -99,6 +99,26 @@ class LoanController:
             raise HTTPException(status_code=500, detail="Internal server error")
 
     @staticmethod
+    async def update_loan(loan_id: int, loan_data: Dict, user_id: int) -> Dict:
+        """
+        Perbarui data pinjaman.
+
+        Kolom yang boleh disunting dibatasi di repository — nilai pinjaman
+        dan sisa utang tidak termasuk, karena keduanya sudah menjadi dasar
+        pencatatan pembayaran.
+        """
+        try:
+            result = await LoanRepository.update(loan_id, loan_data, user_id)
+            if "error" in result:
+                raise HTTPException(status_code=result["status"], detail=result["error"])
+            return result
+        except HTTPException as e:
+            raise e
+        except Exception as e:
+            log_error(f"Unexpected error updating loan: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error")
+
+    @staticmethod
     async def update_payment_status(loan_id: int, status: bool, user_id: int):
         """Update the payment status of a loan."""
         try:

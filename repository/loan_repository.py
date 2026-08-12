@@ -84,6 +84,80 @@ class LoanRepository:
             log_error(f"Unexpected error while fetching loan data: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
 
+    # Kolom yang boleh disunting setelah pinjaman tercatat.
+    #
+    # `received` dan `debt` sengaja TIDAK termasuk: keduanya sudah menjadi
+    # dasar pencatatan pembayaran masuk dan keluar, sehingga mengubahnya
+    # membuat sisa utang tidak lagi cocok dengan riwayat transaksinya —
+    # dan selisihnya tidak akan terlihat di mana pun.
+    #
+    # Bila nilai pinjaman memang keliru, yang benar adalah membatalkan
+    # pencatatannya dan mencatat ulang, bukan menyunting angkanya diam-diam.
+    EDITABLE_FIELDS = {
+        "creditorName",
+        "creditorAddress",
+        "creditorNPWP",
+        "description",
+        "bankAccountName",
+        "bankAccountNumber",
+        "bankName",
+        "bankAccountID",
+    }
+
+    @staticmethod
+    async def update(loan_id: int, loan_data: dict, user_id: int):
+        """
+        Perbarui data pinjaman, terbatas pada kolom yang boleh disunting.
+
+        Nilai lama dicatat ke jejak audit agar perubahan rekening dapat
+        ditelusuri — justru kolom inilah yang paling perlu jejaknya, karena
+        menentukan ke mana uang dikirimkan.
+        """
+        try:
+            data = {
+                k: v
+                for k, v in (loan_data or {}).items()
+                if k in LoanRepository.EDITABLE_FIELDS
+            }
+            if not data:
+                return {"error": "Tidak ada kolom yang dapat diperbarui", "status": 400}
+
+            sebelum = await database.fetch_one(
+                select(loans_table).where(loans_table.c.id == loan_id)
+            )
+            if sebelum is None:
+                return {"error": "Data pinjaman tidak ditemukan", "status": 404}
+
+            data["updatedAt"] = dt.now()
+            data["updatedBy"] = user_id
+
+            await database.execute(
+                loans_table.update().where(loans_table.c.id == loan_id).values(**data)
+            )
+
+            from repository.audit_log_repository import AuditLogRepository
+
+            sesudah = await database.fetch_one(
+                select(loans_table).where(loans_table.c.id == loan_id)
+            )
+            await AuditLogRepository.record(
+                entity="loans",
+                entityID=loan_id,
+                action="update",
+                userID=user_id,
+                changes=AuditLogRepository.diff(
+                    dict(sebelum) if sebelum else {},
+                    dict(sesudah) if sesudah else {},
+                ),
+            )
+            return {"loan_id": loan_id}
+        except IntegrityError as e:
+            log_error(f"Integrity error while updating loan data: {str(e.orig)}")
+            return {"error": str(e.orig), "status": 400}
+        except Exception as e:
+            log_error(f"Unexpected error while updating loan data: {str(e)}")
+            return {"error": "Gagal memperbarui data pinjaman", "status": 500}
+
     @staticmethod
     async def get_loan_by_id(loan_id: int):
         """Get a single loan by ID."""

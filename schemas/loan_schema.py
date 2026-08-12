@@ -19,6 +19,33 @@ class LoanBase(BaseModel):
 class LoanCreate(LoanBase):
     pass
 
+
+class LoanUpdate(BaseModel):
+    """
+    Kolom yang boleh disunting setelah pinjaman tercatat.
+
+    Nilai pinjaman (`received`) dan sisa utang (`debt`) sengaja tidak ada di
+    sini: keduanya sudah menjadi dasar pencatatan pembayaran masuk dan keluar,
+    sehingga mengubahnya membuat angkanya tidak lagi cocok dengan riwayat
+    transaksi — dan selisihnya tidak akan terlihat di mana pun.
+
+    Yang paling sering perlu diperbaiki justru data rekening, dan itu ada di
+    sini.
+    """
+
+    creditorName: Optional[str] = None
+    creditorAddress: Optional[str] = None
+    creditorNPWP: Optional[str] = None
+    description: Optional[str] = None
+    bankAccountName: Optional[str] = None
+    bankAccountNumber: Optional[str] = None
+    bankName: Optional[str] = None
+    bankAccountID: Optional[int] = None
+
+
+class UpdateLoanResponse(BaseModel):
+    loan_id: int
+
 class LoanResponse(LoanBase):
     id: int
     isPaid: bool = False
