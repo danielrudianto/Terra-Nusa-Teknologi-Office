@@ -80,6 +80,50 @@ class UserController:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    async def change_own_password(
+        user_id: int, current_password: str, new_password: str
+    ):
+        """
+        Ganti sandi milik sendiri.
+
+        Sengaja TIDAK memakai jalur `update_user`: jalur itu menerima juga
+        `authenticationLevel` dan `isActive`, sehingga bila suatu saat
+        dipanggil dengan muatan dari klien, pengguna bisa menaikkan levelnya
+        sendiri. Di sini satu-satunya kolom yang boleh berubah adalah sandi.
+        """
+        try:
+            user = await UserRepository.get_user_by_id(user_id)
+            if user is None:
+                return {"error": "User not found", "status": 404}
+
+            tersimpan = (dict(user).get("password") or "").strip()
+            if not tersimpan:
+                # Akun tanpa sandi tersimpan tidak bisa diverifikasi; menolak
+                # lebih aman daripada membiarkannya diganti tanpa bukti.
+                return {"error": "PASSWORD_UNSET", "status": 409}
+
+            cocok = bcrypt.checkpw(
+                current_password.encode("utf-8"), tersimpan.encode("utf-8")
+            )
+            if not cocok:
+                return {"error": "CURRENT_PASSWORD_INVALID", "status": 400}
+
+            if bcrypt.checkpw(
+                new_password.encode("utf-8"), tersimpan.encode("utf-8")
+            ):
+                return {"error": "PASSWORD_UNCHANGED", "status": 400}
+
+            hashed = bcrypt.hashpw(
+                new_password.encode("utf-8"), bcrypt.gensalt()
+            ).decode("utf-8")
+
+            await UserRepository.update_user(user_id, {"password": hashed})
+            return {"message": "Password updated successfully"}
+        except Exception as e:
+            log_error(f"Error changing own password: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def delete_user(user_id: int):
         try:
             existing = await UserRepository.get_user_by_id(user_id)

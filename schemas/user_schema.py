@@ -18,6 +18,20 @@ class UserUpdate(BaseModel):
     isActive: Optional[bool] = None
     password: Optional[str] = None
 
+class PasswordChange(BaseModel):
+    """
+    Ganti sandi sendiri.
+
+    Sandi lama ikut diminta walaupun pengguna sudah membawa token yang sah:
+    token bisa saja tertinggal di perangkat yang tidak terkunci, dan tanpa
+    verifikasi ini siapa pun yang menemukannya bisa mengunci pemilik akun
+    keluar dari akunnya sendiri.
+    """
+
+    currentPassword: str = Field(min_length=1)
+    newPassword: str = Field(min_length=6)
+
+
 class UserLogin(BaseModel):
     email: str
     password: str

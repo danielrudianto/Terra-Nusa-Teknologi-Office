@@ -17,6 +17,14 @@ class AuditLogRepository:
     # dan tidak menjelaskan apa pun bagi pembaca.
     ABAIKAN = {"updatedAt", "createdAt", "updatedBy", "id"}
 
+    # Kolom yang perubahannya dicatat, tetapi NILAINYA tidak.
+    #
+    # Hash bcrypt bukan sesuatu yang boleh tersimpan di tabel yang dibaca
+    # lewat halaman Aktivitas. Yang berguna untuk penelusuran adalah fakta
+    # "sandi pernah diganti, oleh siapa, kapan" — bukan hashnya.
+    RAHASIA = {"password", "hashed_password", "refresh_token", "access_token"}
+    TERSAMAR = "(disembunyikan)"
+
     @staticmethod
     def diff(sebelum: dict, sesudah: dict) -> dict:
         """
@@ -31,6 +39,12 @@ class AuditLogRepository:
                 continue
             lama = (sebelum or {}).get(kolom)
             if lama == baru:
+                continue
+            if kolom in AuditLogRepository.RAHASIA:
+                hasil[kolom] = {
+                    "from": AuditLogRepository.TERSAMAR,
+                    "to": AuditLogRepository.TERSAMAR,
+                }
                 continue
             hasil[kolom] = {
                 "from": AuditLogRepository._sederhanakan(lama),

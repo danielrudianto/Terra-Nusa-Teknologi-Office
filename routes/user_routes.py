@@ -1,7 +1,13 @@
 from typing import Annotated
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from controllers.user_controller import UserController
-from schemas.user_schema import UserCreate, UserUpdate, UserResponse, ErrorResponse
+from schemas.user_schema import (
+    UserCreate,
+    UserUpdate,
+    UserResponse,
+    ErrorResponse,
+    PasswordChange,
+)
 from utils.logger_utils import log_error
 from utils.auth_utils import User, get_current_user
 from utils.permission import require
@@ -30,6 +36,30 @@ async def get_users(
     pageSize = int(request.query_params.get("pageSize", 10))
 
     result = await UserController.get_users(keyword, page, pageSize, sortBy, sortByDirection)
+    if "error" in result:
+        raise HTTPException(status_code=result["status"], detail=result["error"])
+    return result
+
+
+@router.put("/me/password")
+async def change_own_password(
+    body: PasswordChange,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """
+    Ganti sandi milik sendiri.
+
+    Sengaja TANPA `require("user", ...)`: ini bukan tindakan administratif.
+    Menaruhnya di balik izin modul User membuat hanya admin yang bisa
+    mengganti sandi — dan itulah keadaan yang justru hendak diperbaiki,
+    karena berarti sandi setiap orang harus melewati admin.
+
+    Dideklarasikan SEBELUM `/{user_id}` agar tidak ada keraguan urutan
+    pencocokan rute.
+    """
+    result = await UserController.change_own_password(
+        current_user["id"], body.currentPassword, body.newPassword
+    )
     if "error" in result:
         raise HTTPException(status_code=result["status"], detail=result["error"])
     return result
