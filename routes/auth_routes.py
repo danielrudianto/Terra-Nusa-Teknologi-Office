@@ -60,6 +60,10 @@ async def login(loginData: LoginData, request: Request):
 
     refresh_payload = {
         "user_id": result["id"],
+        # Nama ikut sejak awal: refresh token adalah sumber isi seluruh
+        # access token berikutnya, dan jejak aktivitas mengambil nama pelaku
+        # dari sana.
+        "name": result["name"],
         "exp": int((now + timedelta(days=7)).timestamp()),  # Refresh token expires in 30 days
         "iat": int(now.timestamp())
     }
@@ -115,8 +119,20 @@ async def refresh_token(request: Request):
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
     payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+    # Nama ikut dibawa ke refresh token yang baru.
+    #
+    # Refresh token adalah sumber isi seluruh access token berikutnya; bila
+    # namanya berhenti di sini, seluruh penyegaran setelahnya menghasilkan
+    # token tanpa nama, dan jejak aktivitas kehilangan pelakunya.
+    isi_refresh = {
+        "user_id": payload.get("user_id"),
+        "iat": datetime.now(timezone.utc),
+    }
+    if payload.get("name"):
+        isi_refresh["name"] = payload["name"]
+
     new_refresh = create_access_token(
-        {"user_id": payload.get("user_id"), "iat": datetime.now(timezone.utc)},
+        isi_refresh,
         timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES),
     )
 

@@ -2,6 +2,7 @@ from typing import Any, Dict, Optional
 from sqlalchemy import select, insert, update, func, or_, and_
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime as dt
+from decimal import Decimal
 
 from utils.database import database
 from utils.logger_utils import log_error
@@ -20,6 +21,7 @@ def _nilai_kontrak_subquery():
         select(
             project_contracts_table.c.projectID.label("pid"),
             func.coalesce(func.sum(project_contracts_table.c.value), 0).label("total"),
+            func.coalesce(func.sum(project_contracts_table.c.dpp), 0).label("dpp"),
             func.count(project_contracts_table.c.id).label("jumlah"),
         )
         .where(project_contracts_table.c.isDelete == False)  # noqa: E712
@@ -62,6 +64,7 @@ class ProjectRepository:
             select(
                 projects_table,
                 func.coalesce(agg.c.total, 0).label("contractValue"),
+                func.coalesce(agg.c.dpp, 0).label("contractDpp"),
                 func.coalesce(agg.c.jumlah, 0).label("contractCount"),
             )
             .select_from(
@@ -101,7 +104,6 @@ class ProjectRepository:
                     or_(
                         projects_table.c.code.like(pola),
                         projects_table.c.name.like(pola),
-                        projects_table.c.description.like(pola),
                     )
                 )
             # Dibandingkan dengan `is not None`, bukan kebenaran nilainya:
@@ -133,6 +135,7 @@ class ProjectRepository:
                 select(
                     projects_table,
                     func.coalesce(agg.c.total, 0).label("contractValue"),
+                func.coalesce(agg.c.dpp, 0).label("contractDpp"),
                     func.coalesce(agg.c.jumlah, 0).label("contractCount"),
                 )
                 .select_from(dasar)
@@ -246,8 +249,24 @@ class ProjectRepository:
         return await database.fetch_all(query)
 
     @staticmethod
+    def _nilai_dokumen(data: dict) -> dict:
+        """
+        Isi `value` dari DPP dan PPN.
+
+        Dihitung di server, bukan diterima dari klien: kalau angkanya boleh
+        dikirim, nominal dokumen bisa tidak cocok dengan komponennya dan
+        tidak ada yang tahu mana yang benar.
+        """
+        if "dpp" in data:
+            dpp = Decimal(str(data.get("dpp") or 0))
+            ppn = Decimal(str(data.get("ppn") or 0))
+            data["value"] = dpp + (dpp * ppn / Decimal(100))
+        return data
+
+    @staticmethod
     async def add_contract(project_id: int, data: dict, user_id: int) -> Dict[str, Any]:
         try:
+            data = ProjectRepository._nilai_dokumen(data)
             contract_id = await database.execute(
                 insert(project_contracts_table).values(
                     **data,
@@ -289,7 +308,9 @@ class ProjectRepository:
             if _sebelum is None:
                 return {"error": "Contract not found", "status": 404}
 
-            values = {**values, "updatedAt": dt.now(), "updatedBy": user_id}
+            values = ProjectRepository._nilai_dokumen(
+                {**values, "updatedAt": dt.now(), "updatedBy": user_id}
+            )
             await database.execute(
                 update(project_contracts_table)
                 .where(project_contracts_table.c.id == contract_id)

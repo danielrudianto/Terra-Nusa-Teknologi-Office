@@ -105,6 +105,19 @@ project_contracts_table = Table(
     Column("documentNumber", String(100), nullable=False),
     # spk | adendum
     Column("documentType", String(20), nullable=False, default="spk"),
+    # Nilai dipecah seperti dokumen aslinya, bukan disimpan sebagai satu
+    # angka. Yang dipakai menghitung margin adalah DPP: PPN titipan negara
+    # dan bukan pendapatan, PPh potongan pembayaran dan bukan pengurang
+    # nilai pekerjaan.
+    Column("dpp", Numeric(20, 2), nullable=False),
+    # Persen, 0-100.
+    Column("ppn", Numeric(6, 2), nullable=False, default=0),
+    Column("pphCode", String(20), nullable=True),
+    Column("pphTaxObject", String(255), nullable=True),
+    Column("pphPercentage", Numeric(6, 2), nullable=True),
+    # Nominal yang tertulis di dokumen: DPP + PPN. Disimpan, bukan dihitung
+    # saat dibaca, agar tetap cocok dengan yang tercetak di SPK meski tarif
+    # PPN berubah di kemudian hari.
     Column("value", Numeric(20, 2), nullable=False),
     Column("date", Date(), nullable=False),
     Column("description", String(500), nullable=True),

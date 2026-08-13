@@ -66,7 +66,19 @@ def validate_token(token: str):
         userID = payload.get("user_id")
         if userID is None:
             raise HTTPException(status_code=401, detail="Invalid authentication credentials 1")
-        token_data = create_access_token(data={"user_id": userID, "iat": datetime.now(timezone.utc)})
+
+        # Nama ikut dibawa ke token baru.
+        #
+        # Jejak aktivitas mengambil nama pelaku dari token, tanpa kueri
+        # tambahan. Bila nama tidak ikut, seluruh catatan yang dibuat setelah
+        # penyegaran pertama kehilangan pelakunya — dan itu tidak terlihat
+        # sebagai galat, hanya sebagai kolom yang berisi tanda hubung.
+        data = {"user_id": userID, "iat": datetime.now(timezone.utc)}
+        nama = payload.get("name") or payload.get("sub")
+        if nama:
+            data["name"] = nama
+
+        token_data = create_access_token(data=data)
         return token_data
     except InvalidTokenError:
         return {"error": "Invalid authentication credentials", "status": 401}

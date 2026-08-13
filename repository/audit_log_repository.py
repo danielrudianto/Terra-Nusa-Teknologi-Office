@@ -2,6 +2,7 @@ from sqlalchemy import select, insert, func, desc
 from utils.database import database
 from utils.logger_utils import log_error
 from models.audit_log_model import audit_logs_table
+from models.user_model import users_table
 from utils.audit_context import (
     get_current_ip,
     get_current_user_id,
@@ -111,8 +112,23 @@ class AuditLogRepository:
     async def get_by_entity(entity: str, entityID: int, limit: int = 50):
         """Riwayat satu dokumen, terbaru lebih dulu."""
         try:
+            # Nama pelaku diambil dari tabel pengguna bila kolom `userName`
+            # kosong.
+            #
+            # Catatan yang dibuat sebelum nama ikut dibawa di dalam token
+            # tersimpan tanpa nama, dan tanpa sambungan ini seluruhnya tampil
+            # sebagai tanda hubung — padahal `userID`-nya ada, dan namanya
+            # masih dapat ditemukan.
             query = (
-                select(audit_logs_table)
+                select(
+                    audit_logs_table,
+                    users_table.c.name.label("actorName"),
+                )
+                .select_from(
+                    audit_logs_table.outerjoin(
+                        users_table, audit_logs_table.c.userID == users_table.c.id
+                    )
+                )
                 .where(
                     audit_logs_table.c.entity == entity,
                     audit_logs_table.c.entityID == entityID,
@@ -121,7 +137,13 @@ class AuditLogRepository:
                 .limit(limit)
             )
             rows = await database.fetch_all(query)
-            return {"data": [dict(r) for r in rows]}
+            data = []
+            for r in rows:
+                d = dict(r)
+                d["userName"] = d.get("userName") or d.pop("actorName", None)
+                d.pop("actorName", None)
+                data.append(d)
+            return {"data": data}
         except Exception as e:
             log_error(f"Error fetching audit log: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
@@ -151,7 +173,16 @@ class AuditLogRepository:
                     audit_logs_table.c.createdAt < f"{dateTo} 23:59:59.999999"
                 )
 
-            query = select(audit_logs_table)
+            # Sama seperti riwayat per dokumen: nama pelaku diambil dari
+            # tabel pengguna bila kolom `userName` kosong.
+            query = select(
+                audit_logs_table,
+                users_table.c.name.label("actorName"),
+            ).select_from(
+                audit_logs_table.outerjoin(
+                    users_table, audit_logs_table.c.userID == users_table.c.id
+                )
+            )
             if conditions:
                 query = query.where(*conditions)
             query = (
@@ -166,8 +197,15 @@ class AuditLogRepository:
                 count_query = count_query.where(*conditions)
             total = await database.fetch_val(count_query)
 
+            data = []
+            for r in rows:
+                d = dict(r)
+                d["userName"] = d.get("userName") or d.pop("actorName", None)
+                d.pop("actorName", None)
+                data.append(d)
+
             return {
-                "data": [dict(r) for r in rows],
+                "data": data,
                 "total": total or 0,
                 "page": page,
                 "page_size": page_size,

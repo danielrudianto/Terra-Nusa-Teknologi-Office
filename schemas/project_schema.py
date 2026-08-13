@@ -52,10 +52,13 @@ class ProjectUpdate(BaseModel):
 class ContractBase(BaseModel):
     documentNumber: str = Field(min_length=1, max_length=100)
     documentType: Optional[str] = Field(default="spk")
-    # Boleh negatif: adendum pengurangan lingkup kerja memang mengurangi
-    # nilai kontrak.
-    # DPP, belum termasuk PPN. Adendum pengurangan bernilai negatif.
-    value: Decimal
+    # Nilai dipecah seperti dokumen aslinya.
+    # Adendum pengurangan lingkup kerja bernilai negatif.
+    dpp: Decimal
+    ppn: Decimal = Decimal(0)
+    pphCode: Optional[str] = Field(default=None, max_length=20)
+    pphTaxObject: Optional[str] = Field(default=None, max_length=255)
+    pphPercentage: Optional[Decimal] = None
     date: date
     description: Optional[str] = Field(default=None, max_length=500)
 
@@ -68,11 +71,18 @@ class ContractBase(BaseModel):
             raise ValueError(f"documentType harus salah satu dari: {', '.join(sorted(sah))}")
         return nilai
 
-    @field_validator("value")
+    @field_validator("ppn")
+    @classmethod
+    def ppn_wajar(cls, v: Decimal) -> Decimal:
+        if v < 0 or v > 100:
+            raise ValueError("PPN harus antara 0 dan 100 persen")
+        return v
+
+    @field_validator("dpp")
     @classmethod
     def bukan_nol(cls, v: Decimal) -> Decimal:
         if v == 0:
-            raise ValueError("nilai kontrak tidak boleh nol")
+            raise ValueError("DPP tidak boleh nol")
         return v
 
 
@@ -83,7 +93,11 @@ class ContractCreate(ContractBase):
 class ContractUpdate(BaseModel):
     documentNumber: Optional[str] = Field(default=None, min_length=1, max_length=100)
     documentType: Optional[str] = None
-    value: Optional[Decimal] = None
+    dpp: Optional[Decimal] = None
+    ppn: Optional[Decimal] = None
+    pphCode: Optional[str] = Field(default=None, max_length=20)
+    pphTaxObject: Optional[str] = Field(default=None, max_length=255)
+    pphPercentage: Optional[Decimal] = None
     date: Optional[date] = None
     description: Optional[str] = Field(default=None, max_length=500)
 
@@ -91,6 +105,8 @@ class ContractUpdate(BaseModel):
 class ContractResponse(ContractBase):
     id: int
     projectID: int
+    # Nominal dokumen (DPP + PPN); dihitung server, tidak diterima dari klien.
+    value: Decimal
     createdAt: datetime
 
     class Config:
@@ -100,7 +116,12 @@ class ContractResponse(ContractBase):
 class ProjectResponse(ProjectBase):
     id: int
     # Jumlah seluruh baris kontrak yang belum dihapus.
+    # `contractValue` nominal dokumen (DPP + PPN), untuk ditampilkan.
+    # `contractDpp` dasar pengenaan pajaknya, untuk menghitung margin —
+    # PPN bukan pendapatan, jadi memakai nominal kotor membuat margin setiap
+    # proyek tampak lebih besar daripada kenyataannya.
     contractValue: Decimal = Decimal(0)
+    contractDpp: Decimal = Decimal(0)
     contractCount: int = 0
     createdAt: datetime
     updatedAt: Optional[datetime] = None
