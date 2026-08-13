@@ -106,6 +106,12 @@ class SalarySlipRepository:
             salary_slips_table.c.isDelete,
             salary_slips_table.c.isPaid,
             employees_table.c.name,
+            # Alamat surel ikut diambil.
+            #
+            # Layar memakainya untuk menentukan slip mana yang dapat
+            # dikirim; tanpa kolom ini, seluruh slip tampak tidak punya
+            # alamat dan tombol kirim tidak pernah menyala.
+            employees_table.c.email,
         ).join(
             employees_table, salary_slips_table.c.userID == employees_table.c.id
         ).outerjoin(

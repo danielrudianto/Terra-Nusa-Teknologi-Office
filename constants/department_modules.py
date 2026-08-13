@@ -62,6 +62,8 @@ DEPARTMENT_MODULES: dict[str, set[str]] = {
         "loan",
         # perpajakan
         "tax",
+        # Posisi keuangan hanya untuk FAT; level 4 masih dijaga matriks.
+        "finance_status",
         # Slip gaji diperlukan untuk menghitung PPh 21 setiap bulan.
         # Tanpanya, pelaporan pajak tidak dapat diselesaikan di sistem dan
         # angkanya akan diminta lewat jalur lain — yang justru tidak

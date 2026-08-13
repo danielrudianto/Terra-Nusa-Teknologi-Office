@@ -25,6 +25,25 @@ def _clean_item(item: dict, po_id: int) -> dict:
     row["quantity"] = row.get("quantity") or 0
     row["price"] = row.get("price") or 0
     row["unit"] = row.get("unit") or ""
+
+    """
+    `task` tidak disimpan untuk barang katalog.
+
+    Namanya sudah ada pada master_item dan diambil lewat join saat dibaca.
+    Menyalinnya ke sini berarti dokumen menyimpan nama yang dapat berbeda
+    dari katalognya bila katalog itu diperbaiki — dan nama barang bahan
+    bakar saja sudah melampaui 100 karakter, sehingga penyimpanannya gagal
+    dengan galat "Data too long".
+
+    Untuk baris yang TIDAK merujuk katalog — pekerjaan yang diketik bebas
+    pada PO jasa — `task` tetap disimpan, dan dipotong pada batas kolomnya
+    agar satu isian panjang tidak menggagalkan seluruh dokumen.
+    """
+    if row.get("item_id"):
+        row["task"] = None
+    elif row.get("task"):
+        row["task"] = str(row["task"])[:100]
+
     return row
 
 
@@ -77,7 +96,27 @@ class PurchaseOrderItemRepository:
                 .where(purchase_order_items_table.c.purchaseOrderID == po_id)
             )
             rows = await database.fetch_all(query)
-            return [dict(r) for r in rows]
+
+            hasil = []
+            for r in rows:
+                d = dict(r)
+                # Nama barang diambil dari katalog bila `task` kosong.
+                #
+                # Baris yang merujuk master_item tidak lagi menyimpan
+                # namanya: nama barang bisa jauh lebih panjang daripada
+                # kolom `task` (100 karakter), dan menyalinnya berarti
+                # dokumen menyimpan nama yang bisa berbeda dari katalognya
+                # bila katalog itu diperbaiki.
+                #
+                # Dokumen lama yang sudah terlanjur menyimpan `task` tetap
+                # memakai nilainya sendiri — nama pada dokumen yang sudah
+                # terbit tidak boleh berubah.
+                if not d.get("task"):
+                    d["task"] = d.get("item_description") or d.get(
+                        "equipment_name"
+                    )
+                hasil.append(d)
+            return hasil
         except Exception as e:
             log_error(f"Error fetching purchase order items: {str(e)}")
             return []

@@ -1,3 +1,4 @@
+from datetime import datetime as dt
 from datetime import date as d
 from utils.errors import ErrorCode, app_error
 from datetime import timedelta
@@ -75,6 +76,18 @@ class AgendaController:
                 "category": body.category,
                 "isShared": bool(body.isShared),
                 "createdBy": user_id,
+                # Diisi di sini, bukan mengandalkan `default=dt.now` pada
+                # kolomnya.
+                #
+                # Pustaka `databases` mengeksekusi kueri yang SUDAH
+                # dikompilasi, sementara default sisi-Python baru dievaluasi
+                # oleh mesin SQLAlchemy saat eksekusi — langkah yang tidak
+                # pernah dilalui di sini. Nilainya sampai ke basis data
+                # sebagai NULL, dan kolomnya NOT NULL.
+                #
+                # Dua puluh dua tempat lain di kode ini sudah mengisinya
+                # manual dengan alasan yang sama.
+                "createdAt": dt.now(),
             }
             # Pembuatnya selalu melihat pengingatnya sendiri; menandai diri
             # sendiri hanya menambah baris tanpa mengubah apa pun.

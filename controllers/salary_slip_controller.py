@@ -112,6 +112,40 @@ class SalarySlipController:
             raise HTTPException(status_code=500, detail="Failed to send salary slip")
 
     @staticmethod
+    async def send_many(salary_slip_ids: list[int]):
+        """
+        Kirim beberapa slip gaji sekaligus.
+
+        Dikirim satu per satu, dan kegagalan pada satu slip TIDAK
+        menghentikan sisanya: pada pengiriman sebulan penuh, satu alamat
+        surel yang keliru tidak boleh membuat puluhan karyawan lain tidak
+        menerima slipnya.
+
+        Yang dikembalikan menyebut satu per satu mana yang berhasil dan mana
+        yang gagal beserta sebabnya — tanpa itu, yang mengirim hanya tahu
+        "sebagian gagal" tanpa tahu siapa yang perlu dikirim ulang.
+        """
+        berhasil: list[int] = []
+        gagal: list[dict] = []
+
+        for slip_id in salary_slip_ids or []:
+            try:
+                await SalarySlipController.send(slip_id)
+                berhasil.append(slip_id)
+            except HTTPException as e:
+                gagal.append({"id": slip_id, "reason": str(e.detail)})
+            except Exception as e:
+                log_error(f"Gagal mengirim slip {slip_id}: {e}")
+                gagal.append({"id": slip_id, "reason": str(e)})
+
+        return {
+            "sent": len(berhasil),
+            "failed": len(gagal),
+            "sentIds": berhasil,
+            "failures": gagal,
+        }
+
+    @staticmethod
     async def print(salary_slip_id: int):
         try:
             salarySlip = await SalarySlipRepository.get_by_id(salary_slip_id)

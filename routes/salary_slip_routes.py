@@ -113,6 +113,36 @@ async def send_salary_slip(salarySlipSend: dict, current_user: Annotated[User, D
         log_error(f"HTTPException during send: {str(e.detail)}")
         raise e
 
+@router.post("/send-bulk")
+async def send_salary_slips_bulk(
+    body: dict,
+    current_user: Annotated[User, Depends(require("salary_slip", "create"))],
+):
+    """
+    Kirim beberapa slip gaji sekaligus.
+
+    Menerima `{"ids": [1, 2, 3]}`. Batasnya 200 agar satu permintaan tidak
+    menahan proses terlalu lama — jumlah karyawan sebulan masih jauh di
+    bawahnya.
+    """
+    ids = body.get("ids") or []
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": ErrorCode.VALIDATION, "message": "No salary slip selected."},
+        )
+    if len(ids) > 200:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": ErrorCode.VALIDATION,
+                "message": "Too many salary slips in one request.",
+            },
+        )
+
+    return await SalarySlipController.send_many([int(x) for x in ids])
+
+
 @router.post("/")
 async def create_salary_slip(salarySlip: dict, current_user: Annotated[User, Depends(require("salary_slip", "create"))]):
     """

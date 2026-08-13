@@ -46,6 +46,14 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     # Data karyawan diurus HRD; batas wilayahnya ditentukan divisi,
     # bukan nilai khusus.
     "employees": (1, 3, 3, 4, 0),
+    # Posisi keuangan: kas, piutang, utang, pinjaman, dan quick ratio.
+    #
+    # Baca level 4, dan tidak ada tindakan lain — modul ini hanya membaca,
+    # tidak pernah menulis apa pun. Dibuat sebagai modul tersendiri dan
+    # bukan menumpang `tax` (baca level 3) supaya batas aksesnya terbaca
+    # langsung dari matriks ini, bukan tersembunyi sebagai pemeriksaan
+    # tambahan di dalam rute.
+    "finance_status": (4, 0, 0, 0, 0),
     "expense_opponent": (1, 3, 3, 4, 0),
     "expenses": (1, 1, 1, 2, 3),
     "income": (1, 3, 3, 4, 3),
