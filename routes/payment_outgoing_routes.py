@@ -154,7 +154,10 @@ async def move_payment_date(payment: dict,user: Annotated[dict, Depends(require(
     date = payment.get("date")
     paymentID = payment.get("id")
     userID = user["id"]
-    result = await PaymentOutgoingController.move_payment(paymentID,  date, userID)
+    reason = payment.get("reason") or payment.get("alasan") or ""
+    result = await PaymentOutgoingController.move_payment(
+        paymentID, date, userID, reason
+    )
     
     if "error" in result:
         log_error(f"Error approving payment with ID {paymentID}: {result['error']}")

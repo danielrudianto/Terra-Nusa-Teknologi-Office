@@ -202,19 +202,44 @@ class PaymentOutgoingController:
             return {"error": str(e), "status": 500}
 
     @staticmethod
-    async def move_payment(id: int, date: str, userID: int):
+    async def move_payment(id: int, date: str, userID: int, reason: str = ""):
         log_info(f"Moving payment with ID: {id} to date: {date}")
         try:
             payment = await PaymentOutgoingRepository.get_payment_by_id(id)
             if "error" in payment:
                 log_error(f"Error fetching payment with ID {id}: {payment['error']}")
                 return {"error": payment["error"], "status": payment.get("status", 500)}
-            
+
             #Next check if payment isApprove || payment.isDelete, cannot move the date
             if payment.isApprove or payment.isDelete:
-                return {"error": "Cannot move a payment that is approved or deleted", "status": 400}
-            
-            result = await PaymentOutgoingRepository.move_payment(id, date, userID)
+                return app_error(
+                    ErrorCode.PAYMENT_LOCKED,
+                    "Cannot move a payment that is approved or deleted",
+                    400,
+                )
+
+            """
+            Alasan wajib diisi.
+
+            Memindahkan tanggal pembayaran berarti menunda uang keluar —
+            dan pada saat audit, "mengapa dibayar mundur seminggu" adalah
+            pertanyaan yang harus dapat dijawab dokumen, bukan ingatan.
+            Tanggal lama ikut dicatat agar perubahannya terbaca utuh tanpa
+            perlu menelusuri riwayat lain.
+            """
+            alasan = (reason or "").strip()
+            if not alasan:
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "A reason is required when moving a payment date.",
+                    400,
+                )
+
+            tanggal_lama = payment.date
+
+            result = await PaymentOutgoingRepository.move_payment(
+                id, date, userID, alasan, tanggal_lama
+            )
             if "error" in result:
                 log_error(f"Error moving payment: {result['error']}")
                 return {"error": result["error"], "status": result.get("status", 500)}

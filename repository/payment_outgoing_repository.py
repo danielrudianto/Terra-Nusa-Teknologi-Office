@@ -732,7 +732,13 @@ class PaymentOutgoingRepository:
             return {"error": str(e), "status": 500}
         
     @staticmethod
-    async def move_payment(id: int, date: d, userID: int):
+    async def move_payment(
+        id: int,
+        date: d,
+        userID: int,
+        reason: str = "",
+        old_date=None,
+    ):
         log_info(f"Moving payment with ID: {id} to date: {date}")
         query = payments_outgoing_table.update().where(
             payments_outgoing_table.c.id == id
@@ -741,9 +747,28 @@ class PaymentOutgoingRepository:
             updatedAt=dt.now(),
             updatedBy=userID
         )
-        
+
         try:
             await database.execute(query)
+
+            from repository.audit_log_repository import AuditLogRepository
+
+            # Perubahan tanggal beserta alasannya dicatat.
+            #
+            # Tanggal lama disertakan pada `changes` agar riwayatnya terbaca
+            # utuh — pembacanya tidak perlu menelusuri catatan lain untuk
+            # tahu pembayaran itu digeser dari kapan.
+            await AuditLogRepository.record(
+                entity="payment_outgoing",
+                entityID=id,
+                action="move_date",
+                changes=(
+                    {"date": {"from": str(old_date), "to": str(date)}}
+                    if old_date
+                    else None
+                ),
+                note=reason or None,
+            )
             return {"message": "Payment moved successfully"}
         except Exception as e:
             log_error(f"Error moving payment: {str(e)}")
