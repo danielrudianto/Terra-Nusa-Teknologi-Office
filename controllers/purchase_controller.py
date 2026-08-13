@@ -271,9 +271,22 @@ class PurchaseController:
             raise HTTPException(status_code=500, detail="Internal server error")
     
     @staticmethod
-    async def delete_purchase(purchaseID: int, userID: int):
+    async def delete_purchase(purchaseID: int, userID: int, userLevel: int = 0):
         """
-        Delete a purchase.
+        Hapus pembelian.
+
+        Menghapus pembelian TIDAK berhenti pada dokumennya: seluruh
+        pembayaran yang melekat ikut dihapus dan persetujuannya dicabut.
+        Tanpa penjaga, jalur ini membatalkan pembayaran yang hanya boleh
+        disetujui level 5 — dan bila uangnya sudah ditransfer, dokumennya
+        hilang sementara uangnya sudah keluar.
+
+        Karena itu:
+          * Belum ada pembayaran  -> level 3 boleh menghapus.
+          * Sudah ada pembayaran  -> hanya level 4 ke atas.
+
+        Yang berlevel di bawah itu harus membatalkan pembayarannya lebih
+        dulu, lewat orang yang berwenang, baru pembeliannya dapat dihapus.
         """
         try:
             log_info(f"Attempting to delete purchase with ID: {purchaseID} by user ID: {userID}")
@@ -286,7 +299,20 @@ class PurchaseController:
             
             if purchase.get("isDelete"):
                 return {"error": "Purchase is already deleted", "status": 400}
-            
+
+            jumlah_pembayaran = (
+                await PaymentOutgoingRepository.hitung_pembayaran_aktif(purchaseID)
+            )
+            if jumlah_pembayaran != 0 and (userLevel or 0) < 4:
+                log_error(
+                    f"Penghapusan pembelian {purchaseID} ditolak: "
+                    f"{jumlah_pembayaran} pembayaran melekat, level {userLevel}."
+                )
+                return {
+                    "error": "PURCHASE_HAS_PAYMENTS",
+                    "status": 409,
+                }
+
             # Delete the purchase
             result = await PurchaseRepository.delete(purchaseID, userID)
             if "error" in result:

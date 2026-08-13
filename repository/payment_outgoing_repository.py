@@ -432,6 +432,34 @@ class PaymentOutgoingRepository:
         return [PaymentOutgoing(**payment) for payment in payments]
 
     @staticmethod
+    async def hitung_pembayaran_aktif(purchaseID: int) -> int:
+        """
+        Berapa pembayaran yang masih melekat pada sebuah pembelian.
+
+        Yang sudah dihapus tidak dihitung: pembelian yang pembayarannya
+        pernah ada lalu dibatalkan memang sudah bersih, dan menahannya hanya
+        akan mengunci dokumen tanpa alasan.
+
+        Dipakai untuk memutuskan apakah penghapusan pembelian boleh
+        dilakukan pada level 3, atau harus level 4.
+        """
+        try:
+            return (
+                await database.fetch_val(
+                    select(func.count()).select_from(payments_outgoing_table).where(
+                        payments_outgoing_table.c.purchaseID == purchaseID,
+                        payments_outgoing_table.c.isDelete == False,  # noqa: E712
+                    )
+                )
+            ) or 0
+        except Exception as e:
+            log_error(f"Error counting payments for purchase {purchaseID}: {str(e)}")
+            # Gagal menghitung diperlakukan seolah pembayarannya ADA.
+            # Menolak penghapusan yang mungkin sah lebih ringan akibatnya
+            # daripada meloloskan penghapusan yang menghapus pembayaran.
+            return -1
+
+    @staticmethod
     async def get_payments_by_purchase_id(purchaseID: int):
         """
         Get all payments associated with a specific purchase ID.

@@ -189,7 +189,9 @@ async def delete_purchase(
     Delete a purchase by ID.
     """
     userID = current_user.id
-    result = await PurchaseController.delete_purchase(purchase_id, userID)
+    result = await PurchaseController.delete_purchase(
+        purchase_id, userID, current_user.authenticationLevel or 1
+    )
     if "error" in result:
         raise HTTPException(status_code=result["status"], detail=result["error"])
     

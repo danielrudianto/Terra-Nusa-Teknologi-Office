@@ -84,7 +84,17 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     # `approve` dipakai untuk arti berbeda di sini: boleh membuat pengingat
     # bagi SELURUH pengguna.
     "reminder": (1, 1, 1, 1, 4),
-    "purchase": (1, 1, 1, 2, 3),
+    # Hapus di level 3, tetapi HANYA bila belum ada pembayaran.
+    #
+    # Menghapus pembelian ikut menghapus seluruh pembayarannya dan mencabut
+    # persetujuannya. Tanpa syarat tambahan, jalur ini membatalkan pembayaran
+    # yang hanya boleh disetujui level 5 — memutar aturan bahwa yang
+    # menyiapkan uang bukan yang mengizinkan.
+    #
+    # Syarat "belum ada pembayaran" tidak dapat dinyatakan di matriks ini,
+    # jadi ditegakkan di controller. Yang boleh menghapus meski pembayarannya
+    # sudah ada adalah level 4 ke atas.
+    "purchase": (1, 1, 1, 3, 3),
     "purchase_draft": (1, 1, 1, 2, 3),
     "purchase_order": (1, 1, 1, 2, 3),
     "reimbursement": (1, 1, 1, 2, 3),
