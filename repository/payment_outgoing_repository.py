@@ -733,11 +733,7 @@ class PaymentOutgoingRepository:
         
     @staticmethod
     async def move_payment(
-        id: int,
-        date: d,
-        userID: int,
-        reason: str = "",
-        old_date=None,
+        id: int, date: d, userID: int, reason: str = "", old_date=None
     ):
         log_info(f"Moving payment with ID: {id} to date: {date}")
         query = payments_outgoing_table.update().where(
@@ -747,7 +743,7 @@ class PaymentOutgoingRepository:
             updatedAt=dt.now(),
             updatedBy=userID
         )
-
+        
         try:
             await database.execute(query)
 

@@ -1,4 +1,5 @@
 import asyncio
+from utils.errors import ErrorCode, app_error
 from sqlalchemy import func, insert, select, update, delete, or_
 from utils.database import database
 from models.payment_outgoing_model import PaymentOutgoing
@@ -209,7 +210,7 @@ class PaymentOutgoingController:
             if "error" in payment:
                 log_error(f"Error fetching payment with ID {id}: {payment['error']}")
                 return {"error": payment["error"], "status": payment.get("status", 500)}
-
+            
             #Next check if payment isApprove || payment.isDelete, cannot move the date
             if payment.isApprove or payment.isDelete:
                 return app_error(
@@ -221,11 +222,11 @@ class PaymentOutgoingController:
             """
             Alasan wajib diisi.
 
-            Memindahkan tanggal pembayaran berarti menunda uang keluar —
-            dan pada saat audit, "mengapa dibayar mundur seminggu" adalah
+            Memindahkan tanggal pembayaran berarti menunda uang keluar — dan
+            pada saat audit, "mengapa dibayar mundur seminggu" adalah
             pertanyaan yang harus dapat dijawab dokumen, bukan ingatan.
             Tanggal lama ikut dicatat agar perubahannya terbaca utuh tanpa
-            perlu menelusuri riwayat lain.
+            perlu menelusuri catatan lain.
             """
             alasan = (reason or "").strip()
             if not alasan:
