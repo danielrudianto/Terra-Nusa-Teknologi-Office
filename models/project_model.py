@@ -115,10 +115,15 @@ project_contracts_table = Table(
     Column("pphCode", String(20), nullable=True),
     Column("pphTaxObject", String(255), nullable=True),
     Column("pphPercentage", Numeric(6, 2), nullable=True),
-    # Nominal yang tertulis di dokumen: DPP + PPN. Disimpan, bukan dihitung
-    # saat dibaca, agar tetap cocok dengan yang tercetak di SPK meski tarif
-    # PPN berubah di kemudian hari.
-    Column("value", Numeric(20, 2), nullable=False),
+    #
+    # TIDAK ada kolom `value`.
+    #
+    # Nominal dokumen selalu sama dengan `dpp + dpp * ppn / 100`, dan tarif
+    # PPN-nya sudah tersimpan di baris ini — jadi angkanya tidak pernah bisa
+    # berubah arti. Menyimpannya berarti dua tempat harus selalu sepakat,
+    # dan cepat atau lambat salah satunya diperbarui tanpa yang lain.
+    #
+    # Nilai itu tetap dikeluarkan di respons API, dihitung saat dibaca.
     Column("date", Date(), nullable=False),
     Column("description", String(500), nullable=True),
     Column("createdAt", DateTime(), nullable=False, default=dt.now),

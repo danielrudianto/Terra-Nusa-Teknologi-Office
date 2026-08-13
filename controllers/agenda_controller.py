@@ -22,24 +22,40 @@ class AgendaController:
         Digabung karena keduanya selalu ditampilkan bersama; memisahkannya
         berarti layar menunggu dua jawaban untuk satu blok.
         """
-        try:
-            ulang_tahun = await BirthdayRepository.upcoming(hari_ini, jangkauan)
-            if isinstance(ulang_tahun, dict) and "error" in ulang_tahun:
-                return ulang_tahun
+        # Kedua bagian diambil terpisah, dan kegagalan salah satunya tidak
+        # menjatuhkan yang lain.
+        #
+        # Sebelumnya satu galat membuat seluruh agenda gagal — pengguna
+        # melihat "gagal memuat data" tanpa tahu bagian mana, dan ulang tahun
+        # yang sebenarnya terbaca ikut hilang. Yang gagal cukup dikosongkan,
+        # dan sebabnya dicatat di log agar dapat ditelusuri.
+        ulang_tahun = []
+        pengingat = []
 
-            pengingat = await ReminderRepository.get_range(
+        try:
+            hasil = await BirthdayRepository.upcoming(hari_ini, jangkauan)
+            if isinstance(hasil, dict) and "error" in hasil:
+                log_error(f"Agenda: ulang tahun gagal dibaca: {hasil['error']}")
+            else:
+                ulang_tahun = hasil
+        except Exception as e:
+            log_error(f"Agenda: ulang tahun gagal dibaca: {type(e).__name__}: {e}")
+
+        try:
+            hasil = await ReminderRepository.get_range(
                 user_id, hari_ini, hari_ini + timedelta(days=jangkauan)
             )
-            if isinstance(pengingat, dict) and "error" in pengingat:
-                return pengingat
-
-            for p in pengingat:
-                p["daysUntil"] = (p["date"] - hari_ini).days
-
-            return {"birthdays": ulang_tahun, "reminders": pengingat}
+            if isinstance(hasil, dict) and "error" in hasil:
+                log_error(f"Agenda: pengingat gagal dibaca: {hasil['error']}")
+            else:
+                pengingat = hasil
+                for p in pengingat:
+                    p["daysUntil"] = (p["date"] - hari_ini).days
         except Exception as e:
-            log_error(f"Error building agenda: {str(e)}")
-            return {"error": "Internal server error.", "status": 500}
+            log_error(f"Agenda: pengingat gagal dibaca: {type(e).__name__}: {e}")
+            pengingat = []
+
+        return {"birthdays": ulang_tahun, "reminders": pengingat}
 
     @staticmethod
     async def create(user_id: int, user_level: int, body):

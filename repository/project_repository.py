@@ -278,8 +278,18 @@ class ProjectRepository:
             )
             from repository.audit_log_repository import AuditLogRepository
 
+            # Dicatat pada PROYEKNYA, bukan pada kontraknya.
+            #
+            # Kontrak tidak punya halaman sendiri — ia dibaca dari halaman
+            # proyek. Mencatatnya dengan entityID kontrak membuat jejaknya
+            # tersimpan di tempat yang tidak pernah dibuka siapa pun,
+            # padahal justru perubahan nilai kontrak yang paling perlu
+            # ditelusuri saat audit.
             await AuditLogRepository.record(
-                entity="project_contracts", entityID=contract_id, action="create"
+                entity="projects",
+                entityID=data["projectID"],
+                action="contract_create",
+                note=f"{data.get('documentType', 'spk')} {data.get('documentNumber', '')}".strip(),
             )
             return {"message": "Contract added successfully", "contract_id": contract_id}
         except Exception as e:
@@ -320,10 +330,11 @@ class ProjectRepository:
             from repository.audit_log_repository import AuditLogRepository
 
             await AuditLogRepository.record(
-                entity="project_contracts",
-                entityID=contract_id,
-                action="update",
+                entity="projects",
+                entityID=_sebelum["projectID"],
+                action="contract_update",
                 changes=AuditLogRepository.diff(dict(_sebelum), values),
+                note=f"{_sebelum['documentType']} {_sebelum['documentNumber']}".strip(),
             )
             return {"message": "Contract updated successfully"}
         except Exception as e:
@@ -333,6 +344,14 @@ class ProjectRepository:
     @staticmethod
     async def delete_contract(contract_id: int, user_id: int) -> Dict[str, Any]:
         try:
+            # Dibaca lebih dulu: setelah ditandai terhapus, proyek asalnya
+            # masih terbaca, tetapi nomor dokumennya perlu direkam pada
+            # jejak agar dapat dikenali tanpa membuka baris yang sudah
+            # dihapus.
+            _sebelum = await ProjectRepository.get_contract(contract_id)
+            if _sebelum is None:
+                return {"error": "Contract not found", "status": 404}
+
             await database.execute(
                 update(project_contracts_table)
                 .where(project_contracts_table.c.id == contract_id)
@@ -341,7 +360,13 @@ class ProjectRepository:
             from repository.audit_log_repository import AuditLogRepository
 
             await AuditLogRepository.record(
-                entity="project_contracts", entityID=contract_id, action="delete"
+                entity="projects",
+                entityID=_sebelum["projectID"],
+                action="contract_delete",
+                note=(
+                    f"{_sebelum['documentType']} {_sebelum['documentNumber']} "
+                    f"({_sebelum['value']})"
+                ).strip(),
             )
             return {"message": "Contract deleted successfully"}
         except Exception as e:

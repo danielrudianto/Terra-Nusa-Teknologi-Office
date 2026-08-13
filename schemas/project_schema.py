@@ -105,7 +105,11 @@ class ContractUpdate(BaseModel):
 class ContractResponse(ContractBase):
     id: int
     projectID: int
-    # Nominal dokumen (DPP + PPN); dihitung server, tidak diterima dari klien.
+    # Nominal dokumen (DPP + PPN).
+    #
+    # Bukan kolom di basis data — dihitung saat dibaca dan hanya ikut di
+    # respons. Klien tidak pernah mengirimkannya; kalau boleh, angkanya bisa
+    # tidak cocok dengan komponennya dan tidak ada yang tahu mana yang benar.
     value: Decimal
     createdAt: datetime
 

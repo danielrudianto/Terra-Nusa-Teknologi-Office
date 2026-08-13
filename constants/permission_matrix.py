@@ -75,6 +75,15 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     #
     # Proyek yang batal ditandai lewat `isDelete`, bukan keadaan tersendiri.
     "project": (1, 4, 4, 4, 0),
+    # Pengingat pada agenda.
+    #
+    # Empat aksi pertama di akses 1: semua orang boleh membuat pengingatnya
+    # sendiri, dan batasnya kepemilikan — hanya pembuatnya yang dapat
+    # mengubah dan menghapus, berapa pun levelnya.
+    #
+    # `approve` dipakai untuk arti berbeda di sini: boleh membuat pengingat
+    # bagi SELURUH pengguna.
+    "reminder": (1, 1, 1, 1, 4),
     "purchase": (1, 1, 1, 2, 3),
     "purchase_draft": (1, 1, 1, 2, 3),
     "purchase_order": (1, 1, 1, 2, 3),
