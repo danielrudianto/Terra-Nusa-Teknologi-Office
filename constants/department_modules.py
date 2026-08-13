@@ -113,5 +113,13 @@ def modules_for(departments: set[str]) -> set[str]:
     """
     hasil: set[str] = set()
     for d in departments or ():
-        hasil |= DEPARTMENT_MODULES.get(d, set())
+        # Kode diseragamkan sebelum dicocokkan.
+        #
+        # Pencocokan langsung membuat "FAT" atau " fat" menghasilkan NOL
+        # modul — bukan sebagian, melainkan seluruhnya — sehingga pengguna
+        # terkunci dari hampir semua menu tanpa pesan apa pun. Layar memang
+        # memvalidasi kodenya, tetapi baris yang disisipkan lewat SQL saat
+        # penyiapan data tidak melewati validasi itu.
+        kunci = (d or "").strip().lower()
+        hasil |= DEPARTMENT_MODULES.get(kunci, set())
     return hasil

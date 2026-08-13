@@ -80,7 +80,17 @@ async def delete_bank_account(bank_id: int, current_user: Annotated[User, Depend
         raise e
 
 @router.post("/mutation/download")
-async def download_mutation_data(data: dict, current_user: Annotated[User, Depends(require("bank", "create"))]):
+async def download_mutation_data(
+    data: dict,
+    # `read`, bukan `create`.
+    #
+    # Rutenya POST hanya karena parameternya (id rekening dan periode)
+    # dikirim di body, bukan karena ada yang dibuat. Mengikuti kata kerja
+    # HTTP-nya menutup mutasi bagi semua orang di bawah level 5 — padahal
+    # justru bagian keuanganlah yang memakainya untuk mencocokkan rekening
+    # koran.
+    current_user: Annotated[User, Depends(require("bank", "read"))],
+):
     try:
         bankAccountID = data["bankAccountID"]
         month = data["month"]
@@ -95,7 +105,11 @@ async def download_mutation_data(data: dict, current_user: Annotated[User, Depen
         raise e
 
 @router.post("/mutation")
-async def get_mutation_data(data: dict, current_user: Annotated[User, Depends(require("bank", "create"))]):
+async def get_mutation_data(
+    data: dict,
+    # `read`: kueri ini hanya membaca. Lihat keterangan pada rute unduh.
+    current_user: Annotated[User, Depends(require("bank", "read"))],
+):
     try:
         bankAccountID = data["bankAccountID"]
         page=data["page"]

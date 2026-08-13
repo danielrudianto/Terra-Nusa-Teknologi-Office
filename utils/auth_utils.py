@@ -53,6 +53,17 @@ def get_password_hash(password):
     return pwd_context.hash(password)
 
 def authenticate_user(username: str, password: str):
+    """
+    TIDAK DIPAKAI — jangan dipanggil sebelum diperbaiki.
+
+    Sisa dari kerangka awal: memakai kolom `username` dan `hashed_password`
+    yang tidak ada pada tabel users (kolomnya `email` dan `password`), serta
+    `.first()` yang bukan cara pustaka ini membaca baris.
+
+    Autentikasi yang sebenarnya ada di `routes/auth_routes.py`. Fungsi ini
+    dibiarkan agar tidak menghapus sesuatu yang mungkin dirujuk dari luar,
+    tetapi memanggilnya akan gagal.
+    """
     user = users_table.select().where(users_table.c.username == username).first()    
     if not user:
         return False

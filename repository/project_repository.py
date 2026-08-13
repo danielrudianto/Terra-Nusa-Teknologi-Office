@@ -20,7 +20,20 @@ def _nilai_kontrak_subquery():
     return (
         select(
             project_contracts_table.c.projectID.label("pid"),
-            func.coalesce(func.sum(project_contracts_table.c.value), 0).label("total"),
+            # `value` sudah tidak ada sebagai kolom; nilainya dihitung dari
+            # DPP dan PPN. Menjumlahkannya langsung di sini membuat seluruh
+            # daftar proyek gagal dengan galat yang hanya berbunyi "value".
+            func.coalesce(
+                func.sum(
+                    project_contracts_table.c.dpp
+                    + (
+                        project_contracts_table.c.dpp
+                        * project_contracts_table.c.ppn
+                        / 100
+                    )
+                ),
+                0,
+            ).label("total"),
             func.coalesce(func.sum(project_contracts_table.c.dpp), 0).label("dpp"),
             func.count(project_contracts_table.c.id).label("jumlah"),
         )
@@ -365,7 +378,7 @@ class ProjectRepository:
                 action="contract_delete",
                 note=(
                     f"{_sebelum['documentType']} {_sebelum['documentNumber']} "
-                    f"({_sebelum['value']})"
+                    f"({_sebelum['dpp']})"
                 ).strip(),
             )
             return {"message": "Contract deleted successfully"}

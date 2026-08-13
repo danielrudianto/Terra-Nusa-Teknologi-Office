@@ -34,7 +34,12 @@ async def fetch_pph_report(month: int, year: int, current_user: Annotated[User, 
     return result
 
 @router.post("/monthly-recap")
-async def fetch_monthly_recap(params: dict, current_user: Annotated[User, Depends(require("tax", "create"))]):
+async def fetch_monthly_recap(
+    params: dict,
+    # `read`, bukan `create`: rekap hanya membaca. Dijaga `create`, laporan
+    # bulanan tertutup bagi bagian keuangan yang justru menyusunnya.
+    current_user: Annotated[User, Depends(require("tax", "read"))],
+):
     result = await TaxController.get_monthly_recap(params)
     if "error" in result:
         log_error(f"Error during fetching ppn report: {str(result['error'])}")

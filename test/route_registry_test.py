@@ -163,3 +163,52 @@ def test_aksi_yang_dijaga_tidak_bernilai_nol():
 )
 def test_perbaikan_tidak_hilang(berkas, penanda, keterangan):
     assert penanda in _isi(berkas), f"hilang dari {berkas}: {keterangan}"
+
+
+# ---------------------------------------------------------------------------
+# Kolom yang dirujuk harus ada pada modelnya
+# ---------------------------------------------------------------------------
+
+
+def test_kolom_yang_dirujuk_ada_di_model():
+    """
+    Merujuk kolom yang sudah tidak ada membuat seluruh endpoint-nya gagal
+    dengan galat yang hanya menyebut nama kolomnya — tanpa menyebut berkas
+    maupun barisnya.
+
+    Terjadi ketika sebuah kolom diganti: `project_contracts.value` pernah
+    diganti menjadi `dpp` + `ppn`, sementara penjumlahannya di daftar proyek
+    masih memakai nama lama. Akibatnya seluruh halaman proyek balas 500.
+    """
+    import glob
+
+    # Nama variabel tabel -> kolom yang dimilikinya.
+    peta: dict[str, set[str]] = {}
+    for berkas in (AKAR / "models").glob("*.py"):
+        isi = berkas.read_text(encoding="utf-8")
+        for m in re.finditer(r'(\w+)\s*=\s*Table\(\s*"(\w+)"(.*?)\n\)', isi, re.S):
+            var, _, badan = m.groups()
+            peta[var] = set(re.findall(r'Column\(\s*"(\w+)"', badan))
+
+    # Fungsi mati yang sudah ditandai di berkasnya sendiri; dikecualikan
+    # agar pengujian ini menyorot kekeliruan yang benar-benar aktif.
+    DIKECUALIKAN = {("utils/auth_utils.py", "users_table.c.username")}
+
+    salah = []
+    for berkas in glob.glob(str(AKAR / "**" / "*.py"), recursive=True):
+        if "/env/" in berkas or "/test" in berkas:
+            continue
+        for no, baris in enumerate(
+            Path(berkas).read_text(encoding="utf-8").split("\n"), 1
+        ):
+            if baris.lstrip().startswith("#"):
+                continue
+            for m in re.finditer(r"(\w+)\.c\.(\w+)", baris):
+                var, kolom = m.groups()
+                if var in peta and peta[var] and kolom not in peta[var]:
+                    rel = Path(berkas).relative_to(AKAR)
+                    if (str(rel), f"{var}.c.{kolom}") in DIKECUALIKAN:
+                        continue
+                    salah.append(f"{rel}:{no} -> {var}.c.{kolom}")
+
+    assert not salah, "kolom tidak ada pada modelnya:\n  " + "\n  ".join(salah)

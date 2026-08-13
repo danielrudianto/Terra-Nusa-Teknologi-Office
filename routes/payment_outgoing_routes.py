@@ -12,7 +12,13 @@ from utils.auth_utils import User
 router = APIRouter()
 
 @router.post("/mutation")
-async def fetch_mutation(filterData: dict, user: Annotated[dict, Depends(require("payment_outgoing", "create"))]):
+async def fetch_mutation(
+    filterData: dict,
+    # `read`, bukan `create`: fungsi ini hanya memanggil
+    # `get_mutation_data` dan tidak menulis apa pun. Rutenya POST semata
+    # karena penyaringnya dikirim di body.
+    user: Annotated[dict, Depends(require("payment_outgoing", "read"))],
+):
     """
     Retrieve bank mutation data. Requires a valid token.
     """
