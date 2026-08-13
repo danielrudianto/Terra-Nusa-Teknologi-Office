@@ -1,5 +1,4 @@
 from typing import Annotated
-from utils.errors import error_detail
 from fastapi import APIRouter, Depends, HTTPException
 from utils.auth_utils import get_current_user
 from utils.permission import require
@@ -68,9 +67,7 @@ async def get_frequent_payment_by_supplier_id(
     """
     result = await PurchaseController.get_frequent_payment_by_supplier_id(supplier_id)
     if "error" in result:
-        raise HTTPException(
-            status_code=result["status"], detail=error_detail(result)
-        )
+        raise HTTPException(status_code=result["status"], detail=result["error"])
     
     return result
 
@@ -114,9 +111,7 @@ async def get_purchase_by_id(
     """
     result = await PurchaseController.get_purchase_by_id(purchase_id)
     if "error" in result:
-        raise HTTPException(
-            status_code=result["status"], detail=error_detail(result)
-        )
+        raise HTTPException(status_code=result["status"], detail=result["error"])
     return result
 
 @router.get("/", response_model=PurchaseListResponse)
@@ -165,9 +160,7 @@ async def get_purchases(
     try:
         result = await PurchaseController.get_purchases(page, pageSize, filterObject, sortBy, sortByDirection, keyword)
         if "error" in result:
-            raise HTTPException(
-            status_code=result["status"], detail=error_detail(result)
-        )
+            raise HTTPException(status_code=result["status"], detail=result["error"])
         return result
     except HTTPException as e:
         raise e
@@ -183,9 +176,7 @@ async def update_status(
     userID = current_user.id
     result = await PurchaseController.update_status(purchaseStatus.model_dump(), userID)
     if "error" in result:
-        raise HTTPException(
-            status_code=result["status"], detail=error_detail(result)
-        )
+        raise HTTPException(status_code=result["status"], detail=result["error"])
     
     return result
 
@@ -202,8 +193,6 @@ async def delete_purchase(
         purchase_id, userID, current_user.authenticationLevel or 1
     )
     if "error" in result:
-        raise HTTPException(
-            status_code=result["status"], detail=error_detail(result)
-        )
+        raise HTTPException(status_code=result["status"], detail=result["error"])
     
     return result

@@ -1,3 +1,4 @@
+import asyncio
 from sqlalchemy import func, insert, select, update, delete, or_
 from utils.database import database
 from models.payment_outgoing_model import PaymentOutgoing
@@ -579,20 +580,27 @@ class PaymentOutgoingController:
         year = date.year
 
         try:
-            accounts = await BankAccount.get_bank_accounts_by_ids(bankAccounts)
-            if "error" in accounts:
-                log_error(f"Error fetching bank accounts in calendar data: {accounts['error']}")
-                return {"error": accounts["error"], "status": accounts.get('status', 500)}
+            """
+            Tiga kueri pertama dijalankan bersamaan.
 
-            result = await PaymentOutgoingRepository.get_calendar_data_by_date(day, month, year, bankAccounts)
-            if "error" in result:
-                log_error(f"Error fetching payment outgoing in calendar data: {result['error']}")
-                return {"error": result["error"], "status": result.get('status', 500)}
+            Rekening, pembayaran, dan transfer antar rekening tidak saling
+            bergantung; hanya saldo awal yang menunggu, karena butuh daftar
+            id rekening. Jadi empat kueri berurutan menjadi dua putaran.
+            """
+            accounts, result, interpayments = await asyncio.gather(
+                BankAccount.get_bank_accounts_by_ids(bankAccounts),
+                PaymentOutgoingRepository.get_calendar_data_by_date(day, month, year, bankAccounts),
+                InterpaymentRepository.get_calendar_data_by_date(day, month, year, bankAccounts),
+            )
 
-            interpayments = await InterpaymentRepository.get_calendar_data_by_date(day, month, year,bankAccounts)
-            if "error" in interpayments:
-                log_error(f"Error fetching interpayments in calendar data: {interpayments['error']}")
-                return {"error": interpayments["error"], "status": interpayments.get('status', 500)}
+            for nama, hasil in (
+                ("bank accounts", accounts),
+                ("payment outgoing", result),
+                ("interpayments", interpayments),
+            ):
+                if isinstance(hasil, dict) and "error" in hasil:
+                    log_error(f"Error fetching {nama} in calendar data: {hasil['error']}")
+                    return {"error": hasil["error"], "status": hasil.get("status", 500)}
             
             # Accounts come back as pydantic models -> work with plain dicts
             # so we can attach balance and fee estimates to them.

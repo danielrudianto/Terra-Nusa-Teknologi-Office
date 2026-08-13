@@ -166,6 +166,14 @@ class PurchaseOrderController:
                     )
                     result["supplier"] = data
                     result["supplierName"] = data.get("name")
+                    # Awalan badan usaha ikut dikirim.
+                    #
+                    # Tanpa ini, cetak ulang dari daftar PO memanggil
+                    # `vendorDisplayName(nama, undefined)` dan awalannya
+                    # hilang: "PT. Mutiara" tercetak sebagai "Mutiara".
+                    # Kolom lain (alamat, kota, NPWP) sudah dikirim sejak
+                    # awal — yang ini terlewat.
+                    result["supplierPrefix"] = data.get("prefix")
                     result["supplierAddress"] = data.get("address")
                     result["supplierCity"] = ", ".join(
                         x for x in [data.get("city"), data.get("province")] if x

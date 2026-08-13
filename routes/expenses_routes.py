@@ -1,5 +1,6 @@
 from typing import Annotated
-from utils.errors import error_detail
+from utils.logger_utils import log_error
+from utils.errors import ErrorCode, error_detail
 from fastapi import APIRouter, Depends, HTTPException
 from utils.auth_utils import get_current_user
 from utils.permission import require
@@ -87,7 +88,14 @@ async def get_expense_by_id(expense_id: int, current_user: Annotated[User, Depen
         
         return expense
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        log_error(f"{__name__}: {e}")
+        # Galat asli hanya masuk log: isinya dapat memuat nama tabel,
+        # nama kolom, atau potongan SQL — keterangan yang berguna bagi
+        # penyerang dan tidak berarti bagi penggunanya.
+        raise HTTPException(
+            status_code=500,
+            detail={"code": ErrorCode.INTERNAL, "message": "Internal server error."},
+        )
 
 @router.put("/{expense_id}")
 async def update_expense(expense_id: int, expense: ExpenseUpdate, current_user: Annotated[User, Depends(require("expenses", "update"))]):

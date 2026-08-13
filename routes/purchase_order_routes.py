@@ -1,5 +1,6 @@
 from typing import Annotated, Optional
-from utils.errors import error_detail
+from utils.logger_utils import log_error
+from utils.errors import ErrorCode, error_detail
 from fastapi import APIRouter, Depends, HTTPException, Query
 from controllers.purchase_order_controller import PurchaseOrderController
 from schemas.purchase_order_schema import (
@@ -40,7 +41,14 @@ async def create_purchase_order(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        log_error(f"{__name__}: {e}")
+        # Galat asli hanya masuk log: isinya dapat memuat nama tabel,
+        # nama kolom, atau potongan SQL — keterangan yang berguna bagi
+        # penyerang dan tidak berarti bagi penggunanya.
+        raise HTTPException(
+            status_code=500,
+            detail={"code": ErrorCode.INTERNAL, "message": "Internal server error."},
+        )
     
 @router.get("/{purchase_order_id}", response_model=PurchaseOrderResponse)
 async def get_purchase_order_by_id(
@@ -63,7 +71,14 @@ async def get_purchase_order_by_id(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        log_error(f"{__name__}: {e}")
+        # Galat asli hanya masuk log: isinya dapat memuat nama tabel,
+        # nama kolom, atau potongan SQL — keterangan yang berguna bagi
+        # penyerang dan tidak berarti bagi penggunanya.
+        raise HTTPException(
+            status_code=500,
+            detail={"code": ErrorCode.INTERNAL, "message": "Internal server error."},
+        )
 
 @router.get("/", response_model=PurchaseOrderListResponse)
 async def get_all_purchase_orders(
@@ -92,7 +107,14 @@ async def get_all_purchase_orders(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        log_error(f"{__name__}: {e}")
+        # Galat asli hanya masuk log: isinya dapat memuat nama tabel,
+        # nama kolom, atau potongan SQL — keterangan yang berguna bagi
+        # penyerang dan tidak berarti bagi penggunanya.
+        raise HTTPException(
+            status_code=500,
+            detail={"code": ErrorCode.INTERNAL, "message": "Internal server error."},
+        )
 
 @router.patch("/{purchase_order_id}/status")
 async def update_purchase_order_status(
@@ -121,7 +143,14 @@ async def update_purchase_order_status(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        log_error(f"{__name__}: {e}")
+        # Galat asli hanya masuk log: isinya dapat memuat nama tabel,
+        # nama kolom, atau potongan SQL — keterangan yang berguna bagi
+        # penyerang dan tidak berarti bagi penggunanya.
+        raise HTTPException(
+            status_code=500,
+            detail={"code": ErrorCode.INTERNAL, "message": "Internal server error."},
+        )
 
 @router.delete("/{purchase_order_id}")
 async def delete_purchase_order(
@@ -145,4 +174,11 @@ async def delete_purchase_order(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        log_error(f"{__name__}: {e}")
+        # Galat asli hanya masuk log: isinya dapat memuat nama tabel,
+        # nama kolom, atau potongan SQL — keterangan yang berguna bagi
+        # penyerang dan tidak berarti bagi penggunanya.
+        raise HTTPException(
+            status_code=500,
+            detail={"code": ErrorCode.INTERNAL, "message": "Internal server error."},
+        )
