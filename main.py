@@ -16,6 +16,7 @@ from utils.database import database
 from utils.redis import sync_redis
 import sqlalchemy
 import os
+import time
 import jwt
 from utils.audit_context import set_current_user, clear_current_user
 
@@ -67,6 +68,57 @@ async def lifespan(app: FastAPI):
 
 # Create an instance of the FastAPI application
 app = FastAPI(lifespan=lifespan, redirect_slashes=True)
+
+# Ambang permintaan lambat, dalam milidetik.
+#
+# Dibuat dapat diatur lewat lingkungan supaya bisa diperketat sementara saat
+# menelusuri sesuatu, tanpa mengubah kode dan menyalakan ulang dengan versi
+# berbeda.
+AMBANG_LAMBAT_MS = int(os.getenv("SLOW_REQUEST_MS", "800"))
+
+
+@app.middleware("http")
+async def slow_request_middleware(request: Request, call_next):
+    """
+    Catat permintaan yang lebih lambat dari ambang.
+
+    Dipasang karena sebelumnya tidak ada satu pun ukuran waktu di sistem ini:
+    ketika ada yang melapor "lemot", tidak ada cara mengetahui bagian mana
+    yang lambat, dan perbaikan apa pun menjadi tebakan.
+
+    Hanya yang melewati ambang yang dicatat. Mencatat semua permintaan
+    membuat berkas log penuh oleh yang normal, dan yang lambat justru
+    tenggelam di antaranya.
+
+    Header `X-Response-Time-ms` selalu dikirim, sehingga durasinya juga
+    terbaca langsung dari panel jaringan peramban tanpa membuka log server.
+    """
+    mulai = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        # Permintaan yang gagal tetap diukur: yang lambat LALU gagal adalah
+        # gejala yang paling perlu terlihat, misalnya kueri yang kehabisan
+        # waktu tunggu.
+        lama_ms = (time.perf_counter() - mulai) * 1000
+        log_error(
+            f"[lambat] {request.method} {request.url.path} "
+            f"{lama_ms:.0f}ms GAGAL"
+        )
+        raise
+
+    lama_ms = (time.perf_counter() - mulai) * 1000
+    response.headers["X-Response-Time-ms"] = f"{lama_ms:.0f}"
+
+    if lama_ms >= AMBANG_LAMBAT_MS:
+        kueri = str(request.url.query)[:120]
+        log_info(
+            f"[lambat] {request.method} {request.url.path}"
+            f"{('?' + kueri) if kueri else ''} "
+            f"{lama_ms:.0f}ms status={response.status_code}"
+        )
+    return response
+
 
 # Add CORS middleware
 
