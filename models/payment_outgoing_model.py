@@ -6,6 +6,16 @@ from datetime import date as d, datetime as dt
 
 # Pydantic model (request body / typed payment object)
 class PaymentOutgoing(BaseModel):
+    # Id baris.
+    #
+    # Sempat tidak ada, padahal `get_payment_by_id` mengirimkannya dan
+    # Pydantic membuang field yang tidak dikenal tanpa memberi tahu. Objek
+    # yang dikembalikan lolos tanpa galat, dan barulah ketika ada yang
+    # membaca `.id` muncul "object has no attribute 'id'" — jauh dari tempat
+    # kekeliruannya.
+    #
+    # Opsional agar objek yang disusun tangan (belum tersimpan) tetap sah.
+    id: int | None = None
     date: d #Payment date
     amount: float #Payment amount
     purchaseID: int | None = None #Purchase ID

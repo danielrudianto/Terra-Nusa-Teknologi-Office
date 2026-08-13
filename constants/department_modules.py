@@ -43,6 +43,9 @@ DEPARTMENT_MODULES: dict[str, set[str]] = {
     | {
         # pembukuan
         "purchase",
+        # Draft dibaca keuangan untuk mencocokkan tagihan yang belum lengkap
+        # berkasnya; pembuatannya tetap pekerjaan procurement.
+        "purchase_draft",
         "expenses",
         "expense_opponent",
         "income",

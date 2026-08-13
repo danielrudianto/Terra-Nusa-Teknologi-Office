@@ -212,3 +212,49 @@ def test_kolom_yang_dirujuk_ada_di_model():
                     salah.append(f"{rel}:{no} -> {var}.c.{kolom}")
 
     assert not salah, "kolom tidak ada pada modelnya:\n  " + "\n  ".join(salah)
+
+
+def test_model_menerima_field_yang_dikirim_repository():
+    """
+    Pydantic membuang field yang tidak dikenal tanpa memberi tahu.
+
+    `get_payment_by_id` mengirim `id=` ke `PaymentOutgoing` yang tidak
+    memiliki field itu; objeknya terbentuk tanpa galat, dan kekeliruannya
+    baru muncul ketika ada yang membaca `.id` — jauh dari tempat asalnya,
+    sebagai "object has no attribute 'id'".
+
+    Pengujian ini memeriksa setiap model yang dibentuk dengan `id=` di
+    repository benar-benar memiliki field tersebut.
+    """
+    import glob
+    import importlib
+
+    from pydantic import BaseModel
+
+    model_punya_id: dict[str, bool] = {}
+    for berkas in (AKAR / "models").glob("*.py"):
+        nama_modul = f"models.{berkas.stem}"
+        try:
+            modul = importlib.import_module(nama_modul)
+        except Exception:
+            continue
+        for nama in dir(modul):
+            kelas = getattr(modul, nama)
+            if (
+                isinstance(kelas, type)
+                and issubclass(kelas, BaseModel)
+                and kelas is not BaseModel
+                and kelas.__module__ == nama_modul
+            ):
+                model_punya_id[nama] = "id" in kelas.model_fields
+
+    salah = []
+    for berkas in glob.glob(str(AKAR / "repository" / "*.py")):
+        isi = Path(berkas).read_text(encoding="utf-8")
+        for nama, punya in model_punya_id.items():
+            if punya:
+                continue
+            if re.search(nama + r"\(\s*\n?\s*id=", isi):
+                salah.append(f"{Path(berkas).name} -> {nama}(id=...)")
+
+    assert not salah, "model dibentuk dengan id= tetapi tidak punya field id:\n  " + "\n  ".join(salah)

@@ -2,11 +2,23 @@ from typing import Any, Dict, Optional
 from sqlalchemy import select, insert, update, func, or_, and_
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime as dt
-from decimal import Decimal
 
 from utils.database import database
 from utils.logger_utils import log_error
 from models.project_model import projects_table, project_contracts_table
+
+
+def _ekspresi_nilai():
+    """
+    Nominal dokumen = DPP + PPN.
+
+    Tidak disimpan sebagai kolom: nilainya selalu dapat dihitung dari `dpp`
+    dan `ppn` yang sudah ada di baris yang sama. Menyimpannya berarti dua
+    tempat harus selalu sepakat, dan cepat atau lambat salah satunya
+    diperbarui tanpa yang lain.
+    """
+    c = project_contracts_table.c
+    return c.dpp + (c.dpp * c.ppn / 100)
 
 
 def _nilai_kontrak_subquery():
@@ -20,20 +32,10 @@ def _nilai_kontrak_subquery():
     return (
         select(
             project_contracts_table.c.projectID.label("pid"),
-            # `value` sudah tidak ada sebagai kolom; nilainya dihitung dari
-            # DPP dan PPN. Menjumlahkannya langsung di sini membuat seluruh
-            # daftar proyek gagal dengan galat yang hanya berbunyi "value".
-            func.coalesce(
-                func.sum(
-                    project_contracts_table.c.dpp
-                    + (
-                        project_contracts_table.c.dpp
-                        * project_contracts_table.c.ppn
-                        / 100
-                    )
-                ),
-                0,
-            ).label("total"),
+            # Nilai dokumen dihitung, bukan dibaca dari kolom: `value` sudah
+            # tidak ada sebagai kolom. Ekspresinya dipakai di beberapa tempat,
+            # jadi disimpan di satu fungsi agar rumusnya tidak bercabang.
+            func.coalesce(func.sum(_ekspresi_nilai()), 0).label("total"),
             func.coalesce(func.sum(project_contracts_table.c.dpp), 0).label("dpp"),
             func.count(project_contracts_table.c.id).label("jumlah"),
         )
@@ -252,7 +254,10 @@ class ProjectRepository:
     @staticmethod
     async def list_contracts(project_id: int):
         query = (
-            select(project_contracts_table)
+            select(
+                project_contracts_table,
+                _ekspresi_nilai().label("value"),
+            )
             .where(
                 project_contracts_table.c.projectID == project_id,
                 project_contracts_table.c.isDelete == False,  # noqa: E712
@@ -262,24 +267,8 @@ class ProjectRepository:
         return await database.fetch_all(query)
 
     @staticmethod
-    def _nilai_dokumen(data: dict) -> dict:
-        """
-        Isi `value` dari DPP dan PPN.
-
-        Dihitung di server, bukan diterima dari klien: kalau angkanya boleh
-        dikirim, nominal dokumen bisa tidak cocok dengan komponennya dan
-        tidak ada yang tahu mana yang benar.
-        """
-        if "dpp" in data:
-            dpp = Decimal(str(data.get("dpp") or 0))
-            ppn = Decimal(str(data.get("ppn") or 0))
-            data["value"] = dpp + (dpp * ppn / Decimal(100))
-        return data
-
-    @staticmethod
     async def add_contract(project_id: int, data: dict, user_id: int) -> Dict[str, Any]:
         try:
-            data = ProjectRepository._nilai_dokumen(data)
             contract_id = await database.execute(
                 insert(project_contracts_table).values(
                     **data,
@@ -312,7 +301,10 @@ class ProjectRepository:
     @staticmethod
     async def get_contract(contract_id: int):
         return await database.fetch_one(
-            select(project_contracts_table).where(
+            select(
+                project_contracts_table,
+                _ekspresi_nilai().label("value"),
+            ).where(
                 project_contracts_table.c.id == contract_id,
                 project_contracts_table.c.isDelete == False,  # noqa: E712
             )
@@ -331,9 +323,7 @@ class ProjectRepository:
             if _sebelum is None:
                 return {"error": "Contract not found", "status": 404}
 
-            values = ProjectRepository._nilai_dokumen(
-                {**values, "updatedAt": dt.now(), "updatedBy": user_id}
-            )
+            values = {**values, "updatedAt": dt.now(), "updatedBy": user_id}
             await database.execute(
                 update(project_contracts_table)
                 .where(project_contracts_table.c.id == contract_id)

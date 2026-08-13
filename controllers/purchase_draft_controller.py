@@ -77,11 +77,35 @@ class PurchaseDraftController:
             purchase_data.pop("supplierName")
             purchase_data.pop("supplierAddress")
             
+            """
+            Draft ditandai LEBIH DULU, sebelum pembeliannya dibuat.
+
+            Penandaannya bersyarat pada draft yang belum terkonversi, jadi
+            hanya satu permintaan yang berhasil mengubah baris. Bila dua
+            permintaan tiba bersamaan — atau seseorang menekan tombol dua
+            kali — yang kedua mendapat nol dan berhenti di sini, sebelum
+            sempat membuat pembelian kedua.
+
+            Urutan sebaliknya (buat dulu, tandai belakangan) menyisakan celah:
+            di antara keduanya, permintaan lain masih bisa lolos dan dua
+            pembelian terlanjur ada.
+            """
+            terkena = await PurchaseDraft.tandai_terkonversi(
+                int(purchase_draft_id), None, userID
+            )
+            if not terkena:
+                log_error(f"Draft {purchase_draft_id} sudah dikonversi sebelumnya.")
+                return {"error": "DRAFT_ALREADY_CONVERTED", "status": 409}
+
             purchase_id = await PurchaseRepository.create(purchase_data)
             if not isinstance(purchase_id, int) and "error" in purchase_id:
+                # Pembelian gagal dibuat: penandaannya dicabut agar draftnya
+                # kembali bisa dikonversi, bukan tertinggal setengah jalan.
+                await PurchaseDraft.batalkan_konversi(int(purchase_draft_id))
                 log_error(f"Error converting purchase: {purchase_id['error']}")
                 return {"error": purchase_id["error"], "status": purchase_id["status"]}
-            
+
+            await PurchaseDraft.catat_purchase_id(int(purchase_draft_id), purchase_id)
             await PurchaseDraft.delete_purcase_draft(purchase_draft_id, userID)
             log_info(f"Purchase draft converted successfully with ID: {purchase_id}")
             
