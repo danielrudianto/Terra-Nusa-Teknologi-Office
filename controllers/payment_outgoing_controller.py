@@ -329,6 +329,16 @@ class PaymentOutgoingController:
                         return {"error": current_payments["error"], "status": current_payments.get("status", 500)}
                     total_paid = sum(p.amount for p in current_payments if p.isApprove and not p.isDelete)
                     expense_value = float(expense_value)
+                    # `total_paid` ikut dijadikan float.
+                    #
+                    # Nilainya dijumlahkan dari kolom DECIMAL sehingga
+                    # bertipe Decimal, dan Python menolak mengurangkan
+                    # Decimal dari float. Tiga cabang lain sudah
+                    # mengubahnya; cabang inilah yang terlewat — dan
+                    # persetujuan pembayaran pengeluaran selalu gagal
+                    # dengan galat yang tidak menyebut cabangnya.
+                    total_paid = float(total_paid)
+
                     #If the difference is less than 5, then the expense is fully paid
                     if abs(expense_value - total_paid) < 5:
                         await ExpenseRepository.update_payment_status(payment.expenseID, True)

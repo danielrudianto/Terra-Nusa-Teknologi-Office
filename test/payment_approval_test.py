@@ -302,3 +302,67 @@ def test_repository_tidak_membaca_objek_dengan_kunci():
     isi = "\n".join(baris_kode)
 
     assert not re.search(r'\bp\[\s*[\'"]id[\'"]\s*\]', isi)
+
+
+# ---------------------------------------------------------------------------
+# Perbandingan nilai tidak boleh mencampur float dan Decimal
+# ---------------------------------------------------------------------------
+
+
+def test_perbandingan_nilai_tidak_mencampur_tipe():
+    """
+    Nilai dokumen dan jumlah terbayar harus bertipe sama sebelum dibandingkan.
+
+    `total_paid` dijumlahkan dari kolom DECIMAL sehingga bertipe Decimal,
+    sedangkan nilai dokumennya sudah diubah ke float. Python menolak
+    mengurangkan keduanya, dan persetujuan gagal dengan galat yang tidak
+    menyebut cabang mana yang bermasalah.
+
+    Terjadi pada cabang pengeluaran: tiga cabang lain sudah mengubah
+    keduanya, satu terlewat.
+    """
+    from decimal import Decimal
+
+    nilai_dokumen = 5_000_000.0
+    terbayar = Decimal("5000000")
+
+    with pytest.raises(TypeError):
+        abs(nilai_dokumen - terbayar)
+
+    # Setelah keduanya float, perbandingannya bekerja.
+    assert abs(nilai_dokumen - float(terbayar)) < 5
+
+
+def test_setiap_cabang_mengubah_kedua_sisi():
+    """
+    Menjaga keempat cabang di controller.
+
+    Diperiksa pada berkasnya karena kekeliruannya bukan pada logika,
+    melainkan pada satu baris konversi yang hilang — dan itu hanya terlihat
+    ketika cabang tersebut benar-benar dijalankan.
+    """
+    import re
+    from pathlib import Path
+
+    berkas = (
+        Path(__file__).resolve().parents[1]
+        / "controllers"
+        / "payment_outgoing_controller.py"
+    )
+    baris = berkas.read_text(encoding="utf-8").split("\n")
+
+    kurang = []
+    for i, b in enumerate(baris):
+        m = re.search(r"abs\(\s*(\w+)\s*-\s*(\w+)\s*\)", b)
+        if not m:
+            continue
+        kiri, kanan = m.group(1), m.group(2)
+        konteks = "\n".join(baris[max(0, i - 20) : i])
+        if f"{kiri} = float({kiri})" not in konteks:
+            kurang.append(f"baris {i + 1}: {kiri} belum float")
+        if f"{kanan} = float({kanan})" not in konteks:
+            kurang.append(f"baris {i + 1}: {kanan} belum float")
+
+    assert not kurang, "sisi perbandingan belum disamakan tipenya:\n  " + "\n  ".join(
+        kurang
+    )
