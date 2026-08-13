@@ -1,4 +1,5 @@
 from typing import Annotated
+from utils.errors import error_detail
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -16,7 +17,9 @@ router = APIRouter()
 
 def _bereskan(result: dict):
     if isinstance(result, dict) and "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 

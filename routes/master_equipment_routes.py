@@ -1,4 +1,5 @@
 from typing import Annotated
+from utils.errors import error_detail
 from fastapi import APIRouter, Depends, HTTPException, Query
 from controllers.master_equipment_controller import MasterEquipmentController
 from schemas.master_equipment_schema import (
@@ -15,7 +16,7 @@ async def create_equipment(item: MasterEquipmentCreate,
                            current_user: Annotated[User, Depends(require("master_equipment", "create"))]):
     result = await MasterEquipmentController.create_equipment(item.model_dump(), current_user["id"])
     if "error" in result:
-        raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
+        raise HTTPException(status_code=result.get("status", 500), detail=error_detail(result))
     return result
 
 
@@ -30,7 +31,7 @@ async def get_equipments(current_user: Annotated[User, Depends(require("master_e
         keyword, page, page_size, category, sortBy, sortByDirection
     )
     if isinstance(result, dict) and "error" in result:
-        raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
+        raise HTTPException(status_code=result.get("status", 500), detail=error_detail(result))
     return result
 
 
@@ -38,7 +39,7 @@ async def get_equipments(current_user: Annotated[User, Depends(require("master_e
 async def get_equipment(item_id: int, current_user: Annotated[User, Depends(require("master_equipment", "read"))]):
     result = await MasterEquipmentController.get_equipment(item_id)
     if "error" in result:
-        raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
+        raise HTTPException(status_code=result.get("status", 500), detail=error_detail(result))
     return result
 
 
@@ -48,7 +49,7 @@ async def update_equipment(item_id: int, item: MasterEquipmentUpdate,
     payload = item.model_dump(); payload["id"] = item_id
     result = await MasterEquipmentController.update_equipment(payload, current_user["id"])
     if "error" in result:
-        raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
+        raise HTTPException(status_code=result.get("status", 500), detail=error_detail(result))
     return result
 
 
@@ -56,5 +57,5 @@ async def update_equipment(item_id: int, item: MasterEquipmentUpdate,
 async def delete_equipment(item_id: int, current_user: Annotated[User, Depends(require("master_equipment", "delete"))]):
     result = await MasterEquipmentController.delete_equipment(item_id, current_user["id"])
     if "error" in result:
-        raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
+        raise HTTPException(status_code=result.get("status", 500), detail=error_detail(result))
     return result

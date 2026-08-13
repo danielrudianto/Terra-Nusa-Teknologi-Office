@@ -1,4 +1,5 @@
 from typing import Annotated, List
+from utils.errors import error_detail
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -18,7 +19,9 @@ async def get_avatars(
     """Batch fetch avatars for list views (cache first, DB for misses)."""
     result = await UserAvatarController.get_avatars(ids)
     if isinstance(result, dict) and "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 
@@ -29,7 +32,9 @@ async def get_avatar(
 ):
     result = await UserAvatarController.get_avatar(user_id)
     if isinstance(result, dict) and "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 
@@ -51,5 +56,7 @@ async def save_avatar(
         user_id, avatar.dict(exclude_unset=True)
     )
     if isinstance(result, dict) and "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result

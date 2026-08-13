@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
+from utils.errors import error_detail
 from controllers.tax_controller import TaxController
 from utils.logger_utils import log_error
 from repository.user_repository import UserRepository
@@ -14,7 +15,9 @@ async def fetch_ppn_report(month: int, year: int, current_user: Annotated[User, 
     result = await TaxController.get_ppn_report(month, year)
     if "error" in result:
         log_error(f"Error during fetching ppn report: {str(result['error'])}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 @router.get("/pph")
@@ -22,7 +25,9 @@ async def fetch_pph_report(month: int, year: int, current_user: Annotated[User, 
     result = await TaxController.get_pph_report(month, year)
     if "error" in result:
         log_error(f"Error during fetching ppn report: {str(result['error'])}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 @router.get("/pph-salary")
@@ -30,7 +35,9 @@ async def fetch_pph_report(month: int, year: int, current_user: Annotated[User, 
     result = await TaxController.get_pph_salary_report(month, year)
     if "error" in result:
         log_error(f"Error during fetching ppn report: {str(result['error'])}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 @router.post("/monthly-recap")
@@ -43,5 +50,7 @@ async def fetch_monthly_recap(
     result = await TaxController.get_monthly_recap(params)
     if "error" in result:
         log_error(f"Error during fetching ppn report: {str(result['error'])}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result

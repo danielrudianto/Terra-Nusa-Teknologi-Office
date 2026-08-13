@@ -1,4 +1,5 @@
 from typing import Annotated
+from utils.errors import error_detail
 from fastapi import APIRouter, Depends, HTTPException, Query
 from repository.audit_log_repository import AuditLogRepository
 from utils.auth_utils import get_current_user, User
@@ -23,7 +24,7 @@ async def get_audit_logs(
     )
     if "error" in result:
         raise HTTPException(
-            status_code=result.get("status", 500), detail=result["error"]
+            status_code=result.get("status", 500), detail=error_detail(result)
         )
     return result
 
@@ -39,6 +40,6 @@ async def get_entity_history(
     result = await AuditLogRepository.get_by_entity(entity, entity_id, limit)
     if "error" in result:
         raise HTTPException(
-            status_code=result.get("status", 500), detail=result["error"]
+            status_code=result.get("status", 500), detail=error_detail(result)
         )
     return result

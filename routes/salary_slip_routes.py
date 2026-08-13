@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Query
+from utils.errors import error_detail
 from utils.logger_utils import log_error, log_info
 from utils.auth_utils import get_current_user
 from utils.permission import require
@@ -18,7 +19,9 @@ async def print(salary_slip_id: int, current_user: Annotated[User, Depends(requi
     try:
         result = await SalarySlipController.print(salary_slip_id)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
 
         # Kirim PDF sebagai file biner (bukan JSON) agar tidak kena UnicodeDecodeError.
         return Response(
@@ -40,7 +43,9 @@ async def fetch(salary_slip_id: int, current_user: Annotated[User, Depends(requi
     try:
         result = await SalarySlipController.fetchByID(salary_slip_id)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         
         return result
     except HTTPException as e:
@@ -64,7 +69,9 @@ async def fetch(
     try:
         result = await SalarySlipController.fetch(page, pageSize, keyword, month, year, sortBy, sortByDirection)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         
         return result
     except HTTPException as e:

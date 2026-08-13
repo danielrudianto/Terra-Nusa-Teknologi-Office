@@ -1,4 +1,5 @@
 from sqlalchemy import select, func, update
+from utils.errors import ErrorCode, app_error
 from utils.database import database
 from utils.logger_utils import log_error
 from models.salary_slip_model import salary_slips_table, salary_slips_allowance_table, salary_slips_deduction_table
@@ -16,7 +17,7 @@ class SalarySlipRepository:
         )
         existing_slip = await database.fetch_one(query)
         if existing_slip:
-            return {"error": "Salary slip already exists for this user, month, and year.", "status": 400}
+            return app_error(ErrorCode.SALARY_SLIP_EXISTS, "Salary slip already exists for this user, month, and year.", 400)
         return {"message": "Validation successful."}
 
     @staticmethod

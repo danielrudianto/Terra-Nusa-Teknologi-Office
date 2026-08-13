@@ -14,6 +14,7 @@ data adalah isinya, bukan halaman yang menampilkannya.
 """
 
 from typing import Annotated, List
+from utils.errors import error_detail
 from fastapi import APIRouter, Depends, HTTPException, Query
 from controllers.payment_outgoing_controller import PaymentOutgoingController
 from controllers.bank_controller import BankController
@@ -35,7 +36,9 @@ async def get_calendar_data(month: int, year: int, current_user: Annotated[User,
         userID = current_user["id"]
         result = await CalendarController.get_calendar_data(month, year, bankAccounts)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         # Optionally log the error or handle it differently
@@ -51,7 +54,9 @@ async def get_calendar_data_by_date(date: str, current_user: Annotated[User, Dep
         dt = datetime.strptime(date, "%Y-%m-%d").date()
         result = await PaymentOutgoingController.get_calendar_data_by_date(dt, bankAccounts)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         # Optionally log the error or handle it differently
@@ -66,7 +71,9 @@ async def download_calendar(month: int, year: int, current_user: Annotated[User,
         userID = current_user["id"]
         result = await CalendarController.download_calendar_data(month, year, bankAccounts)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         # Optionally log the error or handle it differently

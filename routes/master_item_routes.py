@@ -1,4 +1,5 @@
 from typing import Annotated
+from utils.errors import error_detail
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from controllers.master_item_controller import MasterItemController
 from schemas.master_item_schema import (
@@ -20,7 +21,7 @@ async def create_master_item(
 ):
     result = await MasterItemController.create_master_item(item.model_dump(), current_user["id"])
     if "error" in result:
-        raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
+        raise HTTPException(status_code=result.get("status", 500), detail=error_detail(result))
     return result
 
 
@@ -40,7 +41,7 @@ async def get_master_items(
         keyword, page, page_size, purchase_type, brand, item_type, sortBy, sortByDirection
     )
     if isinstance(result, dict) and "error" in result:
-        raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
+        raise HTTPException(status_code=result.get("status", 500), detail=error_detail(result))
     return result
 
 
@@ -51,7 +52,7 @@ async def get_master_item_facets(
     """Daftar brand & type unik untuk mengisi dropdown filter."""
     result = await MasterItemController.get_facets()
     if isinstance(result, dict) and "error" in result:
-        raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
+        raise HTTPException(status_code=result.get("status", 500), detail=error_detail(result))
     return result
 
 
@@ -62,7 +63,7 @@ async def get_master_item(
 ):
     result = await MasterItemController.get_master_item(item_id)
     if "error" in result:
-        raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
+        raise HTTPException(status_code=result.get("status", 500), detail=error_detail(result))
     return result
 
 
@@ -76,7 +77,7 @@ async def update_master_item(
     payload["id"] = item_id
     result = await MasterItemController.update_master_item(payload, current_user["id"])
     if "error" in result:
-        raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
+        raise HTTPException(status_code=result.get("status", 500), detail=error_detail(result))
     return result
 
 
@@ -87,7 +88,7 @@ async def delete_master_item(
 ):
     result = await MasterItemController.delete_master_item(item_id, current_user["id"])
     if "error" in result:
-        raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
+        raise HTTPException(status_code=result.get("status", 500), detail=error_detail(result))
     return result
 
 
@@ -133,5 +134,5 @@ async def import_master_items(
         )
     result = await MasterItemController.import_csv(contents, current_user["id"])
     if "error" in result:
-        raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
+        raise HTTPException(status_code=result.get("status", 500), detail=error_detail(result))
     return result

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Request, Query
+from utils.errors import error_detail
 from schemas.reimbursement_schema import ReimbursementCreate, ReimbursementResponse
 from controllers.reimbursement_controller import ReimbursementController
 from utils.auth_utils import get_current_user
@@ -19,7 +20,9 @@ async def create_reimbursement(
     result = await ReimbursementController.create_reimbursement(reimbursement.model_dump(), userID)
     if "error" in result:
         log_error(f"Error creating reimbursement: {str(result['error'])}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 @router.put("/approve/{reimbursementID}")
@@ -31,7 +34,9 @@ async def approve_reimbursement(
     result = await ReimbursementController.approve_reimbursement(reimbursementID, userID)
     if "error" in result:
         log_error(f"Error approving reimbursement: {str(result['error'])}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 @router.put("/reject/{reimbursementID}")
@@ -43,7 +48,9 @@ async def reject_reimbursement(
     result = await ReimbursementController.reject_reimbursement(reimbursementID, userID)
     if "error" in result:
         log_error(f"Error rejecting reimbursement: {str(result['error'])}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 @router.get("/")
@@ -74,7 +81,9 @@ async def get_reimbursements(
     )
     if "error" in result:
         log_error(f"Error getting reimbursements: {str(result['error'])}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 @router.get("/{reimbursementID}")
@@ -85,5 +94,7 @@ async def get_reimbursement(
     result = await ReimbursementController.get_reimbursement_by_id(reimbursementID)
     if "error" in result:
         log_error(f"Error getting reimbursement: {str(result['error'])}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result

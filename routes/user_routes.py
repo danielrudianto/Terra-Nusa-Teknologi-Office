@@ -1,4 +1,5 @@
 from typing import Annotated
+from utils.errors import error_detail
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from controllers.user_controller import UserController
 from schemas.user_schema import (
@@ -23,7 +24,9 @@ async def create_user(
     result = await UserController.create_user(user.dict())
     if isinstance(result, dict) and "error" in result:
         log_error(f"Error during creating user: {str(result['error'])}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 
@@ -37,7 +40,9 @@ async def get_users(
 
     result = await UserController.get_users(keyword, page, pageSize, sortBy, sortByDirection)
     if "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 
@@ -61,7 +66,9 @@ async def change_own_password(
         current_user["id"], body.currentPassword, body.newPassword
     )
     if "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 
@@ -72,7 +79,9 @@ async def get_user(
 ):
     result = await UserController.get_user_by_id(user_id)
     if "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 
@@ -84,7 +93,9 @@ async def update_user(
 ):
     result = await UserController.update_user(user_id, user.dict(exclude_unset=True))
     if "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 
@@ -95,5 +106,7 @@ async def delete_user(
 ):
     result = await UserController.delete_user(user_id)
     if "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result

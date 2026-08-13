@@ -1,4 +1,5 @@
 from typing import Annotated
+from utils.errors import error_detail
 from fastapi import APIRouter, Depends, HTTPException
 from utils.auth_utils import get_current_user
 from utils.permission import require
@@ -43,7 +44,9 @@ async def get_expense_opponents(
 
         result = await ExpenseOpponentController.get_expense_opponents(page, pageSize, sortBy, sortByDirection, keyword)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         
         return result
     except HTTPException as e:
@@ -60,7 +63,9 @@ async def get_expense_opponent_by_id(
     try:
         result = await ExpenseOpponentController.get_expense_opponent_by_id(opponent_id)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         raise e
@@ -82,7 +87,9 @@ async def update_expense_opponent(
             userID
         )
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         raise e
@@ -99,7 +106,9 @@ async def delete_expense_opponent(
         userID = current_user.id
         result = await ExpenseOpponentController.delete_expense_opponent(opponent_id, userID)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         raise e
@@ -116,7 +125,9 @@ async def search_expense_opponents(
     try:
         result = await ExpenseOpponentController.search_expense_opponents(keyword, limit)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         raise e

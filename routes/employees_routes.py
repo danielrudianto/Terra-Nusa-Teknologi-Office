@@ -1,4 +1,5 @@
 from typing import Annotated
+from utils.errors import error_detail
 from fastapi import APIRouter, Depends, HTTPException, Request
 from utils.logger_utils import log_error, log_info
 from utils.auth_utils import get_current_user
@@ -32,7 +33,9 @@ async def get_employee(employee_id: int, user: Annotated[dict, Depends(require("
     
     if "error" in result:
         log_error(f"Error fetching employee: {result['error']}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     
     return result
 
@@ -54,7 +57,9 @@ async def get_employees(
     try:
         result = await EmployeeController.get_employees(keyword, page, pageSize, sortBy, sortByDirection, status)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         # Optionally log the error or handle it differently
@@ -70,6 +75,8 @@ async def update_employee(employee: Employee, user: Annotated[dict, Depends(requ
     
     if "error" in result:
         log_error(f"Error updating employee: {result['error']}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     
     return result

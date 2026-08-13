@@ -1,4 +1,5 @@
 from typing import Annotated
+from utils.errors import error_detail
 from fastapi import APIRouter, Depends, HTTPException
 from utils.auth_utils import get_current_user
 from utils.permission import require
@@ -21,7 +22,9 @@ async def create_income(income_data: dict, user: Annotated[User, Depends(require
     result = await IncomeController.create_income(income_data, userID)
     if "error" in result:
         log_error(f"Error creating income: {result['error']}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     
     payment = await PaymentIncomingController.create_payment({
         "bankAccountID": bankAccountID,
@@ -59,7 +62,9 @@ async def fetch_income(
         
         result = await IncomeController.get_income(page, pageSize, sortBy, start, end, sortByDirection, keyword, ignore)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         
         return result
     except HTTPException as e:
@@ -73,7 +78,9 @@ async def get_income(income_id: int, user: Annotated[User, Depends(require("inco
     try:
         result = await IncomeController.get_income_by_id(income_id)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         
         return result
     except HTTPException as e:
@@ -92,7 +99,9 @@ async def update_income(
         userID = user.id
         result = await IncomeController.update_income(income_id, income_data, userID)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         
         return result
     except HTTPException as e:
@@ -107,7 +116,9 @@ async def delete_income(income_id: int, user: Annotated[User, Depends(require("i
         userID = user.id
         result = await IncomeController.delete_income(income_id, userID)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         
         return result
     except HTTPException as e:

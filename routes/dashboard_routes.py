@@ -1,4 +1,5 @@
 from typing import Annotated, List
+from utils.errors import error_detail
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -33,7 +34,9 @@ async def get_cash_position(
     try:
         result = await DashboardController.cash_position(bankAccounts)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException:
         raise

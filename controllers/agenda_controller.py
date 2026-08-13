@@ -1,4 +1,5 @@
 from datetime import date as d
+from utils.errors import ErrorCode, app_error
 from datetime import timedelta
 
 from repository.reminder_repository import BirthdayRepository, ReminderRepository
@@ -61,14 +62,11 @@ class AgendaController:
     async def create(user_id: int, user_level: int, body):
         try:
             if body.isShared and int(user_level or 1) < LEVEL_PENGINGAT_UMUM:
-                return {
-                    "error": (
-                        "Pengingat untuk seluruh pengguna hanya dapat dibuat "
-                        "oleh akses 4 ke atas. Tandai rekan yang bersangkutan "
-                        "bila hanya sebagian yang perlu tahu."
-                    ),
-                    "status": 403,
-                }
+                return app_error(
+                    ErrorCode.REMINDER_SHARED_FORBIDDEN,
+                    "Shared reminders require access level 4 or above.",
+                    403,
+                )
 
             data = {
                 "title": body.title.strip(),
@@ -93,7 +91,7 @@ class AgendaController:
             if isinstance(lama, dict) and "error" in lama:
                 return lama
             if not lama or lama.get("isDelete"):
-                return {"error": "Reminder not found", "status": 404}
+                return app_error(ErrorCode.REMINDER_NOT_FOUND, "Reminder not found", 404)
 
             # Hanya pembuatnya, berapa pun levelnya.
             #
@@ -142,7 +140,7 @@ class AgendaController:
             if isinstance(lama, dict) and "error" in lama:
                 return lama
             if not lama or lama.get("isDelete"):
-                return {"error": "Reminder not found", "status": 404}
+                return app_error(ErrorCode.REMINDER_NOT_FOUND, "Reminder not found", 404)
 
             if lama.get("createdBy") != user_id:
                 return {

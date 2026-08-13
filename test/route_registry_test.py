@@ -258,3 +258,64 @@ def test_model_menerima_field_yang_dikirim_repository():
                 salah.append(f"{Path(berkas).name} -> {nama}(id=...)")
 
     assert not salah, "model dibentuk dengan id= tetapi tidak punya field id:\n  " + "\n  ".join(salah)
+
+
+def test_setiap_kode_galat_punya_terjemahan():
+    """
+    Kode galat yang tidak punya terjemahannya tampil sebagai pesan umum.
+
+    Penggunanya kehilangan keterangan yang sebenarnya sudah diketahui server
+    — dan itu tidak terlihat sebagai kekeliruan, hanya sebagai pesan yang
+    kurang membantu.
+
+    Berkas terjemahan berada di repositori frontend; bila tidak ditemukan,
+    pengujian ini dilewati agar backend tetap dapat diuji sendiri.
+    """
+    import json
+
+    from utils.errors import ErrorCode
+
+    kandidat = [
+        AKAR.parent / "frontend" / "src" / "assets" / "i18n" / "id.json",
+        AKAR.parent
+        / "Terra-Nusa-Teknologi-Office-frontend"
+        / "src"
+        / "assets"
+        / "i18n"
+        / "id.json",
+    ]
+    berkas = next((p for p in kandidat if p.exists()), None)
+    if berkas is None:
+        pytest.skip("berkas terjemahan frontend tidak tersedia di sini")
+
+    terjemahan = json.loads(berkas.read_text(encoding="utf-8")).get(
+        "serverError", {}
+    )
+    kode = {
+        v
+        for k, v in vars(ErrorCode).items()
+        if not k.startswith("_") and isinstance(v, str)
+    }
+
+    kurang = sorted(kode - set(terjemahan))
+    assert not kurang, f"kode tanpa terjemahan serverError.<KODE>: {kurang}"
+
+
+def test_rute_meneruskan_kode_galat():
+    """
+    Rute harus memakai `error_detail`, bukan `result["error"]` mentah.
+
+    Meneruskan kalimatnya saja membuat kodenya hilang di perjalanan, dan
+    layar kembali menebak dari teks — persis keadaan yang hendak
+    ditinggalkan.
+    """
+    mentah = []
+    for berkas in (AKAR / "routes").glob("*.py"):
+        isi = berkas.read_text(encoding="utf-8")
+        if re.search(r'detail=result\[[\'"]error[\'"]\]', isi):
+            mentah.append(berkas.name)
+
+    assert not mentah, (
+        "masih meneruskan pesan mentah, seharusnya error_detail(result): "
+        + ", ".join(sorted(mentah))
+    )

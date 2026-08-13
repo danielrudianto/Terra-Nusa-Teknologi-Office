@@ -1,4 +1,5 @@
 from typing import Annotated
+from utils.errors import error_detail
 from fastapi import APIRouter, Depends, HTTPException
 from utils.auth_utils import get_current_user
 from utils.permission import require
@@ -17,7 +18,9 @@ async def create_expense(expense: ExpenseCreate, current_user: Annotated[User, D
         userID = current_user.id
         result = await ExpenseController.create_expense(expense.model_dump(), userID)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         raise e
@@ -64,7 +67,9 @@ async def get_expenses(
             
         result = await ExpenseController.get_expenses(page, pageSize, filterObject, sortBy, sortByDirection, keyword, start, end, ignore)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         
         return result
     except HTTPException as e:
@@ -93,7 +98,9 @@ async def update_expense(expense_id: int, expense: ExpenseUpdate, current_user: 
         userID = current_user.id
         result = await ExpenseController.update_expense(expense_id, expense.model_dump(exclude_unset=True), userID)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         raise e
@@ -107,7 +114,9 @@ async def delete_expense(expense_id: int, current_user: Annotated[User, Depends(
         userID = current_user.id
         result = await ExpenseController.delete_expense(expense_id, userID)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         raise e
@@ -120,7 +129,9 @@ async def approve_expense_by_id(expense_id: int, current_user: Annotated[User, D
     userID = current_user.id
     result = await ExpenseController.approve_expense_by_id(expense_id, userID)
     if "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 @router.get("/{expense_id}/payments")
@@ -146,7 +157,9 @@ async def update_payment_status(expense_id: int, isPaid: bool, current_user: Ann
         userID = current_user.id
         result = await ExpenseController.update_payment_status(expense_id, isPaid, userID)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         raise e

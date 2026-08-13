@@ -1,4 +1,5 @@
 from typing import Annotated, List
+from utils.errors import error_detail
 from fastapi import APIRouter, Depends, HTTPException, Request
 from datetime import datetime, timedelta, date
 from utils.logger_utils import log_error, log_info
@@ -122,7 +123,9 @@ async def approve_bulk_payment_status(
     )
     if "error" in result:
         log_error(f"Error approving payments: {result['error']}")
-        raise HTTPException(status_code=result['status'], detail=result['error'])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     
     return result
 
@@ -139,7 +142,9 @@ async def approve_bulk_payment_status(
     
     if "error" in result:
         log_error(f"Error approving payments: {result['error']}")
-        raise HTTPException(status_code=result['status'], detail=result['error'])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     
     return result
 
@@ -153,7 +158,9 @@ async def move_payment_date(payment: dict,user: Annotated[dict, Depends(require(
     
     if "error" in result:
         log_error(f"Error approving payment with ID {paymentID}: {result['error']}")
-        raise HTTPException(status_code=result['status'], detail=result['error'])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     
     return result
 
@@ -179,7 +186,9 @@ async def update_payment_status(
     
     if "error" in result:
         log_error(f"Error approving payment with ID {paymentID}: {result['error']}")
-        raise HTTPException(status_code=result['status'], detail=result['error'])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     
     return result
 

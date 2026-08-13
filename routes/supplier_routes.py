@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from utils.errors import error_detail
 from controllers.supplier_controller import SupplierController
 from schemas.supplier_schema import SupplierCreate, SupplierUpdate, SupplierBlacklistUpdate
 from utils.auth_utils import get_current_user
@@ -16,7 +17,9 @@ async def create_supplier(
     user_id = current_user["id"]
     result = await SupplierController.create_supplier(supplier.model_dump(), user_id)
     if "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 @router.get("/{supplier_id}")
@@ -26,7 +29,9 @@ async def get_supplier(
 ):
     result = await SupplierController.get_supplier(supplier_id)
     if "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 @router.get("/")
@@ -41,7 +46,9 @@ async def get_suppliers(
     try:
         result = await SupplierController.get_suppliers(keyword, page, pageSize, isBlacklist)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         raise e
@@ -55,7 +62,9 @@ async def update_supplier(
     # Note: You'll need to include the ID in the update request body
     result = await SupplierController.update_supplier(supplier.model_dump(), user_id)
     if "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 @router.delete("/{supplier_id}")
@@ -66,7 +75,9 @@ async def delete_supplier(
     user_id = current_user["id"]
     result = await SupplierController.delete_supplier(supplier_id, user_id)
     if "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 
@@ -85,5 +96,7 @@ async def set_supplier_blacklist(
         supplier_id, payload.model_dump(), user_id
     )
     if "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result

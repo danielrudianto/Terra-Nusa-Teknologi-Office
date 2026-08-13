@@ -137,14 +137,23 @@ class Employee(BaseModel):
             offset = (page - 1) * pageSize  # Assuming page size is 10
             query = select(
                 employees_table,
-                func.count(employees_table.c.id).over().label("total_count")
-            ).where(
-                or_(
-                    employees_table.c.name.ilike(f"%{keyword}%"),
-                    employees_table.c.nik.ilike(f"%{keyword}%"),
-                    employees_table.c.email.ilike(f"%{keyword}%")
-                )
+                func.count(employees_table.c.id).over().label("total_count"),
             )
+
+            # Kata kunci hanya dipakai bila memang ada.
+            #
+            # Sebelumnya nilainya selalu disisipkan ke dalam f-string,
+            # sehingga permintaan tanpa keyword menghasilkan pola "%None%" —
+            # yang tidak cocok dengan nama siapa pun, dan daftarnya kembali
+            # kosong tanpa satu pun galat.
+            if keyword:
+                query = query.where(
+                    or_(
+                        employees_table.c.name.ilike(f"%{keyword}%"),
+                        employees_table.c.nik.ilike(f"%{keyword}%"),
+                        employees_table.c.email.ilike(f"%{keyword}%"),
+                    )
+                )
 
             # filter by employment status via endDate
             if status == "active":
@@ -188,13 +197,15 @@ class Employee(BaseModel):
                 response.append(employee_data)
 
             # Get the count
-            total_count_query = select(func.count(employees_table.c.id)).where(
-                or_(
-                    employees_table.c.name.ilike(f"%{keyword}%"),
-                    employees_table.c.nik.ilike(f"%{keyword}%"),
-                    employees_table.c.email.ilike(f"%{keyword}%")
+            total_count_query = select(func.count(employees_table.c.id))
+            if keyword:
+                total_count_query = total_count_query.where(
+                    or_(
+                        employees_table.c.name.ilike(f"%{keyword}%"),
+                        employees_table.c.nik.ilike(f"%{keyword}%"),
+                        employees_table.c.email.ilike(f"%{keyword}%"),
+                    )
                 )
-            )
             if status == "active":
                 total_count_query = total_count_query.where(employees_table.c.endDate.is_(None))
             elif status == "inactive":

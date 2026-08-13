@@ -1,4 +1,5 @@
 from typing import Annotated
+from utils.errors import error_detail
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from controllers.bank_controller import BankController
 from repository.bank_account_repository import BankAccount
@@ -27,7 +28,9 @@ async def get_bank_accounts(request: Request, current_user: Annotated[User, Depe
             page, sortBy, sortByDirection
         )
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         # Optionally log the error or handle it differently
@@ -38,7 +41,9 @@ async def get_all_bank_accounts(current_user: Annotated[User, Depends(require("b
     try:
         result = await BankController.get_all_bank_accounts()
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         # Optionally log the error or handle it differently
@@ -49,7 +54,9 @@ async def get_bank_account(bank_id: int, current_user: Annotated[User, Depends(r
     try:
         result = await BankController.get_bank_account_by_id(bank_id)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         # Optionally log the error or handle it differently
@@ -61,7 +68,9 @@ async def update_bank_account(bank_id: int, bank: BankAccount, current_user: Ann
         userID = current_user["id"]
         result = await BankController.update_bank_account(bank.model_dump(), bank_id, userID)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         # Optionally log the error or handle it differently
@@ -73,7 +82,9 @@ async def delete_bank_account(bank_id: int, current_user: Annotated[User, Depend
         userID = current_user["id"]
         result = await BankController.delete_bank_account(bank_id, userID)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         # Optionally log the error or handle it differently
@@ -98,7 +109,9 @@ async def download_mutation_data(
 
         result = await BankController.download_mutation(bankAccountID, month, year)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         # Optionally log the error or handle it differently
@@ -118,7 +131,9 @@ async def get_mutation_data(
         endDate=data['endDate'] 
         result = await BankController.fetch_mutation(bankAccountID, page, pageSize, startDate, endDate)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         return result
     except HTTPException as e:
         raise e

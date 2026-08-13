@@ -1,4 +1,5 @@
 from datetime import date as d
+from utils.errors import error_detail
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -40,7 +41,9 @@ async def get_agenda(
     """Isi agenda: ulang tahun rekan dan pengingat, dalam satu permintaan."""
     result = await AgendaController.agenda(current_user["id"], d.today(), days)
     if isinstance(result, dict) and "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 
@@ -75,7 +78,9 @@ async def get_taggable_users(
 
     result = await TaggableUserRepository.list_for(current_user["id"])
     if isinstance(result, dict) and "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return {"users": result}
 
 
@@ -89,7 +94,9 @@ async def create_reminder(
         current_user["id"], _level(current_user), body
     )
     if "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 
@@ -104,7 +111,9 @@ async def update_reminder(
         current_user["id"], _level(current_user), reminder_id, body
     )
     if "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result
 
 
@@ -116,5 +125,7 @@ async def delete_reminder(
     """Hapus pengingat. Hanya pembuatnya, berapa pun levelnya."""
     result = await AgendaController.delete(current_user["id"], reminder_id)
     if "error" in result:
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     return result

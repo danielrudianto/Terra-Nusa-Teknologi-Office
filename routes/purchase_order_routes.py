@@ -1,4 +1,5 @@
 from typing import Annotated, Optional
+from utils.errors import error_detail
 from fastapi import APIRouter, Depends, HTTPException, Query
 from controllers.purchase_order_controller import PurchaseOrderController
 from schemas.purchase_order_schema import (
@@ -32,7 +33,7 @@ async def create_purchase_order(
         if "error" in result:
             raise HTTPException(
                 status_code=result.get("status", 500), 
-                detail=result["error"]
+                detail=error_detail(result)
             )
             
         return result
@@ -55,7 +56,7 @@ async def get_purchase_order_by_id(
         if "error" in result:
             raise HTTPException(
                 status_code=result.get("status", 500), 
-                detail=result["error"]
+                detail=error_detail(result)
             )
             
         return result
@@ -84,7 +85,7 @@ async def get_all_purchase_orders(
         if "error" in result:
             raise HTTPException(
                 status_code=result.get("status", 500), 
-                detail=result["error"]
+                detail=error_detail(result)
             )
             
         return result
@@ -113,7 +114,7 @@ async def update_purchase_order_status(
         if "error" in result:
             raise HTTPException(
                 status_code=result.get("status", 500), 
-                detail=result["error"]
+                detail=error_detail(result)
             )
             
         return result
@@ -137,7 +138,7 @@ async def delete_purchase_order(
         if "error" in result:
             raise HTTPException(
                 status_code=result.get("status", 500), 
-                detail=result["error"]
+                detail=error_detail(result)
             )
             
         return result

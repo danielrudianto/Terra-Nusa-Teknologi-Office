@@ -1,4 +1,5 @@
 from typing import Annotated
+from utils.errors import error_detail
 from fastapi import APIRouter, Depends, HTTPException
 from controllers.interpayment_controller import InterpaymentController
 from schemas.interpayment_schema import InterpaymentCreate, CreateInterpaymentResponse, InterpaymentListResponse
@@ -19,7 +20,9 @@ async def create_interpayment(interpayment: InterpaymentCreate, user: Annotated[
     result = await InterpaymentController.create_interpayment(interpayment_data)
     if "error" in result:
         log_error(f"Error creating interpayment: {result['error']}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     
     return result
 
@@ -29,7 +32,9 @@ async def delete_interpayment(interpaymentID: int, user: Annotated[User, Depends
     result = await InterpaymentController.delete_interpayment(interpaymentID, userID)
     if "error" in result:
         log_error(f"Error deleting interpayment: {result['error']}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     
     return result
 
@@ -53,7 +58,9 @@ async def get_interpayments(
     
     if "error" in result:
         log_error(f"Error fetching interpayments: {result['error']}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     
     return result
 
@@ -70,7 +77,9 @@ async def get_interpayment_detail(
  
     if "error" in result:
         log_error(f"Error fetching interpayment detail: {result['error']}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
  
     return result
 
@@ -89,7 +98,9 @@ async def get_interpayment_calendar_data(
     
     if "error" in result:
         log_error(f"Error fetching interpayment calendar data: {result['error']}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     
     return result
 
@@ -108,6 +119,8 @@ async def get_interpayment_calendar_data_by_date(
     
     if "error" in result:
         log_error(f"Error fetching interpayment calendar data by date: {result['error']}")
-        raise HTTPException(status_code=result["status"], detail=result["error"])
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
     
     return result
