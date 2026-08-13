@@ -33,9 +33,13 @@ class ProjectCreate(ProjectBase):
 
 
 class ProjectUpdate(BaseModel):
-    # `code` sengaja TIDAK dapat diubah di sini. Kode adalah satu-satunya
-    # penghubung ke dokumen yang sudah ada; menggantinya akan memutus seluruh
-    # purchase, reimbursement, dan sales invoice yang menunjuk kode lama.
+    # `code` boleh diubah, TETAPI hanya selama belum dipakai dokumen mana pun.
+    #
+    # Kode adalah satu-satunya penghubung ke dokumen yang sudah ada;
+    # menggantinya setelah dipakai membuat purchase, reimbursement, dan sales
+    # invoice lama tetap menunjuk kode lama. Pemeriksaannya di controller,
+    # karena hanya di sana jumlah dokumennya dapat dihitung.
+    code: Optional[str] = Field(default=None, min_length=2, max_length=20)
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     clientID: Optional[int] = None
     description: Optional[str] = Field(default=None, max_length=500)
@@ -50,6 +54,7 @@ class ContractBase(BaseModel):
     documentType: Optional[str] = Field(default="spk")
     # Boleh negatif: adendum pengurangan lingkup kerja memang mengurangi
     # nilai kontrak.
+    # DPP, belum termasuk PPN. Adendum pengurangan bernilai negatif.
     value: Decimal
     date: date
     description: Optional[str] = Field(default=None, max_length=500)

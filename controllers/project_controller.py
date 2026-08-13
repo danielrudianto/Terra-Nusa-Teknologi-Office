@@ -79,10 +79,38 @@ class ProjectController:
     ) -> Dict[str, Any]:
         if not data:
             return {"error": "Nothing to update", "status": 400}
-        # `code` tidak pernah ikut diubah; skema pembaruan memang tidak
-        # memuatnya, tetapi dibuang di sini juga agar muatan yang disusun
-        # tangan tidak bisa menembusnya.
-        data.pop("code", None)
+        # Kode boleh diganti SELAMA belum dipakai dokumen mana pun.
+        #
+        # Kode disimpan sebagai teks pada dokumen, bukan tautan ke baris ini.
+        # Menggantinya setelah ada dokumen membuat yang lama tetap menyebut
+        # kode lama — laporan per proyek terpecah dua, dan nomor SPK yang
+        # sudah tercetak tidak lagi cocok dengan proyeknya.
+        #
+        # Selama belum dipakai, penggantian tidak merugikan siapa pun, dan
+        # itulah keadaan ketika salah ketik biasanya ketahuan.
+        kode_baru = (data.get("code") or "").strip().upper()
+        if kode_baru:
+            lama = await ProjectRepository.get_by_id(project_id)
+            if lama is None:
+                return {"error": "Project not found", "status": 404}
+
+            if kode_baru != (lama["code"] or "").upper():
+                dipakai = await ProjectRepository.count_documents(lama["code"])
+                if dipakai:
+                    return {
+                        "error": (
+                            f"Kode tidak dapat diubah: sudah dipakai pada "
+                            f"{dipakai} dokumen. Mengubahnya membuat dokumen "
+                            f"lama tetap menyebut kode lama."
+                        ),
+                        "status": 409,
+                    }
+                data["code"] = kode_baru
+            else:
+                data.pop("code", None)
+        else:
+            data.pop("code", None)
+
         return await ProjectRepository.update(
             project_id, _selaraskan_keadaan(data), user_id
         )

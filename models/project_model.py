@@ -40,7 +40,6 @@ projects_table = Table(
     Column("code", String(20), nullable=False),
     Column("name", String(255), nullable=False),
     Column("clientID", Integer, nullable=True),
-    Column("description", String(500), nullable=True),
     Column("startDate", Date(), nullable=True),
     Column("endDate", Date(), nullable=True),
     # Sengaja boolean, bukan enum teks.

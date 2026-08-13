@@ -147,6 +147,43 @@ class ProjectRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    async def count_documents(code: str) -> int:
+        """
+        Berapa dokumen yang sudah memakai kode proyek ini.
+
+        Kode disimpan sebagai TEKS pada dokumen, bukan tautan ke baris ini —
+        `purchases.projectName`, `purchase_orders.projectName`, dan
+        seterusnya. Mengubah kodenya tidak ikut memperbarui dokumen lama:
+        yang lama tetap menyebut kode lama, sehingga laporan per proyek
+        terpecah menjadi dua tanpa ada yang menyadarinya.
+
+        Karena itu penggantian hanya diizinkan selama belum ada dokumen yang
+        memakainya — cukup untuk membetulkan salah ketik, tanpa memutus
+        jejak yang sudah terbit.
+        """
+        from models.purchase_draft_model import purchase_draft_table
+        from models.purchase_model import purchases_table
+        from models.purchase_order_model import purchase_orders_table
+        from models.reimbursement_model import reimbursements_table
+        from models.sales_invoice_model import sales_invoice_tables
+
+        total = 0
+        for tabel in (
+            purchases_table,
+            purchase_orders_table,
+            purchase_draft_table,
+            reimbursements_table,
+            sales_invoice_tables,
+        ):
+            n = await database.fetch_val(
+                select(func.count()).select_from(tabel).where(
+                    tabel.c.projectName == code
+                )
+            )
+            total += int(n or 0)
+        return total
+
+    @staticmethod
     async def update(project_id: int, values: dict, user_id: int) -> Dict[str, Any]:
         try:
             _sebelum = await database.fetch_one(

@@ -1,8 +1,11 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
 
 from constants.permission_matrix import ACTIONS, MATRIX
+from models.user_department_model import user_departments_table
+from utils.database import database
 from utils.auth_utils import User, get_current_user
 from utils.permission import is_allowed
 
@@ -43,7 +46,19 @@ async def get_my_permissions(
             aksi: await is_allowed(current_user, modul, aksi) for aksi in ACTIONS
         }
 
+    # Divisi ikut dikirim.
+    #
+    # Beberapa bagian layar perlu membedakan "orang keuangan" dari "orang
+    # tanpa divisi yang levelnya tinggi" — keduanya lolos pemeriksaan izin
+    # yang sama, tetapi bukan hal yang sama.
+    divisi = await database.fetch_all(
+        select(user_departments_table.c.department).where(
+            user_departments_table.c.userID == current_user["id"]
+        )
+    )
+
     return {
         "level": current_user["authenticationLevel"] or 1,
+        "departments": [d["department"] for d in divisi],
         "permissions": izin,
     }
