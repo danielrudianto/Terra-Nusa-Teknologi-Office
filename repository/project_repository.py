@@ -267,6 +267,140 @@ class ProjectRepository:
         return await database.fetch_all(query)
 
     @staticmethod
+    async def ringkasan_margin(page: int = 1, page_size: int = 10):
+        """
+        Ikhtisar margin seluruh proyek, satu baris per proyek.
+
+        DIJUMLAHKAN DI BASIS DATA, bukan di layar.
+
+        Laporan satu proyek yang sudah ada menarik empat kumpulan baris utuh
+        — pembelian, draft, reimbursement, faktur — lalu menjumlahkannya di
+        peramban. Untuk satu proyek itu wajar. Dipakai untuk tabel seluruh
+        proyek, jumlah kuerinya tumbuh mengikuti jumlah proyeknya: lima
+        puluh proyek berarti dua ratus kueri, dan puluhan ribu baris dikirim
+        ke peramban hanya untuk menjadi satu angka per baris.
+
+        Di sini setiap sumber dijumlahkan lebih dulu dengan `GROUP BY`, lalu
+        disambungkan ke proyeknya. Yang dikirim hanya sebesar jumlah proyek
+        pada halaman itu.
+
+        Nilai kontrak memakai **DPP**, bukan nominal kotor — mengikuti
+        laporan per proyek. Membandingkan biaya (yang DPP) dengan kontrak
+        yang sudah termasuk PPN membuat margin setiap proyek tampak lebih
+        besar daripada sebenarnya.
+
+        Proyek yang MASIH BERJALAN didahulukan: di situlah marginnya masih
+        dapat diperbaiki. Yang sudah selesai tetap dapat dilihat pada
+        halaman berikutnya.
+        """
+        try:
+            # Halaman dikunci maksimum sepuluh. Ini bukan sekadar pilihan
+            # tampilan: tiap baris berasal dari empat penjumlahan, dan
+            # membuka batasnya mengembalikan persoalan yang justru hendak
+            # dihindari.
+            page = max(1, int(page or 1))
+            page_size = min(10, max(1, int(page_size or 10)))
+            offset = (page - 1) * page_size
+
+            total = await database.fetch_val(
+                "SELECT COUNT(*) FROM projects WHERE isDelete = 0"
+            )
+
+            baris = await database.fetch_all(
+                """
+                SELECT
+                    p.id,
+                    p.code,
+                    p.name,
+                    p.isActive,
+                    p.isCancelled,
+                    COALESCE(k.kontrak, 0)        AS kontrak,
+                    COALESCE(b.beli, 0)           AS beli,
+                    COALESCE(b.beli_internal, 0)  AS beli_internal,
+                    COALESCE(d.draft, 0)          AS draft,
+                    COALESCE(r.reimburse, 0)      AS reimburse
+                FROM projects p
+                LEFT JOIN (
+                    SELECT projectID, SUM(dpp) AS kontrak
+                    FROM project_contracts
+                    WHERE isDelete = 0
+                    GROUP BY projectID
+                ) k ON k.projectID = p.id
+                LEFT JOIN (
+                    SELECT projectName,
+                           SUM(dpp) AS beli,
+                           SUM(CASE WHEN isInternal = 1 THEN dpp ELSE 0 END)
+                               AS beli_internal
+                    FROM purchases
+                    WHERE isDelete = 0
+                    GROUP BY projectName
+                ) b ON b.projectName = p.code
+                LEFT JOIN (
+                    SELECT projectName, SUM(dpp) AS draft
+                    FROM purchase_draft
+                    WHERE isDelete = 0
+                    GROUP BY projectName
+                ) d ON d.projectName = p.code
+                LEFT JOIN (
+                    SELECT projectName, SUM(amount) AS reimburse
+                    FROM reimbursements
+                    WHERE isDelete = 0
+                    GROUP BY projectName
+                ) r ON r.projectName = p.code
+                WHERE p.isDelete = 0
+                ORDER BY p.isActive DESC, p.code ASC
+                LIMIT :limit OFFSET :offset
+                """,
+                {"limit": page_size, "offset": offset},
+            )
+
+            data = []
+            for x in baris:
+                r = dict(x)
+                kontrak = float(r["kontrak"] or 0)
+                beli = float(r["beli"] or 0)
+                internal = float(r["beli_internal"] or 0)
+                draft = float(r["draft"] or 0)
+                reimburse = float(r["reimburse"] or 0)
+
+                # Draft IKUT dihitung sebagai biaya.
+                #
+                # Draft belum tentu menjadi pembelian, tetapi biaya yang
+                # belum tercatatlah yang paling berbahaya di sini: tanpanya,
+                # proyek tampak untung padahal tagihannya belum masuk semua.
+                total_biaya = beli + draft + reimburse
+
+                data.append(
+                    {
+                        "id": r["id"],
+                        "code": r["code"],
+                        "name": r["name"],
+                        "isActive": bool(r["isActive"]),
+                        "isCancelled": bool(r["isCancelled"]),
+                        "kontrak": kontrak,
+                        "pembelian": beli,
+                        "draft": draft,
+                        "reimbursement": reimburse,
+                        # Dengan pembelian internal dihitung sebagai biaya.
+                        "marginInternalMasuk": kontrak - total_biaya,
+                        # Tanpa pembelian internal: yang dibeli dari dalam
+                        # perusahaan bukan uang yang keluar dari grup.
+                        "marginInternalKeluar": kontrak - (total_biaya - internal),
+                    }
+                )
+
+            return {
+                "data": data,
+                "total": total or 0,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": ((total or 0) + page_size - 1) // page_size,
+            }
+        except Exception as e:
+            log_error(f"Error building project margin summary: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def add_contract(project_id: int, data: dict, user_id: int) -> Dict[str, Any]:
         try:
             contract_id = await database.execute(
@@ -289,7 +423,14 @@ class ProjectRepository:
             # ditelusuri saat audit.
             await AuditLogRepository.record(
                 entity="projects",
-                entityID=data["projectID"],
+                # `project_id` dari parameternya, BUKAN `data["projectID"]`.
+                #
+                # `projectID` tidak pernah ada di dalam `data`: ia disisipkan
+                # terpisah pada `insert(...)` di atas. Membacanya dari `data`
+                # melempar KeyError — dan karena seluruh fungsi ini dibungkus
+                # try/except, galatnya keluar sebagai "Internal server error"
+                # SETELAH kontraknya sudah tersimpan.
+                entityID=project_id,
                 action="contract_create",
                 note=f"{data.get('documentType', 'spk')} {data.get('documentNumber', '')}".strip(),
             )

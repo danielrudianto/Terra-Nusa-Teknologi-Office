@@ -23,6 +23,28 @@ def _bereskan(result: dict):
     return result
 
 
+@router.get("/margin-summary")
+async def ringkasan_margin(
+    current_user: Annotated[dict, Depends(require("project", "read"))],
+    page: int = Query(1, ge=1),
+    pageSize: int = Query(10, ge=1, le=10),
+):
+    """
+    Ikhtisar margin seluruh proyek, satu baris per proyek.
+
+    Ditaruh SEBELUM rute ber-parameter: FastAPI mencocokkan berurutan, dan
+    "margin-summary" akan tertangkap sebagai id proyek bila di bawah.
+
+    `pageSize` dikunci maksimum sepuluh oleh `le=10`. Tiap baris berasal dari
+    empat penjumlahan lintas tabel; membuka batasnya mengembalikan persoalan
+    yang justru hendak dihindari.
+    """
+    hasil = await ProjectController.ringkasan_margin(page, pageSize)
+    if isinstance(hasil, dict) and "error" in hasil:
+        raise HTTPException(status_code=hasil["status"], detail=error_detail(hasil))
+    return hasil
+
+
 @router.get("/")
 async def get_projects(
     request: Request,

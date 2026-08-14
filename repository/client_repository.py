@@ -142,6 +142,19 @@ class ClientRepository:
                     clients_table.c.province.ilike(keyword_filter),
                     clients_table.c.phoneNumber.ilike(keyword_filter),
                     clients_table.c.email.ilike(keyword_filter),
+                    clients_table.c.npwp.ilike(keyword_filter),
+                    clients_table.c.prefix.ilike(keyword_filter),
+                    # Nama SEPERTI YANG TERLIHAT di layar: "PT Maju Jaya".
+                    #
+                    # Awalan disimpan terpisah dari namanya, sehingga mencari
+                    # persis seperti yang tertulis di layar tidak menemukan
+                    # apa pun — dan penggunanya menyimpulkan kliennya belum
+                    # terdaftar, lalu membuat data ganda.
+                    func.concat(
+                        func.coalesce(clients_table.c.prefix, ""),
+                        " ",
+                        clients_table.c.name,
+                    ).ilike(keyword_filter),
                 ]
                 conditions.append(or_(*search_conditions))
 

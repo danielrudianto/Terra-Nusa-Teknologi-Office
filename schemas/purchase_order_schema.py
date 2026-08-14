@@ -96,6 +96,14 @@ class PurchaseOrderResponse(BaseModel):
     isDelete: Optional[bool] = False
     deletedBy: Optional[int] = None
     deletedAt: Optional[datetime] = None
+    # Nama dan jabatan penyetuju, diambil lewat sambungan ke tabel pengguna.
+    #
+    # Tanpa didaftarkan di sini FastAPI membuangnya dari jawaban —
+    # `response_model` menyaring bidang yang tidak dikenalnya, tanpa galat
+    # maupun peringatan. Blok tanda tangan pada dokumen karena itu selalu
+    # kosong, walaupun dokumennya sudah disetujui.
+    approvedByName: Optional[str] = None
+    approvedByPosition: Optional[str] = None
 
     class Config:
         from_attributes = True

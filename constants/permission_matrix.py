@@ -53,6 +53,18 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     # Data karyawan diurus HRD; batas wilayahnya ditentukan divisi,
     # bukan nilai khusus.
     "employees": (1, 3, 3, 4, 0),
+    # Profil pribadi karyawan dan formulir keadaan berkala.
+    #
+    # Isinya susunan keluarga, riwayat kesehatan, dan kontak darurat — data
+    # paling pribadi yang disimpan sistem ini. Karena itu keduanya ikut
+    # `MODUL_WILAYAH_MUTLAK`: hanya divisi HRD, dan tidak terbuka hanya
+    # karena levelnya tinggi.
+    #
+    # Membaca disamakan dengan membuat (level 3): tidak ada gunanya membuka
+    # pembacaan lebih lebar daripada pengisiannya, karena yang membacanya
+    # tetap orang yang sama.
+    "employee_profile": (3, 3, 3, 4, 0),
+    "employee_form": (3, 3, 3, 4, 0),
     # Posisi keuangan: kas, piutang, utang, pinjaman, dan quick ratio.
     #
     # Baca level 4, dan tidak ada tindakan lain — modul ini hanya membaca,

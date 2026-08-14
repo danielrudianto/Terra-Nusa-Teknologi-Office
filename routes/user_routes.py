@@ -46,6 +46,32 @@ async def get_users(
     return result
 
 
+@router.get("/me")
+async def get_own_profile(
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """
+    Profil milik sendiri.
+
+    Sengaja TANPA `require("user", ...)`, dengan alasan yang sama seperti
+    ganti sandi: melihat nama dan surel sendiri bukan tindakan administratif.
+
+    Sebelumnya layar Pengaturan memuatnya lewat `GET /users/{id}` yang
+    menuntut `user:read` — izin melihat SELURUH pengguna, dan itu level 5.
+    Akibatnya seluruh pengaturan pribadi — tema, bahasa, ukuran teks, ganti
+    sandi — hanya terbuka bagi pemilik sistem.
+
+    Yang dikembalikan hanya milik penggunanya sendiri; id diambil dari token,
+    bukan dari parameter, sehingga tidak dapat dipakai membaca profil orang
+    lain.
+    """
+    hasil = await UserController.get_user_by_id(current_user["id"])
+    if isinstance(hasil, dict) and "error" in hasil:
+        log_error(f"Error fetching own profile: {hasil['error']}")
+        raise HTTPException(status_code=hasil["status"], detail=error_detail(hasil))
+    return hasil
+
+
 @router.put("/me/password")
 async def change_own_password(
     body: PasswordChange,

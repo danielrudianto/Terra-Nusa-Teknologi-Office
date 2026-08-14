@@ -41,6 +41,12 @@ _CACHE: dict[int, tuple[float, dict[tuple[str, str], bool]]] = {}
 _DEPT_CACHE: dict[int, tuple[float, set[str]]] = {}
 _CACHE_TTL = 60.0
 
+#: Modul yang batas divisinya berlaku untuk SEMUA level di bawah 5, termasuk
+#: yang tidak punya departemen. Isinya data paling sensitif di sistem.
+MODUL_WILAYAH_MUTLAK = frozenset(
+    {"salary_slip", "employees", "employee_profile", "employee_form"}
+)
+
 
 def invalidate_permission_cache(user_id: int | None = None) -> None:
     """
@@ -117,15 +123,37 @@ async def is_allowed(user, module: str, action: str) -> bool:
 
     Level 5 tidak dibatasi: superadmin memang perlu melihat seluruh sistem.
 
+    Level 4 juga tidak dibatasi. Jabatannya General Manager — wilayahnya
+    seluruh perusahaan, bukan satu divisi, sehingga ia sengaja tidak diberi
+    departemen. Ditulis sebagai `level < 4` agar aturannya tetap berlaku
+    walaupun kelak ada level 4 yang kebetulan diberi departemen.
+
     Pengguna yang BELUM punya departemen sama sekali juga tidak dibatasi,
     sehingga penambahan tabel ini tidak mengunci siapa pun sebelum datanya
     diisi. Begitu seseorang diberi departemen, batas ini langsung berlaku
-    baginya. Bila kelak seluruh pengguna sudah terisi dan ingin diperketat,
-    hilangkan syarat `departments` pada baris di bawah.
+    baginya.
     """
     departments = await _departments(user_id)
-    if level < 5 and departments and module not in modules_for(departments):
+    if level < 4 and departments and module not in modules_for(departments):
         return False
+
+    """
+    Modul yang batas divisinya BERLAKU MUTLAK.
+
+    Slip gaji dan data karyawan hanya wilayah HRD dan FAT, dan itu tidak
+    boleh terlewati hanya karena levelnya tinggi atau karena departemennya
+    belum diisi. Tanpa penjagaan ini, seorang General Manager membaca gaji
+    seluruh karyawan tanpa seorang pun pernah memutuskan bahwa ia boleh —
+    dan daftar aktivitas sudah lebih dulu ditutup untuk level 4 justru
+    supaya tidak menjadi pintu belakang ke angka yang sama.
+
+    Bila kelak memang perlu, memberikannya cukup dengan memasukkan orangnya
+    ke divisi HRD atau memberi izin khusus. Bedanya: cara itu meninggalkan
+    keputusan yang tercatat, bukan akses yang diam-diam ada.
+    """
+    if level < 5 and module in MODUL_WILAYAH_MUTLAK:
+        if not departments or module not in modules_for(departments):
+            return False
 
     minimum = required_level(module, action)
     if minimum in (NOT_APPLICABLE, SPECIAL_ONLY):

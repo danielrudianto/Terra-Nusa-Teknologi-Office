@@ -60,3 +60,46 @@ def test_tanpa_penentu_jatuh_ke_spk():
     assert awalan("5.1.2") == "SPK"
     assert awalan("6.3.2") == "SPK"
     assert awalan("6.5.1") == "SPK"
+
+def test_varian_h_tetap_spk():
+    """
+    H1 dan H2 tetap SURAT PERINTAH KERJA.
+
+    PO-H menyimpan jenisnya sebagai "H1" (subkontraktor badan usaha) atau
+    "H2" (perorangan) — perbedaan yang menentukan ISI dokumennya, bukan
+    jenis dokumennya. Keduanya pekerjaan subkontrak, dan lembarnya berjudul
+    SURAT PERINTAH KERJA.
+
+    Tanpa peringkasan varian, "H1" tidak pernah cocok dengan "H" pada
+    `JENIS_SPK`, sehingga nomornya terbit sebagai `013-PO-MICZ-H1` di atas
+    lembar berjudul SPK — vendor menerima dua sebutan berbeda pada satu
+    lembar yang sama.
+
+    Akar yang sama pernah membuat pratinjau PO-H tampil tanpa satu klausul
+    pun, karena pencarian templat juga mencocokkan ke "H".
+    """
+    for jenis in ("H", "H1", "H2"):
+        assert awalan(jenis) == "SPK", jenis
+
+
+def test_varian_tidak_mengubah_jenis_lain():
+    """Peringkasan varian tidak boleh menyentuh jenis yang bukan varian."""
+    assert awalan("G") == "PO"
+    assert awalan("C") == "PO"
+    assert awalan("A") == "SPK"
+    assert awalan("6.4.1") == "SPK"
+
+
+def test_setiap_varian_menunjuk_jenis_yang_dikenal():
+    """
+    Jenis dasar tiap varian harus benar-benar ada.
+
+    Salah tulis pada peta varian tidak menimbulkan galat apa pun — kodenya
+    hanya tidak pernah cocok, dan awalannya diam-diam kembali ke "PO".
+    """
+    from controllers.purchase_order_controller import PurchaseOrderController as C
+
+    dikenal = C.JENIS_SPK | {"C", "F", "G", "5.1.1", "5.1.2", "5.1.6",
+                             "6.3.1", "6.3.2", "6.5.1"}
+    for varian, dasar in C.VARIAN_JENIS.items():
+        assert dasar in dikenal, f"{varian} -> {dasar} tidak dikenal"

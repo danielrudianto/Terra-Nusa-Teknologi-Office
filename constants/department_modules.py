@@ -81,6 +81,10 @@ DEPARTMENT_MODULES: dict[str, set[str]] = {
     | {
         "employees",
         "salary_slip",
+        # Profil pribadi dan formulir keadaan berkala; isinya susunan
+        # keluarga, riwayat kesehatan, dan kontak darurat.
+        "employee_profile",
+        "employee_form",
     },
     # Divisinya sudah ada, modulnya belum.
     #

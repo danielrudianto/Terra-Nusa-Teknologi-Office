@@ -20,6 +20,13 @@ sales_invoice_tables = Table(
     Column("taxInvoiceName", String(100), nullable=True, default=None),
     Column("incomeTaxInvoiceName", String(100), nullable=True, default=None),
     Column("description", String(100), nullable=True),
+    # Faktur dicetak terpisah dari lampirannya.
+    #
+    # Kolomnya sudah ada di basis data dan layar pembuatannya sudah punya
+    # isian untuk ini, tetapi tidak pernah didaftarkan di model — sehingga
+    # pilihan penggunanya tidak pernah tersimpan, dan tidak ada galat yang
+    # muncul karenanya.
+    Column('separatedInvoice', Boolean, nullable=True, default=False),
     Column("bankAccountID", Integer, ForeignKey("bank_accounts.id"), nullable=False),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False, default=1),
     Column("createdAt", Date, nullable=False, default=dt.utcnow().date()),

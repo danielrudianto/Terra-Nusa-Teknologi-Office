@@ -33,6 +33,11 @@ class ProjectController:
     # ---- Proyek -----------------------------------------------------------
 
     @staticmethod
+    async def ringkasan_margin(page: int = 1, page_size: int = 10):
+        """Ikhtisar margin seluruh proyek; penjumlahannya di basis data."""
+        return await ProjectRepository.ringkasan_margin(page, page_size)
+
+    @staticmethod
     async def create_project(data: dict, user_id: int) -> Dict[str, Any]:
         try:
             kode = (data.get("code") or "").strip().upper()

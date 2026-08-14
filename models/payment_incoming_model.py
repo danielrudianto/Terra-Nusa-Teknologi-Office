@@ -19,4 +19,11 @@ payment_incoming_table = Table(
     Column("updatedBy", Integer, ForeignKey("users.id"), nullable=True, default=None),
     Column("isDelete", Boolean, default=False),
     Column("isApprove", Boolean, default=False),
+    # Kolom hapus lunak melengkapi `isDelete`.
+    #
+    # Keduanya sudah ada di basis data tetapi tidak pernah didaftarkan di
+    # model, sehingga jejak SIAPA dan KAPAN menghapus pembayaran masuk tidak
+    # dapat dibaca maupun ditulis lewat aplikasi.
+    Column('deletedAt', DateTime(), nullable=True, default=None),
+    Column('deletedBy', Integer, ForeignKey('users.id'), nullable=True, default=None),
 )

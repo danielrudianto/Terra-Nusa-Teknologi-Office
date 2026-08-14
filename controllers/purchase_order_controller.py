@@ -14,6 +14,18 @@ class PurchaseOrderController:
     #: kelak berubah, ubah keduanya bersamaan.
     JENIS_SPK = {"A", "B", "D", "H", "6.4.1", "6.4.2", "6.5.2", "5.1.12"}
 
+    #: Kode jenis yang punya VARIAN, dipetakan ke jenis dasarnya.
+    #:
+    #: PO-H mengirim "H1" (badan usaha) atau "H2" (perorangan) — perbedaan
+    #: yang hanya menentukan isi dokumennya, bukan jenis dokumennya. Keduanya
+    #: tetap SURAT PERINTAH KERJA.
+    #:
+    #: Tanpa pemetaan ini, "H1" tidak pernah cocok dengan "H" pada daftar di
+    #: atas, sehingga subkontraktor bernomor `013-PO-MICZ-H1` padahal
+    #: lembarnya berjudul SURAT PERINTAH KERJA. Akar yang sama pernah
+    #: membuat pratinjaunya tampil tanpa satu klausul pun.
+    VARIAN_JENIS = {"H1": "H", "H2": "H"}
+
     @staticmethod
     def _awalan_dokumen(purchase_type: str, custom: dict | None = None) -> str:
         """
@@ -28,6 +40,8 @@ class PurchaseOrderController:
         itu `customData` ikut dibaca di sini.
         """
         jenis = (purchase_type or "").strip()
+        # Varian diringkas ke jenis dasarnya sebelum apa pun diperiksa.
+        jenis = PurchaseOrderController.VARIAN_JENIS.get(jenis, jenis)
         c = custom or {}
 
         # Empat jenis bentuknya bergantung isian, bukan kodenya saja.
@@ -46,7 +60,11 @@ class PurchaseOrderController:
 
     @staticmethod
     async def generate_purchase_order_name(
-        project_code: str = "", purchase_type: str = "", custom: dict | None = None
+        project_code: str = "",
+        purchase_type: str = "",
+        custom: dict | None = None,
+        parent_number: int | None = None,
+        addendum_number: int | None = None,
     ) -> tuple[str, int]:
         """
         Nomor dokumen dengan urutan berjalan per proyek.
@@ -67,7 +85,10 @@ class PurchaseOrderController:
         pembayaran yang sudah mengacu padanya.
         """
         try:
-            if project_code:
+            if parent_number is not None:
+                # Urutan diambil dari induknya; tidak menambah deret proyek.
+                number = parent_number
+            elif project_code:
                 number = await PurchaseOrderRepository.get_next_project_sequence(
                     project_code
                 )
@@ -78,12 +99,24 @@ class PurchaseOrderController:
                 ) + 1
             seq = f"{number:03d}"
             awalan = PurchaseOrderController._awalan_dokumen(purchase_type, custom)
+
+            # Adendum memakai URUTAN INDUKNYA, bukan urutan baru.
+            #
+            # `013-PO-BPBP-F` beradendum menjadi `013-ADD1-PO-BPBP-F`:
+            # urutan, kode proyek, dan jenisnya tetap sama — itulah yang
+            # menjadikannya adendum atas dokumen tersebut, bukan dokumen
+            # lain yang berdiri sendiri.
+            #
+            # Diselipkan pada posisi KEDUA, sesuai dokumen yang sudah
+            # terbit selama ini.
+            sisipan = f"ADD{addendum_number}-" if addendum_number else ""
+
             if project_code and purchase_type:
-                name = f"{seq}-{awalan}-{project_code}-{purchase_type}"
+                name = f"{seq}-{sisipan}{awalan}-{project_code}-{purchase_type}"
             elif project_code:
-                name = f"{seq}-{awalan}-{project_code}"
+                name = f"{seq}-{sisipan}{awalan}-{project_code}"
             else:
-                name = seq
+                name = f"{seq}-{sisipan}".rstrip("-")
             log_info(
                 f"Generated purchase order number '{name}' for project '{project_code}'"
             )
@@ -107,6 +140,51 @@ class PurchaseOrderController:
             # ke purchase_order_items setelah PO-nya terbuat.
             items = purchase_order_data.pop("items", None) or []
 
+            # ---- adendum ----
+            #
+            # Bila ada induknya, urutan dan nomor adendumnya diambil dari
+            # sana. Nomor adendum dihitung DI SINI, bukan dikirim layar:
+            # dua orang yang membuat adendum bersamaan atas induk yang sama
+            # akan menghasilkan nomor yang sama bila layar yang menentukan.
+            parent_id = purchase_order_data.get("parentPurchaseOrderID")
+            parent_number = None
+            addendum_number = None
+            if parent_id:
+                induk = await PurchaseOrderRepository.get_by_id(parent_id)
+                if not induk:
+                    return {"error": "Parent purchase order not found", "status": 404}
+                parent_number = induk.get("number")
+                if parent_number is None:
+                    # Dokumen lama yang nomornya diketik manual tidak punya
+                    # urutan; adendumnya tidak dapat dibentuk otomatis.
+                    return {
+                        "error": "Parent purchase order has no sequence number",
+                        "status": 400,
+                    }
+                addendum_number = (
+                    await PurchaseOrderRepository.next_addendum_number(parent_id)
+                )
+                purchase_order_data["addendumNumber"] = addendum_number
+
+                # Pengurangan tidak boleh melampaui yang tersisa.
+                #
+                # Tanpa ini, adendum yang mengurangi 150 dari pekerjaan
+                # bersisa 100 menghasilkan volume minus lima puluh —
+                # pekerjaan bernilai negatif, yang tidak berarti apa pun
+                # dan merusak laporan margin tanpa memunculkan galat.
+                #
+                # Diperiksa DI SINI, bukan hanya di layar: layar dapat
+                # dilewati, dan yang menjaga keutuhan angka harus yang
+                # paling dekat dengan tempat menyimpannya.
+                masalah = await PurchaseOrderRepository.periksa_pengurangan(
+                    parent_id, items
+                )
+                if masalah:
+                    return {
+                        "error": "Pengurangan melebihi sisa: " + "; ".join(masalah),
+                        "status": 400,
+                    }
+
             # use client-provided PO number, otherwise auto-generate
             if explicit_name:
                 purchase_order_name = explicit_name
@@ -119,6 +197,8 @@ class PurchaseOrderController:
                     project_code or "",
                     purchase_order_data.get("purchaseType", ""),
                     purchase_order_data.get("customData") or {},
+                    parent_number,
+                    addendum_number,
                 )
             # simpan nomor urutnya, dipakai untuk menghitung PO berikutnya
             purchase_order_data["number"] = purchase_order_number

@@ -82,6 +82,15 @@ class PurchaseResponse(PurchaseBase):
     updatedBy: Optional[int] = None
     deletedBy: Optional[int] = None
     supplier: Optional[dict] = None
+    # Id dokumen purchase order, bila nomornya cocok dengan dokumen yang ada.
+    #
+    # Kuerinya sudah menyertakannya lewat sambungan nama, tetapi tanpa
+    # didaftarkan di sini FastAPI MEMBUANGNYA dari jawaban — `response_model`
+    # menyaring bidang yang tidak dikenalnya, tanpa galat maupun peringatan.
+    #
+    # Akibatnya daftar pembelian menandai SELURUH barisnya "dokumen belum
+    # tersedia", termasuk yang dokumennya benar-benar ada.
+    purchase_order_id: Optional[int] = None
 
     class Config:
         from_attributes = True

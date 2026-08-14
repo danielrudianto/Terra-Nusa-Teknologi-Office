@@ -7,3 +7,26 @@ reimbursements/*
 # Ignore node modules
 node_modules/
 storage/tokens/
+
+# Berkas yang DIHASILKAN aplikasi, bukan bagian dari kodenya.
+#
+# Slip gaji memuat nama, jabatan, dan nominal gaji per orang — data paling
+# sensitif di sistem ini, dan satu-satunya yang aksesnya sengaja dibatasi
+# per divisi, bukan per level. Ter-commit ke repo, seluruh pembatasan itu
+# tidak ada artinya: siapa pun yang dapat mengklon repo dapat membacanya.
+#
+# `storage/` seluruhnya diabaikan, bukan hanya subdirektori yang sudah
+# diketahui. Menyebut satu per satu berarti berkas jenis baru ikut
+# ter-commit diam-diam sampai ada yang menyadarinya.
+storage/
+# Sisa tumpukan lama (Bun + Elysia + Prisma).
+#
+# Backend ini FastAPI/Python. Berkas TypeScript hasil `prisma generate` dan
+# `tsconfig.json` tidak dipakai satu baris pun oleh kodenya, tetapi cukup
+# untuk membuat penghitung bahasa GitHub menyimpulkan proyeknya TypeScript —
+# sehingga siapa pun yang membukanya salah menduga tumpukan teknologinya.
+#
+# Termasuk `query_engine-windows.dll.node` sebesar 20 MB, yang seorang diri
+# menjadi 98% isi direktori ini.
+prisma/
+tsconfig.json

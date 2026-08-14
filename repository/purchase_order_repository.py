@@ -46,6 +46,117 @@ class PurchaseOrderRepository:
             return 0
 
     @staticmethod
+    async def next_addendum_number(parent_id: int) -> int:
+        """
+        Urutan adendum berikutnya untuk satu dokumen induk.
+
+        Dihitung dari MAX, bukan COUNT: adendum yang dihapus lunak tetap
+        pernah terbit dan nomornya sudah dipegang vendor. Memakai COUNT
+        akan menerbitkan `ADD2` untuk kedua kalinya setelah satu adendum
+        dihapus.
+        """
+        n = await database.fetch_val(
+            """
+            SELECT MAX(addendumNumber)
+            FROM purchase_orders
+            WHERE parentPurchaseOrderID = :induk
+            """,
+            {"induk": parent_id},
+        )
+        return int(n or 0) + 1
+
+    @staticmethod
+    async def sisa_volume_induk(parent_id: int) -> dict:
+        """
+        Volume yang MASIH TERSISA per baris pekerjaan pada satu induk.
+
+        Dihitung dari induk ditambah seluruh adendum yang sudah terbit —
+        karena adendum berisi selisih, penjumlahannya langsung menghasilkan
+        keadaan sekarang.
+
+        Baris dicocokkan lewat `item_id` bila ada, dan lewat teks
+        pekerjaannya bila tidak. Pencocokan teks memang tidak sempurna;
+        yang penting ia tidak pernah MELONGGARKAN penjagaan — baris yang
+        gagal dicocokkan dianggap baris baru, sehingga pengurangan atasnya
+        tetap tertolak karena sisanya nol.
+        """
+        rows = await database.fetch_all(
+            """
+            SELECT i.item_id, i.task, SUM(i.quantity) AS volume
+            FROM purchase_order_items i
+            JOIN purchase_orders po ON po.id = i.purchaseOrderID
+            WHERE (po.id = :induk OR po.parentPurchaseOrderID = :induk)
+              AND po.isDelete = 0
+            GROUP BY i.item_id, i.task
+            """,
+            {"induk": parent_id},
+        )
+        sisa: dict = {}
+        for r in rows:
+            d = dict(r)
+            kunci = PurchaseOrderRepository._kunci_baris(d.get("item_id"), d.get("task"))
+            sisa[kunci] = sisa.get(kunci, 0) + float(d.get("volume") or 0)
+        return sisa
+
+    @staticmethod
+    def _kunci_baris(item_id, task) -> str:
+        """
+        Kunci pencocokan baris antara adendum dan induknya.
+
+        `item_id` didahulukan karena pasti; teks pekerjaan dipakai bila
+        tidak ada, diseragamkan spasi dan huruf besarnya agar perbedaan
+        pengetikan yang tidak berarti tidak membuat baris dianggap berbeda.
+        """
+        if item_id:
+            return f"id:{item_id}"
+        return "task:" + " ".join(str(task or "").split()).lower()
+
+    @staticmethod
+    async def periksa_pengurangan(parent_id: int, items: list) -> list[str]:
+        """
+        Periksa bahwa pengurangan tidak melampaui yang tersisa.
+
+        Kembaliannya daftar masalah; kosong berarti sah. Dikembalikan
+        sebagai daftar, bukan melempar pada yang pertama, supaya yang
+        mengisi melihat seluruh barisnya sekaligus dan tidak memperbaiki
+        satu per satu.
+
+        Sepadan dengan penjagaan pada pinjaman: `debt` tidak boleh turun di
+        bawah jumlah yang sudah dibayarkan. Di sini, volume tidak boleh
+        turun di bawah nol.
+        """
+        sisa = await PurchaseOrderRepository.sisa_volume_induk(parent_id)
+        masalah: list[str] = []
+        for it in items or []:
+            v = float(it.get("quantity") or 0)
+            if v >= 0:
+                continue
+            kunci = PurchaseOrderRepository._kunci_baris(
+                it.get("item_id"), it.get("task")
+            )
+            tersedia = sisa.get(kunci, 0)
+            if abs(v) > tersedia + 0.0001:
+                nama = it.get("task") or f"baris {kunci}"
+                masalah.append(
+                    f"{nama}: pengurangan {abs(v):g} melebihi sisa {tersedia:g}"
+                )
+        return masalah
+
+    @staticmethod
+    async def get_addendums(parent_id: int):
+        """Seluruh adendum sebuah dokumen, urut nomornya."""
+        rows = await database.fetch_all(
+            """
+            SELECT id, name, addendumNumber, date, dpp, ppn, isDelete
+            FROM purchase_orders
+            WHERE parentPurchaseOrderID = :induk AND isDelete = 0
+            ORDER BY addendumNumber ASC
+            """,
+            {"induk": parent_id},
+        )
+        return [dict(r) for r in rows]
+
+    @staticmethod
     async def get_next_project_sequence(project_name: str) -> int:
         """
         Nomor urut berikutnya untuk satu proyek.

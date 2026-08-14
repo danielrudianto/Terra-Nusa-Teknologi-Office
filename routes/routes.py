@@ -12,6 +12,8 @@ from routes.expenses_routes import router as expenses_router
 from routes.payment_outgoing_routes import router as payment_outgoing_router
 from routes.payment_incoming_routes import router as payment_incoming_router
 from routes.employees_routes import router as employees_router
+from routes.employee_profile_routes import router as employee_profile_router
+from routes.employee_form_routes import router as employee_form_router
 from routes.expense_opponent_routes import router as expense_opponent_router
 from routes.salary_slip_routes import router as salary_slip_router
 from routes.calendar_routes import router as calendar_router
@@ -49,6 +51,18 @@ router.include_router(expenses_router, prefix="/expenses", tags=["Expenses"])
 router.include_router(payment_outgoing_router, prefix="/outgoing-payments", tags=["Outgoing payments"])
 router.include_router(payment_incoming_router, prefix="/incoming-payments", tags=["Incoming Payments"])
 router.include_router(employees_router, prefix="/employees", tags=["Employees"])
+# Awalan terpisah dari /employees: izinnya berbeda modul, dan
+# menempelkannya sebagai sub-rute membuat penjaganya mudah tertukar.
+router.include_router(
+    employee_profile_router,
+    prefix="/employee-profiles",
+    tags=["Employee profiles"],
+)
+router.include_router(
+    employee_form_router,
+    prefix="/employee-forms",
+    tags=["Employee forms"],
+)
 router.include_router(expense_opponent_router, prefix="/expense-opponents", tags=["Expense Opponents"])
 router.include_router(salary_slip_router, prefix="/salary-slips", tags=["Salary Slips"])
 router.include_router(calendar_router, prefix="/calendar", tags=["Calendar"])

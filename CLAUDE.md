@@ -1,100 +1,199 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Panduan untuk siapa pun — termasuk Claude Code — yang bekerja di repo ini.
 
-## What This Is
+Seluruh angka dan klaim di bawah **diverifikasi terhadap kode**, bukan
+diingat. Bila menemukan yang tidak cocok, percayai kodenya dan perbarui
+berkas ini.
 
-A Bun + Elysia.js financial and HR management system for Terra Nusa Teknologi (TNT). Core domains: purchases, payments, expenses, sales invoices, salary slips, employee records, attendance, and bank account management. Migrated from Python + FastAPI.
+Terakhir diperiksa: **14 Agustus 2026**
 
-## Running the Application
+---
+
+## Apa ini
+
+Backend TerraBot — sistem keuangan dan SDM untuk **PT Alpha Konstruksi
+Nusantara**. Cakupannya: pembelian, pembayaran, beban, faktur penjualan,
+slip gaji, data karyawan, proyek, aset, dan rekening bank.
+
+**Tumpukannya FastAPI + Python.** Bukan Bun, bukan Elysia, bukan Prisma.
+
+> Berkas ini sebelumnya menyatakan proyeknya "Bun + Elysia.js … Migrated
+> from Python + FastAPI" — persis kebalikan dari kenyataannya. Sisa berkas
+> `prisma/generated/*.ts` juga masih ter-commit, cukup untuk membuat
+> penghitung bahasa GitHub menyimpulkan proyeknya TypeScript. Keduanya sudah
+> dibereskan; bila muncul lagi, itu tanda ada yang menariknya kembali.
+
+---
+
+## Menjalankan
 
 ```bash
-bun install
-bun run dev          # runs on port 7500 with --watch
-bun run start        # production
+python3 -m venv env && source env/bin/activate
+pip install -r requirements.txt
+python main.py          # uvicorn, port 7500, reload aktif
 ```
 
-**First-time setup** (requires MySQL, Meilisearch, and Redis running):
+Layanan pendamping yang diharapkan di localhost:
+
+| Layanan | Port | Dipakai untuk |
+|---|---|---|
+| MySQL | 3306 | seluruh data |
+| Meilisearch | 7700 | pencarian pemasok, barang, alat |
+| Redis | 6379 | singgahan rekening bank |
+
+`.env` (di-gitignore) memerlukan `DATABASE_URL`, `SECRET_KEY`, `ALGORITHM`,
+dan `MEILISEARCH_MASTER_KEY`.
+
+---
+
+## Keadaan saat ini
+
+| | |
+|---|---|
+| Uji | **145 lolos**, 1 dilewati |
+| Model | 35 berkas, **37 tabel** |
+| Rute | 36 berkas, 34 awalan |
+| Repository | 29 berkas |
+
+---
+
+## Yang wajib diketahui tentang `databases`
+
+Ini bukan SQLAlchemy ORM biasa. Dua hal berikut sudah masing-masing
+menjatuhkan satu endpoint.
+
+**Objek yang dikembalikan `require()` dan `get_current_user()` adalah
+Record, bukan `dict`.** Ia tidak punya `.get()`; memanggilnya melempar
+`AttributeError` dengan jejak tumpukan yang tidak menyebut sebabnya. Pakai
+`user["kolom"]`, bungkus `try/except` bila kolomnya mungkin tidak ada.
+
+**Default kolom sisi-Python tidak pernah berlaku.**
+`Column(..., default=dt.now)` dievaluasi mesin SQLAlchemy saat eksekusi;
+`databases` menjalankan kueri yang sudah dikompilasi, sehingga langkah itu
+dilewati dan nilainya sampai ke MySQL sebagai `NULL`. Karena itu `createdAt`
+diisi manual di banyak tempat — ikuti pola itu.
+
+**Kueri mentah diberikan sebagai STRING, bukan dibungkus `text()`.**
+`databases` membungkusnya sendiri lalu memasang `bindparams`. Bila sudah
+berupa `TextClause`, ia justru memanggil `.values(**values)` — metode yang
+hanya dimiliki INSERT/UPDATE — dan melempar `AttributeError`.
+
+---
+
+## Susunan
+
+```
+main.py                 aplikasi FastAPI, CORS, kait awal, uvicorn
+routes/routes.py        seluruh awalan didaftarkan di sini
+routes/*.py             satu berkas per domain
+controllers/*.py        orkestrasi
+repository/*.py         akses data (metode statis async)
+models/*.py             tabel SQLAlchemy Core + skema Pydantic
+constants/              matriks izin, modul per divisi, templat klausul
+utils/                  database, auth, permission, errors, logger, redis,
+                        meilisearch, audit_context, login_guard, config
+scripts/cek_skema.py    bandingkan kolom model dengan basis data
+test/                   pytest
+```
+
+---
+
+## Izin
+
+Tiga lapis, diperiksa berurutan di `utils/permission.py`:
+
+**Izin khusus per pengguna** menimpa segalanya — dipakai sebagai
+pengecualian, dan tercatat.
+
+**Batas wilayah divisi** berlaku di bawah level 4. Level 4 (General Manager)
+dan 5 (pemilik) tidak dibatasi divisi.
+
+**Tangga level** 1–5, didaftar di `constants/permission_matrix.py` sebagai
+`(read, create, update, delete, approve)`. Nilai `0` berarti tidak berlaku.
+
+**Pengecualian yang tidak boleh dilonggarkan tanpa berpikir:**
+`MODUL_WILAYAH_MUTLAK` — `salary_slip`, `employees`, `employee_profile`,
+`employee_form` — hanya terbuka bagi divisi HRD dan FAT, **berapa pun
+levelnya**. Tanpa itu, General Manager membaca gaji seluruh karyawan tanpa
+seorang pun pernah memutuskan bahwa ia boleh.
+
+**Yang membuat tidak boleh menyetujui.** Berlaku pada pembayaran keluar.
+
+---
+
+## Pola yang berlaku
+
+**Hapus lunak di mana-mana.** `isDelete` plus `deletedAt`/`deletedBy`.
+Sebagian tabel lama menyimpannya sebagai TinyInt (0/1), bukan BOOLEAN —
+periksa modelnya sebelum menyaring.
+
+**Boolean daripada enum teks** — `isActive`, `isCancelled`.
+
+**Halaman** pada seluruh endpoint daftar: `page`, `pageSize`, `sortBy`,
+`sortByDirection`.
+
+**Galat berkode.** `utils/errors.py` memetakan kode ke pesan yang
+diterjemahkan frontend lewat `ServerMessageService`. Repository mengembalikan
+`{"error": ..., "status": N}`; rute membukanya menjadi `HTTPException`.
+
+**Jejak audit mencatat NAMA kolom, bukan nilainya**, pada data pribadi.
+Jejak audit terbuka bagi level 5 seluruhnya; menyalin isi profil atau gaji ke
+sana membuat pembatasan wilayahnya tidak ada artinya.
+
+**Argumen jejak audit disusun dari parameter, bukan dari dict masukan.**
+Membaca `data["projectID"]` pernah melempar `KeyError` **setelah** datanya
+tersimpan — pengguna melihat 500, mencoba lagi, dan tersimpan dua kali.
+Dijaga `test/audit_argumen_test.py`.
+
+---
+
+## Sebelum menyatakan sesuatu selesai
+
 ```bash
-bunx prisma db pull         # sync schema from existing DB
-bunx prisma generate        # regenerate TypeScript client
+python3 -m pytest test/ -q        # 145 lolos, 1 dilewati
+python3 scripts/cek_skema.py      # kolom model vs basis data
 ```
 
-## Architecture
+`cek_skema.py` membaca SETIAP `Table()` dalam tiap berkas dan menerima
+definisi `Column(` multi-baris. Keduanya pernah salah, dan akibatnya enam
+tabel tidak pernah diperiksa tanpa ada yang menyadarinya.
 
-**MVC + Repository pattern:**
-- `src/routes/` — Elysia route groups, one file per domain
-- `src/controllers/` — business logic and orchestration
-- `src/repository/` — Prisma-based data access (static async methods)
-- `src/utils/` — database, auth, meilisearch, redis, logger, guard, pagination
+**Verifikasi harus bisa gagal.** Bila membuat pemeriksa, uji dulu dengan
+kerusakan buatan — pemeriksa yang tidak pernah menemukan apa pun mungkin
+memang buta.
 
-**Entry point:** `src/index.ts` — Elysia app with CORS, startup hooks (Prisma, Meilisearch, Redis), all routes registered here.
+---
 
-**Auth guard:** `src/utils/guard.ts` — Elysia `derive` plugin that decodes the Bearer token and injects `user` into route context. Every protected route checks `if (!user) return set.status = 401`.
+## Yang belum beres
 
-**External services** (all expected at localhost):
-- MySQL — `DATABASE_URL` in `.env` (format: `mysql://user:pass@localhost/tnt`)
-- Meilisearch on `:7700` — supplier full-text search
-- Redis on `:6379` — bank account caching
+**CORS masih `*`** di `main.py`. Situs mana pun dapat memanggil API dengan
+kredensial pengguna yang sedang login. Perbaikannya satu baris; yang
+dibutuhkan hanya daftar domain produksinya.
 
-## Key Patterns
+**`env/` dan `data.ms/` ter-commit** — ribuan berkas, dan `env/` berpotensi
+memuat kredensial. Perlu diperiksa isinya, di-gitignore, lalu dikeluarkan
+dari riwayat bila memang ada rahasia di sana.
 
-**Soft delete everywhere:** All tables use `isDelete` (Boolean or TinyInt) and `deletedAt`/`deletedBy`. Always filter with `isDelete: false` (or `isDelete: 0` for TinyInt tables like `income`, `purchase_draft`, `payment_incoming`).
+**Slip gaji pernah ter-commit** di `storage/salary_slips/`. Sudah
+di-gitignore, tetapi berkasnya **masih ada di riwayat** — membersihkannya
+memerlukan penulisan ulang riwayat.
 
-**TinyInt vs Boolean:** Some older tables store booleans as `Int @db.TinyInt` (0/1) instead of MySQL BOOLEAN. Check the Prisma schema for the actual type before querying.
+**Cadangan belum pernah diuji pulih.** Skripnya ada di `scripts/`. Bila
+belum pernah dicoba memulihkan, itu asumsi — bukan cadangan.
 
-**Auth flow:** JWT tokens — access token (12h), refresh token (7 days). Tokens use `SECRET_KEY` and `ALGORITHM` from `.env`. `decodeToken()` in `src/utils/auth.ts` returns `null` on invalid/expired tokens.
+**Halaman posisi keuangan** — `GET /finance-status` sudah ada, layarnya
+belum.
 
-**Pagination:** All list endpoints accept `page`, `pageSize`, `sortBy`, `sortByDirection` query params. Use `paginationParams()` and `paginationMeta()` from `src/utils/pagination.ts`.
+---
 
-**Error responses:** Route handlers return `{ detail: "..." }` on error with `set.status` set. Controllers return `{ error: "...", status: N }` — routes unpack these into HTTP responses.
+## Catatan
 
-**Decimal fields:** Financial amounts in the DB are `Decimal` type (MySQL DECIMAL). Prisma returns them as `Prisma.Decimal` objects — convert to number with `.toNumber()` before returning in JSON if needed.
+**ACCURATE** adalah pembukuan resmi AKN; TerraBot tidak menggantikannya.
+Standar akuntansi yang berlaku **SAK ETAP**, bukan PSAK penuh.
 
-**Calendar route:** Uses `prisma.$queryRaw` with `Prisma.join()` for complex multi-table joins and the `mutation` MySQL view (balance tracking). The mutation view is NOT in the Prisma schema — access only via raw queries. If `mutation` view doesn't exist the balance query fails silently and returns 0.
+Kategori pajak karyawan: `TK/0`–`TK/3`, `K/0`–`K/3`. Mata uang IDR.
 
-**bankAccounts filter:** The `/calendar` endpoints accept `bankAccounts` as a comma-separated string (e.g. `?bankAccounts=1,2,3`). Empty/absent means no filter (all accounts).
-
-## Route Modules
-
-All prefixes registered in `src/index.ts`:
-- `/auth` — login, refresh token
-- `/clients`, `/suppliers` — client and supplier CRUD
-- `/employees` — employee records
-- `/banks` — bank accounts (with Redis caching)
-- `/assets`, `/expense-opponents`, `/income`
-- `/loans`, `/interpayments`
-- `/purchases`, `/purchase-orders`, `/purchase-draft`
-- `/expenses`, `/reimbursements`
-- `/sales-invoices`
-- `/outgoing-payments`, `/incoming-payments`
-- `/salary-slips`
-- `/taxes` — PPH/PPN reporting endpoints
-- `/calendar` — Monthly summary, daily detail, and download/export; aggregates from payment_outgoing, payment_incoming, interpayments, and the `mutation` MySQL view
-- `/attendance` — Employee attendance CRUD with month/date/employee filtering
-
-## Database Schema
-
-Schema in `prisma/schema.prisma` is generated from the actual DB via `bunx prisma db pull`. If you add a column via SQL migration, re-run `prisma db pull` then `prisma generate` to update TypeScript types.
-
-**Audit trail** on most tables: `createdAt`, `createdBy`, `updatedAt`, `updatedBy`, `deletedAt`, `deletedBy`, `isDelete`.
-
-## Indonesian Locale Specifics
-
-- Employee tax categories: `TK/0`, `TK/1`, `TK/2`, `TK/3`, `K/0`, `K/1`, `K/2`, `K/3`
-- Meilisearch has Indonesian location/equipment synonyms configured in `src/utils/meilisearch.ts`
-- Currency is IDR — Decimal precision matters for financial calculations
-
-## Environment
-
-`.env` file (gitignored) — required variables:
-```
-DATABASE_URL=mysql://user:pass@localhost/tnt
-SECRET_KEY=...
-ALGORITHM=HS256
-MEILISEARCH_MASTER_KEY=...
-```
-
-## Logging
-
-Use `logInfo()`, `logWarning()`, `logError()` from `src/utils/logger.ts`. Color-coded console output.
+Dokumen cetak — purchase order, slip gaji, rekap Excel — **tetap berbahasa
+Indonesia** apa pun bahasa aplikasinya, karena mengikuti bahasa dokumen
+resminya.

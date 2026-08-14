@@ -16,6 +16,12 @@ class SalesInvoiceBase(BaseModel):
     spkNumber: str
     description: str
     bankAccountID: int
+    # Faktur dicetak terpisah dari lampirannya.
+    #
+    # Layar pembuatannya sudah lama punya isian ini dan kolomnya sudah ada di
+    # basis data, tetapi tidak pernah sampai ke sini — pilihan penggunanya
+    # hilang tanpa galat apa pun.
+    separatedInvoice: bool = False
     isApprove: bool = False
     isDelete: bool = False
 
@@ -38,6 +44,7 @@ class SalesInvoiceUpdate(BaseModel):
     bankAccountID: Optional[int] = None
     taxInvoiceName: Optional[str] = None
     incomeTaxInvoiceName: Optional[str] = None
+    separatedInvoice: Optional[bool] = None
     isApprove: bool = False
     isDelete: bool = False
     updatedBy: Optional[int] = None

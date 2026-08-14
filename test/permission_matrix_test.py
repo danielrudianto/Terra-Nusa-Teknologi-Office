@@ -141,6 +141,29 @@ def test_jejak_aktivitas_terbuka_tetapi_isinya_dibatasi():
     assert 'userID = [current_user["id"]]' in rute, "pemaksaan ke diri sendiri hilang"
 
 
+def test_modul_wilayah_mutlak_memuat_gaji_dan_karyawan():
+    """
+    Gaji dan data karyawan tidak pernah terbuka lewat level saja.
+
+    Level 4 sengaja tidak diberi departemen — jabatannya General Manager,
+    wilayahnya seluruh perusahaan. Tanpa penjagaan terpisah, ia membaca gaji
+    seluruh karyawan tanpa seorang pun pernah memutuskan bahwa ia boleh.
+
+    Daftar aktivitas sudah lebih dulu ditutup untuk level 4 justru supaya
+    tidak menjadi pintu belakang ke angka yang sama; membiarkan pintu
+    depannya terbuka membuat penutupan itu tidak ada artinya.
+    """
+    from utils.permission import MODUL_WILAYAH_MUTLAK
+
+    assert "salary_slip" in MODUL_WILAYAH_MUTLAK
+    assert "employees" in MODUL_WILAYAH_MUTLAK
+    # Modul operasional TIDAK boleh ikut: General Manager memang perlu
+    # melihatnya, dan memasukkannya ke sini akan mengunci level 4 dari
+    # hampir seluruh sistem.
+    for modul in ("purchase", "expenses", "supplier", "purchase_order"):
+        assert modul not in MODUL_WILAYAH_MUTLAK, modul
+
+
 def test_data_induk_boleh_dibuat_level_satu():
     """
     Pemasok dan barang boleh DIBUAT level 1, tetapi tidak diubah.

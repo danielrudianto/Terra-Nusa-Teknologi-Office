@@ -1,23 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(Get-ChildItem -Path \"D:\\\\Repos\\\\Terra Bot\\\\Terra-Nusa-Teknologi-Office\\\\models\" -File | ForEach-Object { $_.FullName })",
-      "PowerShell(Get-ChildItem -Path \"D:\\\\Repos\\\\Terra Bot\\\\Terra-Nusa-Teknologi-Office\\\\repository\" -File | ForEach-Object { $_.FullName })",
-      "Bash(bun init *)",
-      "Bash(bun add *)",
-      "Bash(mkdir -p src/routes src/controllers src/repository src/schemas src/utils src/services)",
-      "Bash(rm index.ts)",
-      "Bash(Get-ChildItem *)",
-      "Bash(bunx prisma *)",
-      "Bash(timeout 6 bun run src/index.ts)",
-      "Bash(Select-Object FullName)",
-      "Bash(timeout 5 bun run src/index.ts)",
-      "Bash(Remove-Item -Recurse -Force \"D:\\\\Repos\\\\Terra Bot\\\\Terra-Nusa-Teknologi-itte\")",
-      "Bash(timeout 8 bun run src/index.ts)",
-      "Bash(bun run *)",
-      "Bash(curl -s -X POST http://localhost:7500/auth/ -H \"Content-Type: application/json\" -d '{\"email\":\"danielrudianto12@gmail.com\",\"password\":\"test\"}')",
-      "Bash(kill %1)",
-      "Bash(bun -e 'const {PrismaClient} = require\\('\\\\''@prisma/client'\\\\''\\); const p = new PrismaClient\\(\\); p.$executeRawUnsafe\\('\\\\''DROP TABLE IF EXISTS attendance'\\\\''\\).then\\(\\(\\) => { console.log\\('\\\\''dropped'\\\\''\\); return p.$disconnect\\(\\); }\\)')"
+      "Bash(python3 -m pytest *)",
+      "Bash(python3 scripts/cek_skema.py)"
     ]
   }
 }
