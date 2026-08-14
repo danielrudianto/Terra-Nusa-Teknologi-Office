@@ -19,7 +19,7 @@ settings = {
     ],
     "searchableAttributes": ["sku", "description", "brand", "type"],
     "filterableAttributes": ["brand", "type", "unit", "availablePurchaseType"],
-    "sortableAttributes": ["sku", "brand", "type"],
+    "sortableAttributes": ["sku", "brand", "type", "isFavorite"],
     "rankingRules": ["words", "typo", "proximity", "attribute", "sort", "exactness"],
     "nonSeparatorTokens": [".", ",", "-", "_"],
     "separatorTokens": ["/", "&"],
@@ -48,6 +48,10 @@ def to_document(row: dict) -> dict:
         "type": row.get("type") or "",
         "unit": row.get("unit") or "",
         "availablePurchaseType": _split_types(row.get("availablePurchaseType")),
+        # Dipakai memutus seri pada PEMILIH barang: `sort=isFavorite:desc`
+        # hanya dikirim dari sana, sehingga daftar Master Barang tidak ikut
+        # berubah urutannya.
+        "isFavorite": bool(row.get("isFavorite") or False),
     }
 
 
@@ -73,6 +77,66 @@ def delete_document(item_id: int):
         log_error(f"Error removing master item from search index: {str(e)}")
 
 
+#: Sinonim pencarian katalog barang.
+#:
+#: Meilisearch memperlakukan sinonim SEARAH: mendaftarkan "hitam" -> ["black"]
+#: membuat pencarian "hitam" menemukan "black", tetapi TIDAK sebaliknya.
+#: Karena itu tiap pasangan didaftarkan dua arah lewat `_dua_arah()`.
+#:
+#: Katalognya ditulis campur — sebagian memakai istilah teknis Inggris, sebagian
+#: sebutan lapangan. Yang mencari mengetik apa yang ia sebut sehari-hari, dan
+#: tanpa sinonim ia menyimpulkan barangnya tidak ada lalu membuat entri kembar.
+_PASANGAN = [
+    # ---- warna ----
+    ("black", ["hitam"]),
+    ("white", ["putih"]),
+    ("red", ["merah"]),
+    ("blue", ["biru"]),
+    ("green", ["hijau"]),
+    ("yellow", ["kuning"]),
+    ("orange", ["oranye", "jingga"]),
+    ("grey", ["gray", "abu", "abu-abu"]),
+    ("brown", ["coklat", "cokelat"]),
+    ("silver", ["perak"]),
+    ("gold", ["emas"]),
+    ("clear", ["bening", "transparan"]),
+
+    # ---- kelistrikan ----
+    # Sebutan lapangan dan istilah katalog kerap berbeda jauh; keduanya
+    # dipakai orang yang sama pada hari yang sama.
+    ("industrial plug", ["colokan industrial", "steker industrial"]),
+    ("wall socket", ["socket", "soket", "stopkontak", "stop kontak"]),
+    ("industrial socket", ["soket industrial", "socket industrial"]),
+    ("fitting lampu", ["dudukan lampu", "lamp holder"]),
+
+    # ---- perkakas ----
+    # "kuku macan" sebutan lapangan yang tidak menyerupai istilah resminya
+    # sama sekali — tanpa sinonim, yang mencari tidak akan pernah menemukannya.
+    ("wire rope clip", ["kuku macan", "klem seling", "klem sling"]),
+]
+
+
+def _dua_arah(pasangan: list) -> dict:
+    """
+    Susun peta sinonim DUA ARAH dari daftar pasangan.
+
+    Meilisearch tidak menyimpulkan arah sebaliknya sendiri. Menulisnya manual
+    berarti tiap istilah harus disebut berkali-kali, dan yang terlewat tidak
+    menimbulkan galat — hanya pencarian yang diam-diam tidak menemukan apa pun
+    dari satu arah saja.
+    """
+    peta: dict[str, set] = {}
+    for utama, lainnya in pasangan:
+        semua = [utama, *lainnya]
+        for kata in semua:
+            k = kata.lower()
+            peta.setdefault(k, set()).update(x for x in semua if x.lower() != k)
+    return {k: sorted(v) for k, v in peta.items()}
+
+
+item_synonyms = _dua_arah(_PASANGAN)
+
+
 async def setup_master_item_meilisearch():
     """Ensure the index exists and settings are applied (called on startup)."""
     try:
@@ -81,6 +145,7 @@ async def setup_master_item_meilisearch():
         pass
     index.update_settings(settings)
     index.update_typo_tolerance(typo_settings)
+    index.update_synonyms(item_synonyms)
     log_info(f"Settings applied to index '{index_name}' successfully.")
 
 

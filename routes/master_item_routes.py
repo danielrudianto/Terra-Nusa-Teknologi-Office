@@ -36,13 +36,43 @@ async def get_master_items(
     item_type: str = Query(None, description="Filter by exact type"),
     sortBy: str = Query(None, description="Sort column: sku, brand, type"),
     sortByDirection: str = Query("asc", description="asc or desc"),
+    favoritDulu: bool = Query(
+        False,
+        description=(
+            "Dahulukan barang favorit. Dikirim HANYA oleh pemilih barang; "
+            "daftar Master Barang tidak memakainya karena di sana yang dicari "
+            "justru barang yang jarang dipakai."
+        ),
+    ),
 ):
     result = await MasterItemController.get_master_items(
-        keyword, page, page_size, purchase_type, brand, item_type, sortBy, sortByDirection
+        keyword, page, page_size, purchase_type, brand, item_type,
+        sortBy, sortByDirection, favoritDulu,
     )
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(status_code=result.get("status", 500), detail=error_detail(result))
     return result
+
+
+@router.patch("/{item_id}/favorite")
+async def set_master_item_favorite(
+    item_id: int,
+    favorit: bool = Query(..., description="True menandai, False melepas"),
+    current_user: Annotated[User, Depends(require("master_item", "update"))] = None,
+):
+    """
+    Tandai barang sebagai favorit.
+
+    Memakai izin `update` yang sama dengan menyunting barangnya: menandai
+    favorit mengubah urutan yang dilihat SELURUH pengguna pada pemilih
+    barang, jadi bukan preferensi pribadi.
+    """
+    hasil = await MasterItemController.set_favorite(item_id, favorit)
+    if isinstance(hasil, dict) and "error" in hasil:
+        raise HTTPException(
+            status_code=hasil.get("status", 500), detail=error_detail(hasil)
+        )
+    return hasil
 
 
 @router.get("/facets")

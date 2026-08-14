@@ -75,6 +75,7 @@ class MasterItemController:
         purchase_type: str = None, brand: str = None, item_type: str = None,
         sortBy: str = None,
         sortByDirection: str = "asc",
+        favorit_dulu: bool = False,
     ) -> Dict[str, Any]:
         """Search via Meilisearch, fall back to the database if it's unavailable.
 
@@ -112,10 +113,31 @@ class MasterItemController:
             except Exception as search_error:
                 log_error(f"Meilisearch error, falling back to database: {str(search_error)}")
                 return await MasterItemRepository.get_paginated(
-                    page, page_size, keyword or None, purchase_type, brand, item_type, sortBy, sortByDirection)
+                    page, page_size, keyword or None, purchase_type, brand,
+                    item_type, sortBy, sortByDirection, favorit_dulu)
         except Exception as e:
             log_error(f"Error fetching master items: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def set_favorite(item_id: int, favorit: bool) -> Dict[str, Any]:
+        """
+        Tandai favorit, lalu segarkan indeks pencariannya.
+
+        Indeksnya HARUS ikut diperbarui: urutan pada pemilih barang dibaca
+        dari sana, sehingga tanpa ini penandaannya tersimpan tetapi tidak
+        mengubah apa pun yang terlihat.
+        """
+        hasil = await MasterItemRepository.set_favorite(item_id, favorit)
+        if isinstance(hasil, dict) and "error" in hasil:
+            return hasil
+        try:
+            index_document(hasil)
+        except Exception as e:
+            # Penandaannya sudah tersimpan; kegagalan indeks tidak boleh
+            # membatalkannya. Sinkronisasi berkala akan menyusul.
+            log_error(f"Error indexing favorite item {item_id}: {str(e)}")
+        return hasil
 
     @staticmethod
     async def get_facets() -> Dict[str, Any]:

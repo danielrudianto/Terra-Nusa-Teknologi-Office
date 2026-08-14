@@ -207,6 +207,18 @@ class PurchaseController:
                 log_error(f"Error fetching purchase report by project: {purchase_drafts['error']}")
                 raise HTTPException(status_code=purchase_drafts["status"], detail=purchase_drafts["error"])
             
+            # Draft pembelian IKUT dihitung sebagai biaya.
+            #
+            # Biaya yang belum tercatat justru yang paling berbahaya: tanpanya
+            # proyek tampak untung padahal tagihannya belum masuk semua.
+            # Aturan yang sama berlaku pada ikhtisar margin seluruh proyek —
+            # dua laporan yang memberi angka berbeda untuk proyek yang sama
+            # merusak kepercayaan pada dua-duanya.
+            drafts = await PurchaseRepository.get_drafts_by_project(projectName)
+            if isinstance(drafts, dict) and "error" in drafts:
+                log_error(f"Error fetching drafts by project: {drafts['error']}")
+                drafts = []
+
             sales_invoices = await SalesInvoiceRepository.get_by_project(projectName)
             if "error" in sales_invoices:
                 log_error(f"Error fetching purchase report by project: {sales_invoices['error']}")
@@ -215,6 +227,7 @@ class PurchaseController:
             
             return {
                 "purchases": purchases,
+                "purchase_drafts": drafts,
                 "reimbursements": reimbursements,
                 "purchase_drafts": purchase_drafts,
                 "sales_invoices": sales_invoices

@@ -293,6 +293,44 @@ class PurchaseRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    async def get_drafts_by_project(projectName: str):
+        """
+        Draft pembelian satu proyek, untuk laporan.
+
+        Draft IKUT dihitung sebagai biaya. Ia belum tentu menjadi pembelian,
+        tetapi biaya yang belum tercatat justru yang paling berbahaya di
+        sini: tanpanya proyek tampak untung padahal tagihannya belum masuk
+        semua.
+
+        Aturan yang sama sudah berlaku pada ikhtisar margin seluruh proyek;
+        keduanya harus sepakat, karena dua laporan yang memberi angka berbeda
+        untuk proyek yang sama merusak kepercayaan pada dua-duanya.
+
+        Draft yang SUDAH DIKONVERSI tidak ikut — pembeliannya sudah terhitung
+        sendiri, dan menghitung keduanya berarti biayanya dobel.
+        """
+        try:
+            if not projectName:
+                return {"error": "Project name is required", "status": 400}
+
+            rows = await database.fetch_all(
+                """
+                SELECT d.*, s.name AS supplier_name, s.prefix AS supplier_prefix
+                FROM purchase_draft d
+                LEFT JOIN suppliers s ON s.id = d.supplierID
+                WHERE d.projectName = :proyek
+                  AND d.isDelete = 0
+                  AND d.purchaseID IS NULL
+                ORDER BY d.date DESC
+                """,
+                {"proyek": projectName},
+            )
+            return [dict(r) for r in rows]
+        except Exception as e:
+            log_error(f"Error fetching drafts for project {projectName}: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def get_by_project(projectName: str):
         """
         Get purchases by project name.

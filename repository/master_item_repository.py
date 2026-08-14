@@ -95,9 +95,38 @@ class MasterItemRepository:
             raise
 
     @staticmethod
+    async def set_favorite(item_id: int, favorit: bool) -> dict:
+        """
+        Tandai atau lepas tanda favorit satu barang.
+
+        Dikembalikan barisnya yang sudah diperbarui, bukan sekadar status
+        berhasil: layar perlu menyegarkan indeks pencariannya, dan mengambil
+        ulang barisnya berarti satu perjalanan tambahan.
+        """
+        try:
+            baris = await database.fetch_one(
+                "SELECT id FROM master_item WHERE id = :id AND isDelete = 0",
+                {"id": item_id},
+            )
+            if not baris:
+                return {"error": "Item not found", "status": 404}
+
+            await database.execute(
+                "UPDATE master_item SET isFavorite = :f WHERE id = :id",
+                {"f": 1 if favorit else 0, "id": item_id},
+            )
+            row = await database.fetch_one(
+                "SELECT * FROM master_item WHERE id = :id", {"id": item_id}
+            )
+            return dict(row) if row else {"error": "Item not found", "status": 404}
+        except Exception as e:
+            log_error(f"Error setting favorite on item {item_id}: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def get_paginated(
         page: int = 1, page_size: int = 10, keyword: str = None,
-        purchase_type: str = None, brand: str = None, item_type: str = None, sortBy: str = None, sortByDirection: str = "asc") -> Dict[str, Any]:
+        purchase_type: str = None, brand: str = None, item_type: str = None, sortBy: str = None, sortByDirection: str = "asc", favorit_dulu: bool = False) -> Dict[str, Any]:
         """DB-side pagination (fallback when Meilisearch is unavailable)."""
         try:
             data_query = select(master_item_table).where(
@@ -163,9 +192,23 @@ class MasterItemRepository:
 
             )
 
+            # ---- pemilih barang ----
+            #
+            # Barang favorit didahulukan HANYA pada pemilih, dan hanya
+            # sebagai kunci urut PERTAMA — urutan yang dipilih pengguna tetap
+            # berlaku di dalam masing-masing kelompok.
+            #
+            # Tidak diberlakukan pada daftar Master Barang: di sana yang
+            # dicari justru barang yang jarang dipakai, dan mendorong favorit
+            # ke atas membuat yang lain lebih sulit ditemukan.
+            if favorit_dulu:
+                order_by = [master_item_table.c.isFavorite.desc(), order_by]
+            else:
+                order_by = [order_by]
+
 
             offset = (page - 1) * page_size
-            data_query = data_query.order_by(order_by).offset(offset).limit(page_size)
+            data_query = data_query.order_by(*order_by).offset(offset).limit(page_size)
 
             rows = await database.fetch_all(data_query)
             total = await database.fetch_val(count_query) or 0

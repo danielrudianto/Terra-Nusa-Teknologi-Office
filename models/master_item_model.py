@@ -23,6 +23,16 @@ master_item_table = Table(
     Column("type", String(45), nullable=False),
     Column("unit", String(45), nullable=False),
     Column("isDelete", Boolean, nullable=False, server_default=text("0"), default=False),
+    # Barang yang sering dipakai, didahulukan pada PEMILIH barang.
+    #
+    # Katalognya seribu baris lebih; yang benar-benar dipakai sehari-hari
+    # jauh lebih sedikit. Tanpa penanda ini, barang yang sama dicari ulang
+    # setiap kali dan yang tidak menemukannya membuat entri kembar.
+    #
+    # Hanya memengaruhi urutan pada pemilih. Daftar Master Barang tetap urut
+    # sesuai kolom yang dipilih penggunanya — di sana yang dicari justru
+    # barang yang jarang dipakai.
+    Column("isFavorite", Boolean, nullable=False, server_default="0", default=False),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
     Column("createdAt", DateTime, server_default=func.now(), nullable=True),
     Column("updatedBy", Integer, ForeignKey("users.id"), nullable=True),
