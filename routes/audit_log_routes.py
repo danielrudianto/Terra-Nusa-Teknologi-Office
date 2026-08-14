@@ -8,6 +8,24 @@ from utils.permission import require
 router = APIRouter()
 
 
+def _level(user) -> int:
+    """
+    Baca level dari objek pengguna.
+
+    Objek yang dikembalikan `require()` berupa Record dari pustaka
+    `databases`, yang TIDAK memiliki metode `.get()` — memanggilnya melempar
+    AttributeError dan permintaannya gagal tanpa menyebut sebabnya.
+
+    Bila levelnya tidak terbaca, jangan diperlakukan sebagai akses tinggi:
+    yang aman adalah menganggapnya paling rendah, sehingga yang terlihat
+    hanya aktivitas sendiri.
+    """
+    try:
+        return int(user["authenticationLevel"] or 1)
+    except (KeyError, TypeError, ValueError):
+        return 1
+
+
 #: Sebanyak-banyaknya nama yang boleh disaring sekaligus.
 #:
 #: Bukan batas teknis, melainkan batas keterbacaan: daftar yang menyaring dua
@@ -43,7 +61,7 @@ async def get_audit_logs(
     akan menjadikan halaman ini pintu belakang ke data yang sudah ditutup
     bagi mereka.
     """
-    level = current_user.get("authenticationLevel") or 1
+    level = _level(current_user)
 
     if level < 5:
         userID = [current_user["id"]]

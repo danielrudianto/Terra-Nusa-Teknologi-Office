@@ -141,6 +141,19 @@ def test_jejak_aktivitas_terbuka_tetapi_isinya_dibatasi():
     assert 'userID = [current_user["id"]]' in rute, "pemaksaan ke diri sendiri hilang"
 
 
+def test_level_dibaca_tanpa_metode_dict():
+    """
+    Objek pengguna berupa Record dari `databases`, bukan dict.
+
+    Record tidak punya `.get()`. Memanggilnya melempar AttributeError, dan
+    permintaannya gagal dengan jejak tumpukan yang tidak menyebut sebabnya —
+    galat yang sudah pernah terjadi sekali di rute ini.
+    """
+    rute = (Path(__file__).resolve().parents[1] / "routes" / "audit_log_routes.py").read_text()
+    assert "current_user.get(" not in rute, "Record tidak punya .get()"
+    assert "def _level(" in rute, "pembaca level yang tahan galat hilang"
+
+
 def test_jejak_aktivitas_terbaca_semua_divisi():
     """
     Tanpa masuk modul umum, pengguna berdivisi tetap terkunci meski levelnya
