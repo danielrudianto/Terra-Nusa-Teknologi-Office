@@ -14,6 +14,69 @@ class PurchaseOrderController:
     #: kelak berubah, ubah keduanya bersamaan.
     JENIS_SPK = {"A", "B", "D", "H", "6.4.1", "6.4.2", "6.5.2", "5.1.12"}
 
+    #: Kolom yang TIDAK BOLEH berbeda antara adendum dan induknya.
+    #:
+    #: Adendum adalah perubahan atas perjanjian yang sudah ada — bukan
+    #: perjanjian baru. Mengganti pemasok berarti menagih pihak lain atas
+    #: dokumen bernomor sama; mengganti proyek memindahkan biayanya ke
+    #: pembukuan proyek yang berbeda tanpa jejak.
+    KOLOM_TERKUNCI_ADENDUM = ("supplierID", "projectName", "purchaseType")
+
+    #: Isian `customData` yang menentukan JENIS DOKUMEN yang terbit.
+    #:
+    #: Keempatnya memutuskan apakah dokumennya PURCHASE ORDER atau SURAT
+    #: PERINTAH KERJA. Mengubahnya pada adendum membuat `013-ADD1-PO-...`
+    #: terbit di atas lembar berjudul SURAT PERINTAH KERJA — nomor dan
+    #: judulnya bertentangan pada satu lembar yang sama.
+    #:
+    #: Daftar ini harus sama dengan yang dibaca `_awalan_dokumen`; bila ada
+    #: penentu baru di sana, tambahkan di sini juga.
+    CUSTOM_TERKUNCI_ADENDUM = (
+        "materialType",
+        "maintenanceMode",
+        "marketingMode",
+        "recruitmentMode",
+    )
+
+    @staticmethod
+    def _periksa_kunci_adendum(induk: dict, baru: dict) -> list[str]:
+        """
+        Bandingkan adendum dengan induknya; kembalikan daftar yang berbeda.
+
+        Dikembalikan sebagai daftar, bukan melempar pada perbedaan pertama,
+        supaya yang mengisi melihat seluruhnya sekaligus.
+        """
+        import json
+
+        masalah: list[str] = []
+
+        for kolom in PurchaseOrderController.KOLOM_TERKUNCI_ADENDUM:
+            lama = induk.get(kolom)
+            kini = baru.get(kolom)
+            if kini is None:
+                continue
+            if str(lama or "") != str(kini or ""):
+                masalah.append(f"{kolom}: {lama!r} -> {kini!r}")
+
+        def _custom(x):
+            c = x.get("customData")
+            if isinstance(c, str):
+                try:
+                    return json.loads(c or "{}")
+                except Exception:
+                    return {}
+            return c or {}
+
+        c_induk, c_baru = _custom(induk), _custom(baru)
+        for kunci in PurchaseOrderController.CUSTOM_TERKUNCI_ADENDUM:
+            if kunci not in c_baru:
+                continue
+            if str(c_induk.get(kunci) or "") != str(c_baru.get(kunci) or ""):
+                masalah.append(
+                    f"{kunci}: {c_induk.get(kunci)!r} -> {c_baru.get(kunci)!r}"
+                )
+        return masalah
+
     #: Kode jenis yang punya VARIAN, dipetakan ke jenis dasarnya.
     #:
     #: PO-H mengirim "H1" (badan usaha) atau "H2" (perorangan) — perbedaan
@@ -126,6 +189,11 @@ class PurchaseOrderController:
             return str(int(dt.now().timestamp()))[-3:], 0
 
     @staticmethod
+    async def rantai_dokumen(purchase_order_id: int) -> list[int]:
+        """Id induk beserta adendum sampai dokumen ini, urut terbitnya."""
+        return await PurchaseOrderRepository.rantai_dokumen(purchase_order_id)
+
+    @staticmethod
     async def create_purchase_order(purchase_order_data: Dict, user_id: int):
         """Create a new purchase order with an auto-generated number."""
         try:
@@ -161,6 +229,26 @@ class PurchaseOrderController:
                         "error": "Parent purchase order has no sequence number",
                         "status": 400,
                     }
+                # Pemasok, proyek, jenis, dan penentu jenis dokumen tidak
+                # boleh berbeda dari induknya.
+                #
+                # Adendum adalah perubahan atas perjanjian yang SUDAH ADA.
+                # Mengganti pemasok berarti menagih pihak lain atas dokumen
+                # bernomor sama; mengganti proyek memindahkan biayanya ke
+                # pembukuan proyek berbeda tanpa jejak; dan mengganti jenis
+                # materialnya membuat nomor ber-"PO" terbit di atas lembar
+                # berjudul SURAT PERINTAH KERJA.
+                beda = PurchaseOrderController._periksa_kunci_adendum(
+                    dict(induk), purchase_order_data
+                )
+                if beda:
+                    return {
+                        "error": (
+                            "Adendum tidak boleh mengubah: " + "; ".join(beda)
+                        ),
+                        "status": 400,
+                    }
+
                 addendum_number = (
                     await PurchaseOrderRepository.next_addendum_number(parent_id)
                 )

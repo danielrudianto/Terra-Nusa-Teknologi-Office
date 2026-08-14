@@ -143,6 +143,53 @@ class PurchaseOrderRepository:
         return masalah
 
     @staticmethod
+    async def rantai_dokumen(purchase_order_id: int) -> list[int]:
+        """
+        Induk beserta adendum SAMPAI dokumen ini, urut terbitnya.
+
+        Mencetak adendum harus menyertakan seluruh yang mendahuluinya:
+        adendum berisi SELISIH, sehingga dibaca sendirian ia tidak
+        menyatakan keadaan pekerjaannya. Vendor yang menerima `ADD2` saja
+        tidak dapat mengetahui volume yang berlaku.
+
+        Adendum SESUDAHNYA tidak ikut. Lembar yang sudah ditandatangani
+        tidak boleh berubah isinya karena ada adendum baru — mencetak ulang
+        `ADD1` harus menghasilkan berkas yang sama seperti saat ia terbit.
+        """
+        ini = await database.fetch_one(
+            """
+            SELECT id, parentPurchaseOrderID, addendumNumber
+            FROM purchase_orders
+            WHERE id = :id AND isDelete = 0
+            """,
+            {"id": purchase_order_id},
+        )
+        if not ini:
+            return []
+
+        induk_id = ini["parentPurchaseOrderID"] or ini["id"]
+        # Dokumen induk selalu lebih dulu.
+        rantai = [induk_id]
+
+        batas = ini["addendumNumber"]
+        if batas is None:
+            # Yang diminta adalah induknya sendiri: adendumnya tidak ikut.
+            return rantai
+
+        baris = await database.fetch_all(
+            """
+            SELECT id FROM purchase_orders
+            WHERE parentPurchaseOrderID = :induk
+              AND isDelete = 0
+              AND addendumNumber <= :batas
+            ORDER BY addendumNumber ASC
+            """,
+            {"induk": induk_id, "batas": batas},
+        )
+        rantai.extend(dict(r)["id"] for r in baris)
+        return rantai
+
+    @staticmethod
     async def get_addendums(parent_id: int):
         """Seluruh adendum sebuah dokumen, urut nomornya."""
         rows = await database.fetch_all(
@@ -447,11 +494,46 @@ class PurchaseOrderRepository:
 
     @staticmethod
     async def approve(purchase_order_id: int, user_id: int):
-        """Mark a purchase order as approved."""
+        """
+        Setujui satu purchase order.
+
+        Yang SUDAH disetujui ditolak. Bukan sekadar merapikan: menyetujui
+        ulang menimpa `approvedBy` dan `approvedAt`, sehingga jejak siapa
+        yang benar-benar menyetujui dokumen itu hilang — padahal blok tanda
+        tangan pada lembar yang dipegang vendor memuat nama penyetuju
+        pertama.
+
+        Yang sudah dihapus juga ditolak: menyetujui dokumen terhapus
+        menghasilkan keadaan yang tidak berarti apa pun.
+
+        Diperiksa DI SINI, bukan hanya dengan menyembunyikan tombolnya.
+        Tombol yang tersembunyi hanya menghalangi yang menekan lewat layar.
+        """
         try:
+            keadaan = await database.fetch_one(
+                """
+                SELECT isApproved, isDelete FROM purchase_orders
+                WHERE id = :id
+                """,
+                {"id": purchase_order_id},
+            )
+            if not keadaan:
+                return {"error": "Purchase order not found", "status": 404}
+            if keadaan["isDelete"]:
+                return {"error": "Purchase order has been deleted", "status": 400}
+            if keadaan["isApproved"]:
+                return {
+                    "error": "Purchase order is already approved",
+                    "status": 409,
+                }
+
             query = (
                 update(purchase_orders_table)
                 .where(purchase_orders_table.c.id == purchase_order_id)
+                # Disaring ulang di sini: bila dua orang menyetujui pada saat
+                # yang hampir sama, pemeriksaan di atas dapat lolos keduanya
+                # sedangkan syarat ini hanya benar untuk yang pertama.
+                .where(purchase_orders_table.c.isApproved == False)  # noqa: E712
                 .values(
                     isApproved=True,
                     approvedBy=user_id,
@@ -476,11 +558,40 @@ class PurchaseOrderRepository:
 
     @staticmethod
     async def soft_delete(purchase_order_id: int, user_id: int):
+        """
+        Hapus lunak satu purchase order.
+
+        Yang SUDAH DISETUJUI ditolak. Dokumen yang disetujui sudah dicetak
+        dan dipegang vendor; menghapusnya dari sistem membuat lembar yang
+        beredar tidak punya padanan sama sekali — dan tidak ada jejak bahwa
+        ia pernah ada.
+
+        Dokumen yang perlu diubah setelah disetujui diselesaikan lewat
+        ADENDUM, bukan dengan menghapus lalu membuat ulang.
+        """
         """Soft delete a purchase order."""
         try:
+            keadaan = await database.fetch_one(
+                """
+                SELECT isApproved, isDelete FROM purchase_orders
+                WHERE id = :id
+                """,
+                {"id": purchase_order_id},
+            )
+            if not keadaan:
+                return {"error": "Purchase order not found", "status": 404}
+            if keadaan["isApproved"]:
+                return {
+                    "error": "Approved purchase order cannot be deleted",
+                    "status": 409,
+                }
+
             query = (
                 update(purchase_orders_table)
                 .where(purchase_orders_table.c.id == purchase_order_id)
+                # Disaring ulang: dokumen yang disetujui di sela pemeriksaan
+                # di atas dan perintah ini tetap tidak boleh terhapus.
+                .where(purchase_orders_table.c.isApproved == False)  # noqa: E712
                 .values(isDelete=True, deletedBy=user_id, deletedAt=dt.now())
             )
             await database.execute(query)

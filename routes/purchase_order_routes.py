@@ -50,6 +50,39 @@ async def create_purchase_order(
             detail={"code": ErrorCode.INTERNAL, "message": "Internal server error."},
         )
     
+@router.get("/{purchase_order_id}/rantai")
+async def get_rantai_dokumen(
+    purchase_order_id: int,
+    current_user: Annotated[User, Depends(require("purchase_order", "read"))],
+):
+    """
+    Dokumen ini beserta seluruh yang mendahuluinya, urut terbitnya.
+
+    Mencetak adendum harus menyertakan induk dan adendum sebelumnya: adendum
+    berisi SELISIH, sehingga dibaca sendirian ia tidak menyatakan keadaan
+    pekerjaannya.
+
+    Ditaruh SEBELUM `/{purchase_order_id}` — FastAPI mencocokkan berurutan,
+    dan "rantai" akan tertangkap sebagai bagian dari rute itu bila di bawah.
+
+    Tanpa `response_model`: yang dikembalikan daftar dokumen utuh, dan
+    penyaring bidang pernah membuang justru yang diperlukan.
+    """
+    ids = await PurchaseOrderController.rantai_dokumen(purchase_order_id)
+    if not ids:
+        raise HTTPException(
+            status_code=404, detail=error_detail({"error": "Purchase order not found"})
+        )
+
+    hasil = []
+    for x in ids:
+        d = await PurchaseOrderController.get_purchase_order_by_id(x)
+        if isinstance(d, dict) and "error" in d:
+            continue
+        hasil.append(d)
+    return hasil
+
+
 @router.get("/{purchase_order_id}", response_model=PurchaseOrderResponse)
 async def get_purchase_order_by_id(
     purchase_order_id: int,
