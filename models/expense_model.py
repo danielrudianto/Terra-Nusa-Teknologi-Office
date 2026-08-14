@@ -7,11 +7,25 @@ expenses_table = Table(
     Column("id", Integer, primary_key=True),
     Column("invoiceName", String(100), nullable=False),
     Column("receiptName", String(100), nullable=False),
+    # Nomor faktur pajak, sama seperti pada `purchases`.
+    #
+    # Rekap PPN punya kolom "No. Faktur Pajak"; tanpa kolom ini baris dari
+    # beban selalu kosong di situ, dan faktur pajaknya tidak dapat dilacak
+    # kembali ke dokumen sumbernya saat dicocokkan.
+    Column("taxInvoiceName", String(100), nullable=True),
     Column("opponentID", Integer, ForeignKey("expense_opponents.id"), nullable=True),
     Column("date", Date(), nullable=False),
     Column("dueDate", Date(), nullable=True),
     Column("purchaseType", String(100), nullable=False),
     Column("dpp", Float(), nullable=False),
+    # PERSEN, bukan rupiah — sama seperti `purchases.ppn`.
+    #
+    # Rekap pajak menghitung nilainya dengan `ppn * dpp / 100`. Bila kolom
+    # bernama sama menyimpan arti berbeda di dua tabel, rekap gabungannya
+    # pasti salah di salah satunya, dan salahnya tidak kelihatan.
+    #
+    # Boleh nol: sebagian pemasok bukan PKP dan tidak memungut PPN.
+    Column("ppn", Float(), nullable=False, server_default="0"),
     Column("pbbkb", Float(), nullable=False),
     Column("pphCode", String(100), nullable=True),
     Column("pphTaxObject", String(500), nullable=True),

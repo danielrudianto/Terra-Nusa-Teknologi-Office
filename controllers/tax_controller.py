@@ -10,19 +10,57 @@ from repository.mutation_repository import MutationRepository
 from repository.asset_repository import AssetRepository
 from repository.loan_repository import LoanRepository
 from repository.bank_account_repository import BankAccount
+from repository.expense_repository import ExpenseRepository
 
 class TaxController:
     @staticmethod
     async def get_ppn_report(month: int, year: int):
+        """
+        PPN masukan dari DUA sumber: pembelian dan beban.
+
+        Sebelumnya hanya pembelian. Setelah beban dapat mencatat PPN, rekap
+        yang membaca satu tabel saja membuat PPN masukan dari beban tercatat
+        tetapi tidak pernah terhitung — keadaan yang lebih berbahaya daripada
+        tidak mencatatnya sama sekali, karena orang mengira sudah masuk.
+
+        Kosongnya salah satu sumber BUKAN galat. Sebelumnya pembelian tanpa
+        PPN mengembalikan 404, dan itu ikut menggagalkan seluruh rekap meski
+        bebannya ada. Yang dianggap galat hanya kegagalan kueri.
+        """
         try:
-            result = await PurchaseRepository.get_ppn_report(month, year)
-            if "error" in result:
-                log_error(f"Error fetching PPN report: {result['error']}")
-                return {"error": result["error"], "status": result["status"]}
-            
-            return result
+            dari_pembelian = await PurchaseRepository.get_ppn_report(month, year)
+            dari_beban = await ExpenseRepository.get_ppn_report(month, year)
+
+            def bersih(hasil, nama):
+                """Kosong dianggap tidak ada baris; hanya galat kueri yang dilaporkan."""
+                if isinstance(hasil, dict):
+                    if hasil.get("status") == 404:
+                        return []
+                    log_error(f"Error fetching PPN from {nama}: {hasil.get('error')}")
+                    raise RuntimeError(hasil.get("error"))
+                return hasil or []
+
+            baris = bersih(dari_pembelian, "purchases")
+            # Penanda asal ditambahkan di sini agar baris pembelian lama
+            # yang belum punya kolomnya tetap ikut tertandai.
+            for b in baris:
+                b.setdefault("sumber", "purchase")
+            baris += bersih(dari_beban, "expenses")
+
+            if not baris:
+                return {
+                    "error": "No PPN records found for this period",
+                    "status": 404,
+                }
+
+            # Diurutkan ulang: dua sumber digabung, urutannya menjadi acak
+            # bila tidak disusun kembali menurut tanggalnya.
+            baris.sort(key=lambda x: (x.get("date") is None, x.get("date")))
+            return baris
+        except RuntimeError as e:
+            return {"error": str(e), "status": 500}
         except Exception as e:
-            log_error(f"Error fetching purchase PPN: {str(e)}")
+            log_error(f"Error fetching PPN report: {str(e)}")
             return {"error": str(e), "status": 500}
         
     @staticmethod

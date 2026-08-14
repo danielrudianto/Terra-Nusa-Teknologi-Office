@@ -6,6 +6,9 @@ from datetime import datetime
 class UserBase(BaseModel):
     name: str
     email: str
+    # Jabatan; dicetak di bawah nama pada blok tanda tangan dokumen.
+    # Opsional karena pengguna lama belum mengisinya.
+    position: Optional[str] = Field(default=None, max_length=100)
     authenticationLevel: Optional[int] = Field(default=1, ge=1, le=5, description="Authentication level of the user, between 1 and 5")
 
 class UserCreate(UserBase):
@@ -14,6 +17,7 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
+    position: Optional[str] = Field(default=None, max_length=100)
     authenticationLevel: Optional[int] = Field(default=None, ge=1, le=5)
     isActive: Optional[bool] = None
     password: Optional[str] = None

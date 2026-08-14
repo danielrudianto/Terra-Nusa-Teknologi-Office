@@ -7,6 +7,74 @@ from datetime import datetime as dt
 
 class ExpenseRepository:
     @staticmethod
+    async def get_ppn_report(month: int, year: int):
+        """
+        Beban ber-PPN pada satu periode.
+
+        Bentuk keluarannya DISAMAKAN dengan laporan PPN pembelian, karena
+        keduanya digabung menjadi satu rekap. Beban tidak punya pemasok
+        melainkan lawan transaksi — yang dipakai rekap hanya nama dan NPWP,
+        sisanya dikosongkan agar bentuknya tetap sama.
+
+        `ppn` tersimpan sebagai PERSEN, sama seperti pada pembelian; rekap
+        yang menghitung ulang nilainya berlaku untuk keduanya.
+        """
+        try:
+            opponent_columns = [
+                expense_opponents_table.c.id.label("opponent_id"),
+                expense_opponents_table.c.name.label("opponent_name"),
+                expense_opponents_table.c.npwp.label("opponent_npwp"),
+            ]
+
+            conditions = [
+                expenses_table.c.isDelete == False,
+                expenses_table.c.ppn > 0,
+                func.extract("month", expenses_table.c.date) == month,
+                func.extract("year", expenses_table.c.date) == year,
+            ]
+
+            query = (
+                select(*expenses_table.c, *opponent_columns)
+                # Kiri luar: lawan transaksi tidak wajib diisi pada beban,
+                # dan beban ber-PPN tanpa lawan transaksi tetap harus masuk
+                # rekap — pajaknya tetap terutang.
+                .select_from(
+                    expenses_table.outerjoin(
+                        expense_opponents_table,
+                        expenses_table.c.opponentID == expense_opponents_table.c.id,
+                    )
+                )
+                .where(*conditions)
+                .order_by(expenses_table.c.date.asc())
+            )
+            rows = await database.fetch_all(query)
+
+            hasil = []
+            for row in rows:
+                d = dict(row)
+                d["supplier"] = {
+                    "id": d.get("opponent_id"),
+                    "name": d.get("opponent_name") or "",
+                    "address": "",
+                    "city": "",
+                    "province": "",
+                    "prefix": "",
+                    "npwp": d.get("opponent_npwp"),
+                }
+                for f in ("opponent_id", "opponent_name", "opponent_npwp"):
+                    d.pop(f, None)
+                # Penanda asal baris; rekap memisahkannya agar terlihat mana
+                # yang dari pembelian dan mana dari beban.
+                d["sumber"] = "expense"
+                # `taxInvoiceName` ikut terbawa dari kolomnya; baris lama
+                # yang belum mengisinya tetap aman karena kolomnya nullable.
+                hasil.append(d)
+            return hasil
+        except Exception as e:
+            log_error(f"Error fetching expense PPN report: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def create(expense_data: dict):
         """
         Create an expense in the database.
@@ -53,6 +121,9 @@ class ExpenseRepository:
             if keyword is not None and keyword != "":
                 or_conditions.append(expenses_table.c.invoiceName.ilike(f"%{keyword}%"))
                 or_conditions.append(expenses_table.c.receiptName.ilike(f"%{keyword}%"))
+                # Panduan menyebut faktur pajak sebagai kolom yang dicari;
+                # tanpa baris ini janji itu tidak pernah berlaku.
+                or_conditions.append(expenses_table.c.taxInvoiceName.ilike(f"%{keyword}%"))
                 or_conditions.append(expenses_table.c.description.ilike(f"%{keyword}%"))
                 or_conditions.append(expense_opponents_table.c.name.ilike(f"%{keyword}%"))
                 or_conditions.append(expense_opponents_table.c.description.ilike(f"%{keyword}%"))

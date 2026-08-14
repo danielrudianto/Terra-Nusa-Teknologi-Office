@@ -67,7 +67,11 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     "interpayment": (3, 3, 3, 3, 3),
     "loan": (3, 5, 5, 5, 5),
     "master_equipment": (1, 3, 3, 4, 0),
-    "master_item": (1, 3, 3, 4, 0),
+    # Sama alasannya dengan pemasok: procurement yang pertama menemukan
+    # barang baru. Mengubah tetap dibatasi — nama barang dibaca kembali oleh
+    # dokumen lama lewat `item_id`, jadi menyuntingnya mengubah isi dokumen
+    # yang sudah terbit.
+    "master_item": (1, 1, 3, 4, 0),
     "payment_incoming": (3, 3, 3, 3, 3),
     # Persetujuan pembayaran keluar di akses 4.
     #
@@ -121,7 +125,16 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     # menutupnya berarti pekerjaan itu tidak dapat diselesaikan di sistem.
     "salary_slip": (3, 3, 3, 4, 5),
     "sales_invoice": (1, 1, 1, 2, 3),
-    "supplier": (1, 3, 3, 4, 0),
+    # Membuat dibuka ke level 1; mengubah dan menghapus tetap dibatasi.
+    #
+    # Yang pertama tahu ada pemasok baru adalah procurement, dan mereka
+    # level 1. Menahannya membuat pemasok baru harus dititipkan ke orang
+    # lain sebelum PO-nya dapat dibuat.
+    #
+    # Mengubah tetap level 3 karena akibatnya berbeda jauh: nama dan alamat
+    # pemasok tercetak di setiap dokumen yang menyebutnya, sehingga satu
+    # suntingan mengubah isi dokumen lama yang sudah ditandatangani.
+    "supplier": (1, 1, 3, 4, 0),
     "tax": (3, 3, 3, 4, 0),
     "user": (5, 5, 5, 5, 0),
     # Foto profil dipisahkan dari modul "user": avatar tampil di hampir

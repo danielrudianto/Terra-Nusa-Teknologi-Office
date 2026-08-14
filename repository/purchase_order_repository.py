@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from utils.database import database
 from models.purchase_order_model import purchase_orders_table
 from models.supplier_model import suppliers_table
+from models.user_model import users_table
 from utils.logger_utils import log_error
 
 # JSON columns that may come back as strings from the driver and should be dicts
@@ -104,11 +105,34 @@ class PurchaseOrderRepository:
 
     @staticmethod
     async def get_by_id(purchase_order_id: int):
-        """Get a single non-deleted purchase order by ID."""
+        """
+        Satu purchase order yang belum dihapus.
+
+        Nama DAN jabatan penyetuju ikut diambil karena dokumen mencantumkan
+        keduanya pada blok tanda tangan. Yang tersimpan di tabel hanya
+        `approvedBy` berupa ID; tanpa join ini, dokumen hanya tahu ADA yang
+        menyetujui tetapi tidak tahu siapa — dan blok tanda tangannya tidak
+        dapat diisi.
+        """
         try:
-            query = select(purchase_orders_table).where(
-                purchase_orders_table.c.id == purchase_order_id,
-                purchase_orders_table.c.isDelete == False,
+            query = (
+                select(
+                    *purchase_orders_table.c,
+                    users_table.c.name.label("approvedByName"),
+                    users_table.c.position.label("approvedByPosition"),
+                )
+                # Kiri luar: PO yang belum disetujui belum punya `approvedBy`,
+                # dan join dalam akan menghilangkannya dari hasil sama sekali.
+                .select_from(
+                    purchase_orders_table.outerjoin(
+                        users_table,
+                        purchase_orders_table.c.approvedBy == users_table.c.id,
+                    )
+                )
+                .where(
+                    purchase_orders_table.c.id == purchase_order_id,
+                    purchase_orders_table.c.isDelete == False,
+                )
             )
             result = await database.fetch_one(query)
             if not result:

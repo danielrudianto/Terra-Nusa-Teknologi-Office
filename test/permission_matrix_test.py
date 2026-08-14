@@ -141,6 +141,25 @@ def test_jejak_aktivitas_terbuka_tetapi_isinya_dibatasi():
     assert 'userID = [current_user["id"]]' in rute, "pemaksaan ke diri sendiri hilang"
 
 
+def test_data_induk_boleh_dibuat_level_satu():
+    """
+    Pemasok dan barang boleh DIBUAT level 1, tetapi tidak diubah.
+
+    Yang pertama menemukan pemasok atau barang baru adalah procurement, dan
+    mereka level 1. Menahannya membuat data baru harus dititipkan ke orang
+    lain sebelum dokumennya dapat dibuat.
+
+    Mengubah tetap dibatasi karena akibatnya berbeda jauh: nama dan alamat
+    pemasok tercetak di setiap dokumen yang menyebutnya, dan nama barang
+    dibaca kembali dokumen lama lewat `item_id` — satu suntingan mengubah isi
+    dokumen yang sudah ditandatangani.
+    """
+    for modul in ("supplier", "master_item"):
+        assert required_level(modul, "create") == 1, modul
+        assert required_level(modul, "update") >= 3, modul
+        assert required_level(modul, "delete") >= 4, modul
+
+
 def test_level_dibaca_tanpa_metode_dict():
     """
     Objek pengguna berupa Record dari `databases`, bukan dict.

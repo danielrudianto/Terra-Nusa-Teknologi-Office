@@ -7,19 +7,57 @@ from repository.supplier_repository import SupplierRepository
 
 
 class PurchaseOrderController:
+    #: Jenis PO yang dokumennya terbit sebagai SURAT PERINTAH KERJA.
+    #:
+    #: Sisanya terbit sebagai PURCHASE ORDER. Daftar ini disalin dari helper
+    #: cetak di frontend — di sanalah judul dokumennya ditentukan, dan bila
+    #: kelak berubah, ubah keduanya bersamaan.
+    JENIS_SPK = {"A", "B", "D", "H", "6.4.1", "6.4.2", "6.5.2", "5.1.12"}
+
+    @staticmethod
+    def _awalan_dokumen(purchase_type: str, custom: dict | None = None) -> str:
+        """
+        Awalan nomor mengikuti dokumen yang benar-benar terbit.
+
+        Sebelumnya seluruh jenis memakai "SPK", sehingga pembelian beton
+        tercetak berjudul PURCHASE ORDER tetapi bernomor `013-SPK-MICZ-F` —
+        vendor menerima dua sebutan berbeda pada satu lembar yang sama.
+
+        PO-F adalah satu-satunya jenis yang bentuknya bergantung isian:
+        jasa pengujian menghasilkan SPK, pengadaan materialnya PO. Karena
+        itu `customData` ikut dibaca di sini.
+        """
+        jenis = (purchase_type or "").strip()
+        c = custom or {}
+
+        # Empat jenis bentuknya bergantung isian, bukan kodenya saja.
+        # Nama kunci penentunya berbeda-beda karena tiap formulir menamainya
+        # sendiri; menebak satu nama membuat tiga lainnya salah diam-diam.
+        if jenis == "F":
+            return "SPK" if c.get("materialType") in ("ujitekan", "ujibesi") else "PO"
+        if jenis == "5.1.2":
+            return "PO" if c.get("maintenanceMode") == "barang" else "SPK"
+        if jenis in ("6.3.1", "6.3.2"):
+            return "PO" if c.get("marketingMode") == "barang" else "SPK"
+        if jenis == "6.5.1":
+            return "PO" if c.get("recruitmentMode") == "kuota" else "SPK"
+
+        return "SPK" if jenis in PurchaseOrderController.JENIS_SPK else "PO"
+
     @staticmethod
     async def generate_purchase_order_name(
-        project_code: str = "", purchase_type: str = ""
+        project_code: str = "", purchase_type: str = "", custom: dict | None = None
     ) -> tuple[str, int]:
         """
         Nomor dokumen dengan urutan berjalan per proyek.
 
-        Format: {seq:03d}-SPK-{projectCode}-{purchaseType}
-        contoh: 025-SPK-MICZ-G
+        Format: {seq:03d}-{PO|SPK}-{projectCode}-{purchaseType}
+        contoh: 025-PO-MICZ-G, 013-SPK-MICZ-A
 
-        Seluruh jenis memakai awalan SPK dan satu deret nomor yang sama.
-        Memisahkan deret per jenis akan menghasilkan dua dokumen bernomor 001
-        pada proyek yang sama, dan itu menyulitkan saat dokumen dicari kembali.
+        Awalannya mengikuti dokumen yang terbit, tetapi DERETNYA tetap satu
+        per proyek. Memisahkan deret per jenis akan menghasilkan dua dokumen
+        bernomor 001 pada proyek yang sama, dan itu menyulitkan saat dokumen
+        dicari kembali.
 
         Urutan dihitung per proyek: proyek baru mulai dari 001 lagi, dan
         menambah dokumen di satu proyek tidak menggeser nomor proyek lain.
@@ -39,10 +77,11 @@ class PurchaseOrderController:
                     await PurchaseOrderRepository.get_global_purchase_order_count()
                 ) + 1
             seq = f"{number:03d}"
+            awalan = PurchaseOrderController._awalan_dokumen(purchase_type, custom)
             if project_code and purchase_type:
-                name = f"{seq}-SPK-{project_code}-{purchase_type}"
+                name = f"{seq}-{awalan}-{project_code}-{purchase_type}"
             elif project_code:
-                name = f"{seq}-SPK-{project_code}"
+                name = f"{seq}-{awalan}-{project_code}"
             else:
                 name = seq
             log_info(
@@ -77,7 +116,9 @@ class PurchaseOrderController:
                     purchase_order_name,
                     purchase_order_number,
                 ) = await PurchaseOrderController.generate_purchase_order_name(
-                    project_code or "", purchase_order_data.get("purchaseType", "")
+                    project_code or "",
+                    purchase_order_data.get("purchaseType", ""),
+                    purchase_order_data.get("customData") or {},
                 )
             # simpan nomor urutnya, dipakai untuk menghitung PO berikutnya
             purchase_order_data["number"] = purchase_order_number
