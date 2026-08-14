@@ -86,13 +86,13 @@ class LoanRepository:
 
     # Kolom yang boleh disunting setelah pinjaman tercatat.
     #
-    # `received` dan `debt` sengaja TIDAK termasuk: keduanya sudah menjadi
-    # dasar pencatatan pembayaran masuk dan keluar, sehingga mengubahnya
-    # membuat sisa utang tidak lagi cocok dengan riwayat transaksinya —
-    # dan selisihnya tidak akan terlihat di mana pun.
+    # `received` dan `debt` termasuk, tetapi TIDAK bebas: controller menolak
+    # nilai utang yang lebih kecil daripada jumlah yang sudah dibayarkan, dan
+    # menghitung ulang status lunas setelah setiap perubahan.
     #
-    # Bila nilai pinjaman memang keliru, yang benar adalah membatalkan
-    # pencatatannya dan mencatat ulang, bukan menyunting angkanya diam-diam.
+    # `isPaid` sengaja tidak ada di sini. Status itu adalah kesimpulan dari
+    # utang dan pembayaran, bukan sesuatu yang disetel tangan — membiarkannya
+    # disunting berarti pinjaman bisa ditandai lunas tanpa satu pembayaran pun.
     EDITABLE_FIELDS = {
         "creditorName",
         "creditorAddress",
@@ -102,6 +102,8 @@ class LoanRepository:
         "bankAccountNumber",
         "bankName",
         "bankAccountID",
+        "received",
+        "debt",
     }
 
     @staticmethod
@@ -190,6 +192,60 @@ class LoanRepository:
             return [dict(row) for row in rows]
         except Exception as e:
             log_error(f"Unexpected error while fetching payments for loan {loan_id}: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def total_dibayar(loan_id: int) -> float:
+        """
+        Jumlah pembayaran yang benar-benar melekat pada sebuah pinjaman.
+
+        Yang dihitung hanya pembayaran yang SUDAH DISETUJUI dan belum dihapus.
+        Pembayaran yang masih menunggu persetujuan belum tentu jadi — memasukkannya
+        akan membuat pinjaman tampak lebih lunas daripada kenyataannya, dan
+        menghalangi koreksi nilai yang sah.
+        """
+        from repository.payment_outgoing_repository import PaymentOutgoingRepository
+
+        pembayaran = await PaymentOutgoingRepository.get_payments_by_loan_id(loan_id)
+        if isinstance(pembayaran, dict) and "error" in pembayaran:
+            raise RuntimeError(pembayaran["error"])
+        return float(
+            sum(p.amount for p in pembayaran if p.isApprove and not p.isDelete)
+        )
+
+    @staticmethod
+    async def hitung_ulang_lunas(loan_id: int, user_id: int) -> dict:
+        """
+        Tetapkan ulang status lunas dari nilai utang dan pembayaran terkini.
+
+        Dipakai setelah nilai pinjaman diubah. Tanpa ini, menurunkan nilai utang
+        hingga sama dengan yang sudah dibayar meninggalkan pinjaman berstatus
+        belum lunas selamanya — dan menaikkannya kembali meninggalkan pinjaman
+        yang sudah ditandai lunas padahal masih bersisa.
+
+        Ambang lima rupiah dipakai sama seperti pada persetujuan pembayaran:
+        nilai disimpan sebagai desimal sementara pembayaran dijumlahkan sebagai
+        pecahan, sehingga selisih pembulatan beberapa rupiah bukan tanda kurang
+        bayar.
+        """
+        try:
+            baris = await database.fetch_one(
+                select(loans_table).where(loans_table.c.id == loan_id)
+            )
+            if not baris:
+                return {"error": "Loan not found", "status": 404}
+
+            utang = float(baris["debt"] or 0)
+            dibayar = await LoanRepository.total_dibayar(loan_id)
+            lunas = (utang - dibayar) < 5
+
+            if bool(baris["isPaid"]) == lunas:
+                return {"isPaid": lunas, "berubah": False}
+
+            await LoanRepository.update_payment_status(loan_id, lunas, user_id)
+            return {"isPaid": lunas, "berubah": True}
+        except Exception as e:
+            log_error(f"Error recalculating loan {loan_id} paid status: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod

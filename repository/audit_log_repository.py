@@ -153,7 +153,7 @@ class AuditLogRepository:
         page: int = 1,
         page_size: int = 25,
         entity: str = None,
-        userID: int = None,
+        userID: int | list[int] | None = None,
         dateFrom: str = None,
         dateTo: str = None,
     ):
@@ -163,7 +163,17 @@ class AuditLogRepository:
             if entity:
                 conditions.append(audit_logs_table.c.entity == entity)
             if userID:
-                conditions.append(audit_logs_table.c.userID == userID)
+                # Satu pengguna atau beberapa sekaligus.
+                #
+                # Daftar dipakai penyaring di layar, yang membolehkan sampai
+                # lima nama. Satu nilai tetap diterima agar pemanggil lama
+                # tidak perlu diubah.
+                if isinstance(userID, (list, tuple, set)):
+                    daftar = [int(x) for x in userID if x is not None]
+                    if daftar:
+                        conditions.append(audit_logs_table.c.userID.in_(daftar))
+                else:
+                    conditions.append(audit_logs_table.c.userID == int(userID))
             if dateFrom:
                 conditions.append(audit_logs_table.c.createdAt >= dateFrom)
             if dateTo:

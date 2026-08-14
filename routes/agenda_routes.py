@@ -1,5 +1,5 @@
 from datetime import date as d
-from utils.errors import error_detail
+from utils.errors import ErrorCode, error_detail
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -40,6 +40,38 @@ async def get_agenda(
 ):
     """Isi agenda: ulang tahun rekan dan pengingat, dalam satu permintaan."""
     result = await AgendaController.agenda(current_user["id"], d.today(), days)
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
+    return result
+
+
+@router.get("/range")
+async def get_agenda_range(
+    current_user: Annotated[User, Depends(get_current_user)],
+    start: d = Query(..., description="Tanggal awal, YYYY-MM-DD"),
+    end: d = Query(..., description="Tanggal akhir, YYYY-MM-DD"),
+):
+    """
+    Isi agenda untuk rentang tanggal bebas; dipakai halaman kalender.
+
+    Rentangnya dibatasi 62 hari. Tampilan bulanan paling banyak memuat enam
+    pekan (42 hari), jadi batas itu memberi ruang tanpa membuka peluang
+    permintaan yang menarik data bertahun-tahun sekaligus.
+    """
+    if end < start:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": ErrorCode.VALIDATION, "message": "end must not precede start."},
+        )
+    if (end - start).days > 62:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": ErrorCode.VALIDATION, "message": "Range must not exceed 62 days."},
+        )
+
+    result = await AgendaController.rentang(current_user["id"], start, end)
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(
             status_code=result["status"], detail=error_detail(result)

@@ -575,6 +575,76 @@ class PurchaseRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    async def update(purchase_id: int, data: dict, userID: int):
+        """
+        Ubah isi pembelian.
+
+        Kolom yang boleh diubah DIDAFTAR di sini, bukan diambil apa adanya
+        dari muatan permintaan. Menyalin seluruh isi muatan membuat klien
+        dapat menulis `isDelete`, `isPaid`, `createdBy`, bahkan `id` —
+        cukup dengan menambahkan satu field pada permintaannya.
+
+        `supplierName` dan `supplierAddress` yang ikut dikirim layar sengaja
+        TIDAK ada di daftar: keduanya bukan kolom tabel ini, melainkan hasil
+        join ke `suppliers` yang dipakai untuk ditampilkan.
+        """
+        BOLEH = {
+            "invoiceName", "receiptName", "taxInvoiceName", "purchaseOrderName",
+            "projectName", "purchaseType", "supplierID", "procurementType",
+            "date", "dueDate",
+            "isInvoiceAttached", "isReceiptAttached", "isTaxInvoiceAttached",
+            "isCopAttached", "isCopyPurchaseOrderAttached",
+            "dpp", "ppn", "pbbkb", "otherValue", "otherValueNote",
+            "pphCode", "pphTaxObject", "pphPercentage",
+            "bankName", "bankAccountName", "bankAccountNumber",
+            "paymentMethod", "lastStatus", "lastStatusDescription",
+        }
+
+        try:
+            nilai = {k: v for k, v in (data or {}).items() if k in BOLEH}
+            if not nilai:
+                return {"error": "No editable field supplied.", "status": 400}
+
+            _sebelum = await database.fetch_one(
+                select(purchases_table).where(purchases_table.c.id == purchase_id)
+            )
+            if not _sebelum:
+                return {"error": "Purchase not found", "status": 404}
+            if _sebelum["isDelete"]:
+                # Dokumen terhapus tidak diubah diam-diam: yang terlihat di
+                # layar adalah daftar aktif, jadi perubahan pada baris
+                # terhapus tidak akan pernah terlihat siapa pun.
+                return {"error": "Purchase already deleted", "status": 400}
+
+            nilai["updatedAt"] = dt.now()
+            nilai["updatedBy"] = userID
+
+            await database.execute(
+                update(purchases_table)
+                .where(purchases_table.c.id == purchase_id)
+                .values(**nilai)
+            )
+
+            from repository.audit_log_repository import AuditLogRepository
+
+            _sesudah = await database.fetch_one(
+                select(purchases_table).where(purchases_table.c.id == purchase_id)
+            )
+            await AuditLogRepository.record(
+                entity="purchases",
+                entityID=purchase_id,
+                action="update",
+                userID=userID,
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum), dict(_sesudah or {})
+                ),
+            )
+            return {"message": "Purchase updated successfully"}
+        except Exception as e:
+            log_error(f"Error updating purchase {purchase_id}: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def update_status(purchase_id: int, status_data: dict, userID: int):
         """
         Update purchase status and details.

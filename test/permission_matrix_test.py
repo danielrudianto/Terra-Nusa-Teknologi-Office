@@ -11,6 +11,8 @@ harus disengaja: bila ada yang gagal, itu pertanda kebijakannya berubah, dan
 perubahan itu perlu dibaca ulang sebelum pengujiannya disesuaikan.
 """
 
+from pathlib import Path
+
 import pytest
 
 from constants.department_modules import (
@@ -120,9 +122,32 @@ def test_persetujuan_pembayaran_di_atas_pembuatannya():
     assert setuju > buat
 
 
-def test_jejak_aktivitas_hanya_pemilik_usaha():
-    """Riwayat memuat perubahan gaji dan pembayaran."""
-    assert required_level("audit_log", "read") == 5
+def test_jejak_aktivitas_terbuka_tetapi_isinya_dibatasi():
+    """
+    Halaman aktivitas boleh dibuka semua level; isinya yang dibatasi.
+
+    Di bawah level 5 yang terlihat hanya aktivitas sendiri, dan pembatasan
+    itu ada di `audit_log_routes.py` — matriks hanya mengenal "boleh membuka
+    atau tidak", sehingga tidak dapat menyatakannya.
+
+    Uji ini menjaga dua hal sekaligus: halamannya memang terbuka, DAN
+    penjaganya masih ada di rutenya. Yang kedua penting karena membuka
+    matriks tanpa penjaga akan memberi seluruh level akses ke perubahan gaji.
+    """
+    assert required_level("audit_log", "read") == 1
+
+    rute = (Path(__file__).resolve().parents[1] / "routes" / "audit_log_routes.py").read_text()
+    assert "if level < 5:" in rute, "penjaga level hilang dari rute audit"
+    assert 'userID = [current_user["id"]]' in rute, "pemaksaan ke diri sendiri hilang"
+
+
+def test_jejak_aktivitas_terbaca_semua_divisi():
+    """
+    Tanpa masuk modul umum, pengguna berdivisi tetap terkunci meski levelnya
+    cukup — sementara yang belum punya divisi justru bisa membukanya.
+    """
+    for divisi in DEPARTMENT_MODULES:
+        assert "audit_log" in modules_for({divisi}), divisi
 
 
 def test_slip_gaji_dibatasi_divisi_bukan_nilai_khusus():

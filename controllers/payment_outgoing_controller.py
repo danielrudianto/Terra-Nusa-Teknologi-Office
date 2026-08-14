@@ -343,7 +343,11 @@ class PaymentOutgoingController:
                     total_paid = float(total_paid)
                     #If the difference is less than 5, then the reimbursement is fully paid
                     if abs(reimbursement_value - total_paid) < 5:
-                        await ReimbursementRepository.update_payment_status(payment.reimbursementID, True)
+                        # `userID` ikut diteruskan; lihat catatan pada
+                        # cabang beban di bawah.
+                        await ReimbursementRepository.update_payment_status(
+                            payment.reimbursementID, True, userID
+                        )
                 
                 if payment.expenseID is not None:
                     expense = await ExpenseRepository.get_by_id(payment.expenseID)
@@ -367,7 +371,15 @@ class PaymentOutgoingController:
 
                     #If the difference is less than 5, then the expense is fully paid
                     if abs(expense_value - total_paid) < 5:
-                        await ExpenseRepository.update_payment_status(payment.expenseID, True)
+                        # `userID` ikut diteruskan.
+                        #
+                        # Tanpa itu pemanggilannya kurang satu argumen dan
+                        # persetujuan pembayaran beban selalu gagal. Cabang
+                        # serupa di bawah sudah meneruskannya; yang ini
+                        # terlewat.
+                        await ExpenseRepository.update_payment_status(
+                            payment.expenseID, True, userID
+                        )
 
                 if payment.salarySlipID is not None:
                     salarySlip = await SalarySlipRepository.get_by_id(payment.salarySlipID)

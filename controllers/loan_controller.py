@@ -103,14 +103,48 @@ class LoanController:
         """
         Perbarui data pinjaman.
 
-        Kolom yang boleh disunting dibatasi di repository — nilai pinjaman
-        dan sisa utang tidak termasuk, karena keduanya sudah menjadi dasar
-        pencatatan pembayaran.
+        Nilai utang boleh diubah, tetapi TIDAK BOLEH turun di bawah jumlah yang
+        sudah dibayarkan. Utang 100 juta yang sudah dibayar 80 juta lalu diubah
+        menjadi 50 juta berarti pinjaman itu terbayar lebih — dan tidak ada
+        tempat di sistem yang mencatat kelebihannya, sehingga selisih 30 juta
+        menghilang tanpa jejak.
+
+        Ambangnya memakai toleransi lima rupiah, sama seperti pada persetujuan
+        pembayaran: nilai disimpan sebagai desimal sementara pembayaran
+        dijumlahkan sebagai pecahan, dan selisih pembulatan beberapa rupiah
+        bukan tanda kelebihan bayar.
         """
         try:
+            if "debt" in loan_data and loan_data["debt"] is not None:
+                lama_ = await LoanRepository.get_loan_by_id(loan_id)
+                if isinstance(lama_, dict) and "error" in lama_:
+                    raise HTTPException(status_code=404, detail="Loan not found")
+
+                dibayar = await LoanRepository.total_dibayar(loan_id)
+                baru_ = float(loan_data["debt"])
+                if baru_ + 5 < dibayar:
+                    log_error(
+                        f"Perubahan utang pinjaman {loan_id} ditolak: "
+                        f"nilai baru {baru_} di bawah yang sudah dibayar {dibayar}."
+                    )
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "LOAN_BELOW_PAID",
+                            "message": "Loan value cannot be lower than the amount already paid.",
+                            "paid": dibayar,
+                        },
+                    )
+
             result = await LoanRepository.update(loan_id, loan_data, user_id)
             if "error" in result:
                 raise HTTPException(status_code=result["status"], detail=result["error"])
+
+            # Status lunas dihitung ulang setiap kali nilainya berubah, ke dua
+            # arah: yang tadinya belum lunas bisa menjadi lunas, dan sebaliknya.
+            if any(k in loan_data for k in ("debt", "received")):
+                await LoanRepository.hitung_ulang_lunas(loan_id, user_id)
+
             return result
         except HTTPException as e:
             raise e

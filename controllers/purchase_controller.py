@@ -271,6 +271,51 @@ class PurchaseController:
             raise HTTPException(status_code=500, detail="Internal server error")
     
     @staticmethod
+    async def update_purchase(purchaseID: int, data: dict, userID: int, userLevel: int = 0):
+        """
+        Ubah pembelian.
+
+        Nilai dokumen dikunci bila pembayarannya sudah ada.
+
+        `dpp`, `ppn`, `pbbkb`, `otherValue`, dan `pphPercentage` menentukan
+        jumlah yang dibayarkan. Mengubahnya setelah pembayaran disetujui
+        membuat angka yang disetujui tidak lagi cocok dengan dokumennya —
+        dan tidak ada yang tahu mana yang benar. Persoalannya sama dengan
+        penghapusan pembelian berbayar, dan penjaganya pun sama: hanya
+        level 4 ke atas yang boleh.
+
+        Bidang lain — nomor faktur, kelengkapan berkas, rekening, keterangan
+        — tetap dapat diubah siapa pun yang berhak, karena tidak mengubah
+        jumlah yang harus dibayar.
+        """
+        NILAI = {"dpp", "ppn", "pbbkb", "otherValue", "pphPercentage"}
+
+        try:
+            lama = await PurchaseRepository.get_by_id(purchaseID)
+            if not lama or (isinstance(lama, dict) and "error" in lama):
+                return {"error": "Purchase not found", "status": 404}
+
+            diubah = {
+                k for k in NILAI
+                if k in (data or {}) and str(data[k]) != str(lama.get(k))
+            }
+            if diubah:
+                jumlah = await PaymentOutgoingRepository.hitung_pembayaran_aktif(
+                    purchaseID
+                )
+                if jumlah != 0 and (userLevel or 0) < 4:
+                    log_error(
+                        f"Perubahan nilai pembelian {purchaseID} ditolak: "
+                        f"{jumlah} pembayaran melekat, level {userLevel}."
+                    )
+                    return {"error": "PURCHASE_HAS_PAYMENTS", "status": 409}
+
+            return await PurchaseRepository.update(purchaseID, data, userID)
+        except Exception as e:
+            log_error(f"Error updating purchase {purchaseID}: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def delete_purchase(purchaseID: int, userID: int, userLevel: int = 0):
         """
         Hapus pembelian.

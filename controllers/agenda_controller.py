@@ -60,6 +60,42 @@ class AgendaController:
         return {"birthdays": ulang_tahun, "reminders": pengingat}
 
     @staticmethod
+    async def rentang(user_id: int, dari: d, sampai: d):
+        """
+        Isi agenda untuk rentang tanggal bebas.
+
+        Dipakai halaman kalender, yang perlu membuka bulan mana pun —
+        termasuk yang sudah lewat. `agenda()` tidak bisa dipakai karena ia
+        selalu menghitung maju dari hari ini.
+
+        Sama seperti `agenda()`, kegagalan satu bagian tidak menjatuhkan
+        yang lain: kalender yang kehilangan ulang tahun masih berguna,
+        kalender yang kosong sama sekali tidak.
+        """
+        ulang_tahun = []
+        pengingat = []
+
+        try:
+            hasil = await BirthdayRepository.in_range(dari, sampai)
+            if isinstance(hasil, dict) and "error" in hasil:
+                log_error(f"Agenda rentang: ulang tahun gagal: {hasil['error']}")
+            else:
+                ulang_tahun = hasil
+        except Exception as e:
+            log_error(f"Agenda rentang: ulang tahun gagal: {type(e).__name__}: {e}")
+
+        try:
+            hasil = await ReminderRepository.get_range(user_id, dari, sampai)
+            if isinstance(hasil, dict) and "error" in hasil:
+                log_error(f"Agenda rentang: pengingat gagal: {hasil['error']}")
+            else:
+                pengingat = hasil
+        except Exception as e:
+            log_error(f"Agenda rentang: pengingat gagal: {type(e).__name__}: {e}")
+
+        return {"birthdays": ulang_tahun, "reminders": pengingat}
+
+    @staticmethod
     async def create(user_id: int, user_level: int, body):
         try:
             if body.isShared and int(user_level or 1) < LEVEL_PENGINGAT_UMUM:

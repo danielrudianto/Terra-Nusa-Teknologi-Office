@@ -1,5 +1,5 @@
 from typing import Annotated
-from utils.errors import error_detail
+from utils.errors import ErrorCode, error_detail
 from fastapi import APIRouter, Depends, HTTPException
 from utils.auth_utils import get_current_user
 from utils.permission import require
@@ -165,6 +165,42 @@ async def get_purchases(
         return result
     except HTTPException as e:
         raise e
+
+@router.put("/update", response_model=dict)
+async def update_purchase(
+    payload: dict,
+    current_user: Annotated[User, Depends(require("purchase", "update"))],
+):
+    """
+    Ubah isi pembelian.
+
+    Rute ini SEBELUMNYA TIDAK ADA, sementara layar Ubah Pembelian sudah
+    memanggilnya — sehingga setiap penyimpanan berakhir 404 dan tidak ada
+    perubahan yang pernah tersimpan.
+
+    Muatan diterima sebagai dict, bukan skema: layar mengirim tiga puluh dua
+    bidang termasuk `supplierName` dan `supplierAddress` yang bukan kolom
+    tabel. Penyaringannya dilakukan di repository lewat daftar kolom yang
+    boleh diubah, sehingga bidang asing tidak pernah sampai ke kueri.
+    """
+    purchase_id = payload.get("id")
+    if not purchase_id:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": ErrorCode.VALIDATION, "message": "id is required."},
+        )
+
+    result = await PurchaseController.update_purchase(
+        int(purchase_id),
+        payload,
+        current_user.id,
+        current_user.authenticationLevel or 1,
+    )
+    if "error" in result:
+        raise HTTPException(status_code=result["status"], detail=error_detail(result))
+
+    return result
+
 
 @router.put("/update-status", response_model=dict)
 async def update_status(

@@ -1,4 +1,4 @@
-from datetime import date as d
+from datetime import date as d, timedelta
 from typing import List
 
 from sqlalchemy import and_, delete, insert, or_, select, update
@@ -223,6 +223,16 @@ class BirthdayRepository:
                 ).where(
                     employees_table.c.isDelete == False,  # noqa: E712
                     employees_table.c.birthday.isnot(None),
+                    # Hanya karyawan yang masih bekerja.
+                    #
+                    # `endDate` adalah TANGGAL TERAKHIR BEKERJA: terisi
+                    # berarti orangnya sudah tidak aktif. Itulah penanda
+                    # statusnya — tidak ada kolom status tersendiri.
+                    #
+                    # Mengingatkan ulang tahun orang yang sudah keluar bukan
+                    # sekadar sia-sia: namanya muncul di agenda seluruh
+                    # kantor dan mengundang ucapan yang canggung.
+                    employees_table.c.endDate.is_(None),
                 )
             )
 
@@ -250,6 +260,79 @@ class BirthdayRepository:
             return hasil
         except Exception as e:
             log_error(f"Error fetching birthdays: {str(e)}")
+            return {"error": str(e), "status": 500}
+
+    @staticmethod
+    async def in_range(dari: d, sampai: d):
+        """
+        Ulang tahun yang jatuh di dalam rentang tanggal.
+
+        Berbeda dari `upcoming` yang hanya melihat ke DEPAN dari hari ini,
+        fungsi ini menerima rentang bebas — termasuk yang seluruhnya sudah
+        lewat. Tampilan kalender bulanan perlu itu: membuka bulan lalu tidak
+        boleh menghasilkan halaman kosong.
+
+        Pencocokannya per hari, bukan lewat kueri, karena yang dibandingkan
+        adalah bulan dan tanggal tanpa memandang tahun — dan rentangnya
+        selalu pendek (paling banyak beberapa pekan), sehingga menelusuri
+        harinya jauh lebih sederhana daripada menyusun kondisi SQL yang
+        menangani pergantian tahun.
+        """
+        try:
+            baris = await database.fetch_all(
+                select(
+                    employees_table.c.id,
+                    employees_table.c.name,
+                    employees_table.c.birthday,
+                ).where(
+                    employees_table.c.isDelete == False,  # noqa: E712
+                    employees_table.c.birthday.isnot(None),
+                    # Hanya karyawan yang masih bekerja.
+                    #
+                    # `endDate` adalah TANGGAL TERAKHIR BEKERJA: terisi
+                    # berarti orangnya sudah tidak aktif. Itulah penanda
+                    # statusnya — tidak ada kolom status tersendiri.
+                    #
+                    # Mengingatkan ulang tahun orang yang sudah keluar bukan
+                    # sekadar sia-sia: namanya muncul di agenda seluruh
+                    # kantor dan mengundang ucapan yang canggung.
+                    employees_table.c.endDate.is_(None),
+                )
+            )
+
+            # (bulan, tanggal) -> tanggal sebenarnya dalam rentang
+            peta: dict[tuple[int, int], d] = {}
+            kursor = dari
+            while kursor <= sampai:
+                peta.setdefault((kursor.month, kursor.day), kursor)
+                kursor = kursor + timedelta(days=1)
+
+            hasil = []
+            for b in baris:
+                lahir = b["birthday"]
+                if not lahir:
+                    continue
+                kunci = (lahir.month, lahir.day)
+                # 29 Februari pada tahun biasa diperlakukan sebagai 1 Maret,
+                # sama seperti pada `days_until`.
+                if kunci == (2, 29) and kunci not in peta:
+                    kunci = (3, 1)
+                if kunci not in peta:
+                    continue
+                tanggal = peta[kunci]
+                hasil.append(
+                    {
+                        "id": b["id"],
+                        "name": b["name"],
+                        "birthday": lahir,
+                        "date": tanggal,
+                        "age": tanggal.year - lahir.year,
+                    }
+                )
+            hasil.sort(key=lambda x: (x["date"], x["name"]))
+            return hasil
+        except Exception as e:
+            log_error(f"Error fetching birthdays in range: {str(e)}")
             return {"error": str(e), "status": 500}
 
     @staticmethod

@@ -33,6 +33,13 @@ UMUM = {
     # levelnya: matriks menetapkan baca 1, tetapi buat dan ubah 4 — jadi
     # semua orang melihat daftarnya, hanya sedikit yang bisa mengubahnya.
     "project",
+    # Riwayat aktivitas dibaca semua divisi, karena isinya sudah dibatasi
+    # di rutenya: di bawah level 5 yang terlihat hanya aktivitas sendiri.
+    #
+    # Tanpa ada di sini, pengguna yang punya divisi akan tetap terkunci
+    # meski levelnya mencukupi — dan yang tidak punya divisi justru bisa
+    # membukanya. Kebalikan dari yang dimaksud.
+    "audit_log",
 }
 
 DEPARTMENT_MODULES: dict[str, set[str]] = {

@@ -38,7 +38,14 @@ SPECIAL_ONLY = 9
 
 MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     "asset": (1, 3, 3, 4, 0),
-    "audit_log": (5, 0, 0, 0, 0),
+    # Baca dibuka ke level 1, TETAPI isinya dibatasi di rutenya: di bawah
+    # level 5, yang terlihat hanya aktivitas sendiri.
+    #
+    # Matriks ini hanya mengenal "boleh membuka halamannya atau tidak", dan
+    # tidak dapat menyatakan "boleh, tetapi sebagian". Pembatasan isi karena
+    # itu ada di `audit_log_routes.py` — bila kelak aturannya diubah, di sana
+    # tempatnya, bukan di sini.
+    "audit_log": (1, 0, 0, 0, 0),
     "bank": (3, 5, 5, 5, 0),
     "calendar": (1, 0, 0, 0, 0),
     "client": (1, 3, 3, 4, 0),

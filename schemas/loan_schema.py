@@ -24,13 +24,14 @@ class LoanUpdate(BaseModel):
     """
     Kolom yang boleh disunting setelah pinjaman tercatat.
 
-    Nilai pinjaman (`received`) dan sisa utang (`debt`) sengaja tidak ada di
-    sini: keduanya sudah menjadi dasar pencatatan pembayaran masuk dan keluar,
-    sehingga mengubahnya membuat angkanya tidak lagi cocok dengan riwayat
-    transaksi — dan selisihnya tidak akan terlihat di mana pun.
+    Nilai pinjaman (`received`) dan utang (`debt`) DAPAT diubah, tetapi tidak
+    bebas: `debt` tidak boleh turun di bawah jumlah yang sudah dibayarkan.
+    Penjaganya ada di controller, karena ia perlu membaca riwayat pembayaran
+    yang tidak tersedia di lapisan skema.
 
-    Yang paling sering perlu diperbaiki justru data rekening, dan itu ada di
-    sini.
+    Setiap perubahan nilai diikuti perhitungan ulang status lunas — menurunkan
+    utang hingga sama dengan yang sudah dibayar menjadikannya lunas, dan
+    menaikkannya kembali membatalkan status itu.
     """
 
     creditorName: Optional[str] = None
@@ -41,6 +42,10 @@ class LoanUpdate(BaseModel):
     bankAccountNumber: Optional[str] = None
     bankName: Optional[str] = None
     bankAccountID: Optional[int] = None
+    # Nilai: tidak boleh negatif. Batas bawah yang sesungguhnya — jumlah yang
+    # sudah dibayarkan — diperiksa di controller.
+    received: Optional[float] = Field(default=None, ge=0)
+    debt: Optional[float] = Field(default=None, ge=0)
 
 
 class UpdateLoanResponse(BaseModel):
