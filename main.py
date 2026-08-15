@@ -154,7 +154,24 @@ async def audit_context_middleware(request: Request, call_next):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace "*" with specific origins for production
+    # Daftar asal yang diizinkan; TIDAK lagi `*`.
+    #
+    # Dengan `*` dan `allow_credentials=True`, situs mana pun yang dibuka
+    # staf di peramban yang sama dapat memanggil API ini memakai kredensial
+    # mereka yang sedang aktif — tanpa perlu mencuri token apa pun.
+    #
+    # Dibaca dari env agar domain tambahan dapat ditambahkan tanpa menyunting
+    # kode. Bawaannya alamat produksi; saat pengembangan, sebutkan alamat
+    # mesin lokal lewat `CORS_ORIGINS` dipisah koma.
+    allow_origins=[
+        o.strip()
+        for o in (
+            os.getenv("CORS_ORIGINS")
+            or "https://terrabot.alphakonstruksi.id,"
+               "http://terrabot.alphakonstruksi.id"
+        ).split(",")
+        if o.strip()
+    ],
     allow_credentials=True,
     allow_methods=["*"],  # Allow all HTTP methods
     allow_headers=["*"],  # Allow all headers
@@ -165,4 +182,23 @@ app.include_router(router)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=7500, reload=True, workers=1)
+
+    # `reload` menyala hanya di luar produksi.
+    #
+    # Mode itu memantau seluruh berkas dan memuat ulang server tiap ada
+    # perubahan — berguna saat menulis kode, memboroskan memori dan
+    # menjatuhkan koneksi yang sedang berjalan saat melayani orang.
+    #
+    # Ditentukan lewat env agar tidak perlu menyunting berkas ini saat
+    # menyalakan produksi — berkas yang disunting saat deploy cepat atau
+    # lambat akan tersunting keliru.
+    lingkungan = (os.getenv("APP_ENV") or "development").strip().lower()
+    is_produksi = lingkungan in ("production", "produksi", "prod")
+
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=int(os.getenv("PORT") or 7500),
+        reload=not is_produksi,
+        workers=1,
+    )
