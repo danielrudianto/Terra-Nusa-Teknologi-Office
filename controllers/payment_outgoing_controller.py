@@ -594,7 +594,143 @@ class PaymentOutgoingController:
             return internal_error()
 
     @staticmethod
-    async def delete_payment_by_id(id: int):
+    async def selaraskan_dokumen(jenis: str, dokumen_id: int, userID: int):
+        """
+        Hitung ulang status lunas satu dokumen, atas permintaan pengguna.
+
+        Diperlukan karena penyelarasan otomatis dapat tertinggal: bila
+        penulisan status gagal setelah pembayarannya tersimpan — koneksi
+        putus, server sedang padat — dokumennya tetap bertanda lama, dan
+        tidak ada yang mengulanginya sendiri.
+
+        Menghitung ulang selalu aman: hasilnya diturunkan dari pembayaran
+        yang tersimpan, bukan ditambahkan padanya. Menjalankannya dua kali
+        memberi hasil yang sama.
+        """
+
+        class _Sasaran:
+            """Meniru bentuk baris pembayaran; hanya id dokumennya yang dipakai."""
+
+            purchaseID = None
+            reimbursementID = None
+            expenseID = None
+            salarySlipID = None
+            loanID = None
+
+        peta = {
+            "purchase": "purchaseID",
+            "reimbursement": "reimbursementID",
+            "expense": "expenseID",
+            "salary_slip": "salarySlipID",
+            "loan": "loanID",
+        }
+        kolom = peta.get(jenis)
+        if not kolom:
+            return app_error(
+                ErrorCode.VALIDATION,
+                "Jenis dokumen tidak dikenal.",
+                400,
+            )
+
+        sasaran = _Sasaran()
+        setattr(sasaran, kolom, dokumen_id)
+        await PaymentOutgoingController.selaraskan_status_lunas(sasaran, userID)
+        return {"message": "Status pembayaran diselaraskan."}
+
+    @staticmethod
+    async def selaraskan_status_lunas(payment, userID: int | None = None):
+        """
+        Hitung ulang status lunas dokumen yang ditagih sebuah pembayaran.
+
+        Dihitung DUA ARAH: menjadi lunas bila pembayarannya cukup, dan
+        kembali belum lunas bila tidak. Sebelumnya statusnya hanya pernah
+        disetel menjadi lunas — sehingga pembayaran yang dibatalkan
+        meninggalkan dokumen bertanda lunas padahal uangnya tidak keluar.
+
+        Toleransi 5 rupiah, sama seperti pada persetujuan pembayaran:
+        pembulatan pajak menyisakan selisih beberapa rupiah yang bukan
+        kekurangan bayar.
+
+        Satu pembayaran hanya menagih SATU jenis dokumen; percabangan di
+        bawah karena itu saling meniadakan, bukan menumpuk.
+        """
+        def lunas(nilai, terbayar) -> bool:
+            return abs(float(nilai) - float(terbayar)) < 5
+
+        def jumlah(daftar) -> float:
+            return float(
+                sum(p.amount for p in daftar if p.isApprove and not p.isDelete)
+            )
+
+        try:
+            if payment.purchaseID is not None:
+                d = await PurchaseRepository.get_by_id(payment.purchaseID)
+                nilai = round(
+                    d["dpp"] + (d["ppn"] * d["dpp"] / 100) + (d["pbbkb"] or 0), 2
+                )
+                bayar = await PaymentOutgoingRepository.get_payments_by_purchase_id(
+                    payment.purchaseID
+                )
+                if not isinstance(bayar, dict):
+                    await PurchaseRepository.update_payment_status(
+                        payment.purchaseID, lunas(nilai, jumlah(bayar))
+                    )
+
+            elif payment.reimbursementID is not None:
+                items = await ReimbursementRepository.get_reimbursement_items_by_reimbursement_id(
+                    payment.reimbursementID
+                )
+                nilai = sum(r.amount for r in items)
+                bayar = await PaymentOutgoingRepository.get_payments_by_reimbursement_id(
+                    payment.reimbursementID
+                )
+                if not isinstance(bayar, dict):
+                    await ReimbursementRepository.update_payment_status(
+                        payment.reimbursementID, lunas(nilai, jumlah(bayar)), userID
+                    )
+
+            elif payment.expenseID is not None:
+                d = await ExpenseRepository.get_expense_by_id(payment.expenseID)
+                nilai = d["amount"] if not isinstance(d, dict) or "amount" in d else 0
+                bayar = await PaymentOutgoingRepository.get_payments_by_expense_id(
+                    payment.expenseID
+                )
+                if not isinstance(bayar, dict):
+                    await ExpenseRepository.update_payment_status(
+                        payment.expenseID, lunas(nilai, jumlah(bayar)), userID
+                    )
+
+            elif payment.salarySlipID is not None:
+                bayar = await PaymentOutgoingRepository.get_payments_by_salary_slip_id(
+                    payment.salarySlipID
+                )
+                d = await SalarySlipRepository.get_salary_slip_by_id(
+                    payment.salarySlipID
+                )
+                nilai = d["total"] if isinstance(d, dict) and "total" in d else 0
+                if not isinstance(bayar, dict):
+                    await SalarySlipRepository.update_payment_status(
+                        payment.salarySlipID, lunas(nilai, jumlah(bayar)), userID
+                    )
+
+            elif payment.loanID is not None:
+                pinjaman = await LoanRepository.get_loan_by_id(payment.loanID)
+                nilai = pinjaman["debt"] if isinstance(pinjaman, dict) else 0
+                bayar = await PaymentOutgoingRepository.get_payments_by_loan_id(
+                    payment.loanID
+                )
+                if not isinstance(bayar, dict):
+                    await LoanRepository.update_payment_status(
+                        payment.loanID, lunas(nilai, jumlah(bayar)), userID
+                    )
+        except Exception as e:
+            # Kegagalan penyelarasan TIDAK menggagalkan tindakan utamanya;
+            # yang terjadi hanya statusnya tertinggal, dan itu dapat
+            # diperbaiki lewat penyelarasan ulang.
+            log_error(f"Gagal menyelaraskan status lunas: {e}")
+
+    @staticmethod
+    async def delete_payment_by_id(id: int, userID: int | None = None):
         """
         Delete a payment by ID.
         
@@ -612,6 +748,23 @@ class PaymentOutgoingController:
                 log_error(f"Error fetching payment with ID {id}: {payment['error']}")
                 return {"error": payment["error"], "status": payment.get("status", 500)}
             
+            # Fungsi ini SEBELUMNYA hanya membaca lalu melaporkan sukses.
+            #
+            # Tidak ada rute yang memanggilnya, sehingga tidak berakibat apa
+            # pun — tetapi laporan sukses tanpa perbuatan adalah jebakan bagi
+            # siapa pun yang kelak menyambungkannya.
+            hasil = await PaymentOutgoingRepository.soft_delete_payment(id, userID)
+            if isinstance(hasil, dict) and "error" in hasil:
+                log_error(f"Error deleting payment with ID {id}: {hasil['error']}")
+                return hasil
+
+            # Status lunas dokumen yang ditagih dihitung ULANG.
+            #
+            # Menghapus pembayaran mengurangi jumlah yang sudah dibayarkan;
+            # tanpa perhitungan ulang, dokumennya tetap bertanda lunas
+            # padahal uangnya tidak pernah keluar.
+            await PaymentOutgoingController.selaraskan_status_lunas(payment)
+
             log_info(f"Payment with ID: {id} deleted successfully")
             return {"message": "Payment deleted successfully"}
         except Exception as e:

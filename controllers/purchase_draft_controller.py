@@ -23,6 +23,21 @@ class PurchaseDraftController:
                 return {"error": purchase_id["error"], "status": purchase_id["status"]}
             log_info(f"Purchase draft created successfully with ID: {purchase_id}")
             
+            # Jejak audit dicatat SETELAH barisnya benar-benar tersimpan.
+            #
+            # Draf pembelian sebelumnya tidak meninggalkan jejak sama sekali —
+            # dibuat, dikonversi, dan dihapus tanpa satu baris pun di
+            # Aktivitas. Padahal draf memuat nilai dokumen dan pemasoknya,
+            # dan konversinya melahirkan pembelian yang beneran ditagihkan.
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="purchase_draft",
+                entityID=purchase_id,
+                action="create",
+                userID=userID,
+            )
+
             return {"message": "Purchase draft created successfully", "purchase_draft_id": purchase_id}
         except Exception as e:
             log_error(f"Error creating purchase draft: {str(e)}")
@@ -60,6 +75,16 @@ class PurchaseDraftController:
     @staticmethod
     async def delete_purchase_draft(purchase_draft_id: int, userID: int):
         await PurchaseDraft.delete_purcase_draft(purchase_draft_id, userID)
+
+        from repository.audit_log_repository import AuditLogRepository
+
+        await AuditLogRepository.record(
+            entity="purchase_draft",
+            entityID=int(purchase_draft_id),
+            action="delete",
+            userID=userID,
+        )
+
         log_info(f"Purchase draft converted successfully with ID: {purchase_draft_id}")
         
         return {"message": "Purchase draft converted successfully", "purchase_id": purchase_draft_id}
@@ -107,6 +132,28 @@ class PurchaseDraftController:
                 return {"error": purchase_id["error"], "status": purchase_id["status"]}
 
             await PurchaseDraft.catat_purchase_id(int(purchase_draft_id), purchase_id)
+
+            # Konversi dicatat pada KEDUA dokumen.
+            #
+            # Yang menelusuri sebuah pembelian ingin tahu ia berasal dari draf
+            # mana; yang menelusuri draf ingin tahu menjadi pembelian mana.
+            # Satu catatan saja membuat salah satu arah itu buntu.
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="purchase_draft",
+                entityID=int(purchase_draft_id),
+                action="convert",
+                userID=userID,
+                changes={"purchaseID": purchase_id},
+            )
+            await AuditLogRepository.record(
+                entity="purchases",
+                entityID=purchase_id,
+                action="create",
+                userID=userID,
+                changes={"purchaseDraftID": int(purchase_draft_id)},
+            )
             await PurchaseDraft.delete_purcase_draft(purchase_draft_id, userID)
             log_info(f"Purchase draft converted successfully with ID: {purchase_id}")
             

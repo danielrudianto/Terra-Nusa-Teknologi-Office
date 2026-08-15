@@ -434,6 +434,7 @@ class PurchaseOrderController:
         fields: Dict,
         user_id: int,
         user_level: int = 1,
+        user_name: str | None = None,
     ):
         """
         Ubah purchase order yang belum disetujui.
@@ -474,7 +475,14 @@ class PurchaseOrderController:
             status = clean.get("status")
             if status is not None and hasattr(status, "value"):
                 clean["status"] = status.value
-            result = await PurchaseOrderRepository.update(purchase_order_id, clean)
+            # `user_id` dan `user_name` DITERUSKAN.
+            #
+            # Tanpa keduanya jejak audit tercatat tanpa pelaku — barisnya ada,
+            # tetapi kolom siapa-yang-mengubah kosong, dan itu tidak terlihat
+            # sebagai kesalahan pada siapa pun yang membacanya.
+            result = await PurchaseOrderRepository.update(
+                purchase_order_id, clean, user_id, user_name
+            )
             if "error" in result:
                 return {"error": result["error"], "status": result.get("status", 500)}
             return result

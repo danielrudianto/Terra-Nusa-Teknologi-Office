@@ -73,6 +73,29 @@ purchase_orders_table = Table(
     Column("billing_requirements", JSON, nullable=False),
     Column("payment_term", String(45), nullable=False, server_default="CASH", default="CASH"),
     Column("revision", Integer, nullable=False, server_default="0", default=0),
+    # ---- adendum ----
+    #
+    # Adendum disimpan sebagai DOKUMEN TERSENDIRI, menunjuk induknya.
+    #
+    # Bukan sebagai penyuntingan dokumen lama: lembar yang sudah
+    # ditandatangani vendor tidak boleh berubah isinya. Bila dokumen asli
+    # dapat disunting, yang dipegang vendor dan yang di sistem dapat berbeda
+    # tanpa jejak — dan itu justru yang hendak dihindari dengan membuat
+    # adendum.
+    #
+    # Isinya SELISIH, bukan pengganti. Pada `013-PO-BPBP-F` yang aslinya
+    # 100 m3, adendumnya memuat 5 m3 — bukan 105. Karena itu nilai akhir
+    # sebuah pekerjaan adalah induk ditambah seluruh adendumnya, dan
+    # penjumlahan biasa pada laporan sudah menghasilkan angka yang benar
+    # tanpa perlakuan khusus.
+    Column(
+        "parentPurchaseOrderID",
+        Integer,
+        ForeignKey("purchase_orders.id"),
+        nullable=True,
+    ),
+    # Urutan adendum: 1, 2, dan seterusnya. NULL pada dokumen induk.
+    Column("addendumNumber", Integer, nullable=True),
     Column("isApproved", Boolean, nullable=False, server_default=text("0"), default=False),
     Column("approvedBy", Integer, ForeignKey("users.id"), nullable=True, default=None),
     Column("approvedAt", DateTime, nullable=True, default=None),

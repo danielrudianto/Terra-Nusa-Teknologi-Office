@@ -31,7 +31,7 @@ async def approve_reimbursement(
     current_user: Annotated[User, Depends(require("reimbursement", "approve"))]
 ):
     userID = current_user["id"]
-    result = await ReimbursementController.approve_reimbursement(reimbursementID, userID)
+    result = await ReimbursementController.approve_reimbursement(reimbursementID, userID, int(current_user["authenticationLevel"] or 1))
     if "error" in result:
         log_error(f"Error approving reimbursement: {str(result['error'])}")
         raise HTTPException(

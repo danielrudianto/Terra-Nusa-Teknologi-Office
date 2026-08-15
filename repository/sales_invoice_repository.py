@@ -1,4 +1,6 @@
 from typing import List, Optional, Dict, Any
+from utils.permission import boleh_menyetujui_sendiri
+from utils.errors import app_error, ErrorCode
 from sqlalchemy import select, func, or_, and_, desc, asc, extract
 from utils.database import database
 from utils.logger_utils import log_error
@@ -586,12 +588,32 @@ class SalesInvoiceRepository:
     async def approve(
         sales_invoice_id: int, 
         tax_invoice_name: Optional[str], 
-        user_id: int
+        user_id: int,
+        user_level: int | None = None,
     ) -> Dict[str, Any]:
         """
         Approve a sales invoice.
         """
         try:
+            # Yang membuat dokumen tidak boleh menyetujuinya sendiri.
+            #
+            # Dikecualikan untuk level 4 ke atas: keduanya memang berwenang atas
+            # seluruh dokumen, dan kerap merekalah satu-satunya yang hadir untuk
+            # menyetujui. Pengecualian itu tetap tercatat pada jejak aktivitas.
+            if not boleh_menyetujui_sendiri(user_level):
+                pembuat = await database.fetch_val(
+                    select(sales_invoice_tables.c.createdBy).where(
+                        sales_invoice_tables.c.id == sales_invoice_id
+                    )
+                )
+                if pembuat is not None and int(pembuat) == int(user_id):
+                    return app_error(
+                        ErrorCode.SELF_APPROVAL_FORBIDDEN,
+                        "Dokumen tidak dapat disetujui oleh pembuatnya "
+                        "sendiri. Mintakan persetujuan kepada pengguna lain.",
+                        403,
+                    )
+
             query = (
                 sales_invoice_tables.update()
                 .where(sales_invoice_tables.c.id == sales_invoice_id)

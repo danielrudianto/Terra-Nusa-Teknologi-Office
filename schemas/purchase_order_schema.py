@@ -31,6 +31,13 @@ class PurchaseOrderCreate(PurchaseOrderBase):
     # Hanya dipakai untuk membentuk nomor dokumen (mis. "MICZ" -> 025-SPK-MICZ-G).
     # Not persisted as a column.
     projectCode: Optional[str] = None
+    # Dokumen induk, bila yang dibuat adalah ADENDUM.
+    #
+    # Nomor adendumnya TIDAK dikirim dari layar: server yang menghitungnya
+    # dari adendum yang sudah ada untuk induk tersebut. Membiarkan layar
+    # menentukannya membuka kemungkinan dua adendum bernomor sama saat dua
+    # orang membuatnya bersamaan.
+    parentPurchaseOrderID: Optional[int] = None
     # If provided, use this exact PO number instead of auto-generating.
     name: Optional[str] = None
     # Baris item PO. WAJIB ada di schema: route memanggil `.dict()`, sehingga

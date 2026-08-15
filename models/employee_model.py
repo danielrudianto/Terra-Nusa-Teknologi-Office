@@ -7,10 +7,48 @@ from utils.database import database
 from utils.logger_utils import log_error
 from sqlalchemy.exc import IntegrityError
 from models.employee_profile_model import employee_profiles_table
+from models.employee_form_model import employee_form_submissions_table
 from utils.errors import internal_error
 
 
 # Define the Purchase model
+
+def _pembaruan_terakhir(row):
+    """
+    Tanggal pembaruan terakhir, atau None bila belum pernah.
+
+    Subkueri memakai `1000-01-01` sebagai nilai dasar agar `GREATEST` tetap
+    menghasilkan sesuatu ketika kedua sumbernya kosong. Tanggal itu bukan
+    keterangan bagi siapa pun; ia dikembalikan sebagai None supaya layar
+    menampilkan tanda hubung, bukan tahun seribu.
+    """
+    v = getattr(row, "lastDataUpdate", None)
+    if not v:
+        return None
+
+    # `GREATEST` pada MySQL mengembalikan TEKS, bukan objek tanggal.
+    #
+    # Penjaga sebelumnya membaca `v.year` dan membuang apa pun yang tidak
+    # memilikinya — sehingga seluruh tanggal nyata ikut terbuang, dan kolom
+    # ini selalu berisi "Belum pernah" walau datanya ada.
+    if isinstance(v, str):
+        for pola in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+            try:
+                v = dt.strptime(v[:19], pola)
+                break
+            except ValueError:
+                continue
+        else:
+            return None
+
+    try:
+        if v.year <= 1000:
+            return None
+    except AttributeError:
+        return None
+    return v
+
+
 class Employee(BaseModel):
     id: Optional[int] = None  # Unique ID for the employee, optional for creation
     name: str  # Name of the employee
@@ -39,6 +77,13 @@ class Employee(BaseModel):
     # bidang ke kelas ini, sehingga apa pun yang tidak disebut akan dihitung
     # basis data lalu dibuang tanpa satu pun galat.
     hasProfile: Optional[int] = 0
+
+    # Kapan data ini terakhir diperbarui.
+    #
+    # Label subkueri, bukan kolom tabel — sama seperti `hasProfile`, harus
+    # disebut di sini DAN disalin di bawah, atau nilainya dihitung basis data
+    # lalu dibuang tanpa satu pun galat.
+    lastDataUpdate: Optional[dt] = None
 
     #Initialize the model
     def __init__(self, **data):
@@ -164,9 +209,47 @@ class Employee(BaseModel):
                 .label("hasProfile")
             )
 
+            # Kapan data karyawan ini TERAKHIR diperbarui.
+            #
+            # Diambil yang paling baru di antara dua sumber: penyuntingan
+            # profil pribadi, dan pengisian formulir pembaruan. Keduanya
+            # sama-sama peninjauan data, dan yang dicari orang adalah kapan
+            # terakhir kali datanya disentuh — bukan lewat jalur mana.
+            #
+            # Rumus yang sama dipakai `kedaluwarsa()` untuk menghitung batas
+            # dua belas bulan; memakai rumus berbeda di sini membuat kolom
+            # ini dan pengingat di Agenda dapat menunjuk tanggal yang tidak
+            # sama.
+            profil_terakhir = (
+                select(
+                    func.coalesce(
+                        employee_profiles_table.c.updatedAt,
+                        employee_profiles_table.c.createdAt,
+                    )
+                )
+                .where(employee_profiles_table.c.employeeID == employees_table.c.id)
+                .correlate(employees_table)
+                .scalar_subquery()
+            )
+            formulir_terakhir = (
+                select(func.max(employee_form_submissions_table.c.submittedAt))
+                .where(
+                    employee_form_submissions_table.c.employeeID
+                    == employees_table.c.id,
+                    employee_form_submissions_table.c.isDelete == False,
+                )
+                .correlate(employees_table)
+                .scalar_subquery()
+            )
+            pembaruan_terakhir = func.greatest(
+                func.coalesce(profil_terakhir, dt(1000, 1, 1)),
+                func.coalesce(formulir_terakhir, dt(1000, 1, 1)),
+            ).label("lastDataUpdate")
+
             query = select(
                 employees_table,
                 punya_profil,
+                pembaruan_terakhir,
                 func.count(employees_table.c.id).over().label("total_count"),
             )
 
@@ -235,6 +318,7 @@ class Employee(BaseModel):
                     # Nilai bawaan tetap diperlukan: `hasProfile` adalah label
                     # subkueri, dan kueri lain di berkas ini tidak memuatnya.
                     hasProfile=int(getattr(row, "hasProfile", 0) or 0),
+                    lastDataUpdate=_pembaruan_terakhir(row),
                 )
                 response.append(employee_data)
 

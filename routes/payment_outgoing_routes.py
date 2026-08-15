@@ -211,3 +211,30 @@ async def reject_payment_status(
         raise HTTPException(status_code=500, detail="Internal server error")
     
     return result
+
+
+@router.post("/selaraskan/{jenis}/{dokumen_id}")
+async def selaraskan_status_lunas(
+    jenis: str,
+    dokumen_id: int,
+    user: Annotated[User, Depends(require("payment_outgoing", "update"))],
+):
+    """
+    Hitung ulang status lunas satu dokumen.
+
+    Dijaga `payment_outgoing:update`, bukan izin dokumennya sendiri: yang
+    berubah adalah kesimpulan atas pembayaran, dan yang berwenang menilainya
+    adalah yang berwenang atas pembayaran.
+
+    Aman diulang — hasilnya diturunkan dari pembayaran yang tersimpan, bukan
+    ditambahkan padanya.
+    """
+    userID = user["id"]
+    hasil = await PaymentOutgoingController.selaraskan_dokumen(
+        jenis, dokumen_id, userID
+    )
+    if isinstance(hasil, dict) and "error" in hasil:
+        raise HTTPException(
+            status_code=hasil.get("status", 500), detail=error_detail(hasil)
+        )
+    return hasil

@@ -95,8 +95,7 @@ async def approve_sales_invoice(
     user_id = current_user["id"]
     tax_invoice_name = data.get("taxInvoiceName")
     result = await SalesInvoiceController.approve_sales_invoice(
-        sales_invoice_id, tax_invoice_name, user_id
-    )
+        sales_invoice_id, tax_invoice_name, user_id, int(current_user["authenticationLevel"] or 1))
     return result
 
 @router.put("/tax-invoice/{sales_invoice_id}")

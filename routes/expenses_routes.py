@@ -135,7 +135,7 @@ async def approve_expense_by_id(expense_id: int, current_user: Annotated[User, D
     Approve an expense by ID.
     """
     userID = current_user.id
-    result = await ExpenseController.approve_expense_by_id(expense_id, userID)
+    result = await ExpenseController.approve_expense_by_id(expense_id, userID, int(current_user["authenticationLevel"] or 1))
     if "error" in result:
         raise HTTPException(
             status_code=result["status"], detail=error_detail(result)

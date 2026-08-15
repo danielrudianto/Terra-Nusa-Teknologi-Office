@@ -193,7 +193,8 @@ class SalesInvoiceController:
     async def approve_sales_invoice(
         sales_invoice_id: int, 
         tax_invoice_name: Optional[str], 
-        user_id: int
+        user_id: int,
+        user_level: int | None = None,
     ) -> Dict:
         """
         Approve sales invoice by ID.
@@ -213,7 +214,7 @@ class SalesInvoiceController:
 
             # Approve the sales invoice
             result = await SalesInvoiceRepository.approve(
-                sales_invoice_id, tax_invoice_name, user_id
+                sales_invoice_id, tax_invoice_name, user_id, user_level
             )
             
             if "error" in result:

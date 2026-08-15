@@ -772,6 +772,45 @@ class PaymentOutgoingRepository:
             return internal_error()
         
     @staticmethod
+    async def soft_delete_payment(paymentID: int, userID: int | None = None):
+        """
+        Hapus SATU pembayaran, ditandai `isDelete` — bukan dibuang.
+
+        Baris pembayaran tetap disimpan: jejak siapa pernah menyetujui berapa
+        adalah bagian dari kontrol internal, dan menghapusnya benar-benar
+        membuat selisih kas tidak dapat ditelusuri lagi.
+
+        `isApprove` ikut dimatikan, sama seperti penghapusan menyeluruh:
+        penjumlahan yang menentukan status lunas menghitung pembayaran yang
+        DISETUJUI dan belum dihapus, sehingga keduanya harus berubah bersama.
+        """
+        log_info(f"Soft-deleting payment ID: {paymentID}")
+        query = (
+            payments_outgoing_table.update()
+            .where(payments_outgoing_table.c.id == paymentID)
+            .values(
+                isDelete=True,
+                isApprove=False,
+                updatedAt=dt.now(),
+                updatedBy=userID,
+            )
+        )
+        try:
+            await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="payment_outgoing",
+                entityID=paymentID,
+                action="delete",
+                userID=userID,
+            )
+            return {"message": "Payment deleted successfully"}
+        except Exception as e:
+            log_error(f"Error soft-deleting payment {paymentID}: {e}")
+            return internal_error()
+
+    @staticmethod
     async def delete_payment_by_purchase_id(purchaseID: int, userID: int):
         """
         Delete all payments associated with a specific purchase ID.

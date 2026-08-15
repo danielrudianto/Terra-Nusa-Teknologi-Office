@@ -66,7 +66,8 @@ async def simpan_profil(
     # Tanggal dan daftar berulang perlu bentuk yang dapat disimpan MySQL.
     if data.get("ktpValidUntil") is not None:
         data["ktpValidUntil"] = data["ktpValidUntil"]
-    for kunci in ("formalEducation", "workExperience"):
+    for kunci in ("formalEducation", "workExperience", "languages",
+                  "familyMembers", "drivingLicenses"):
         if data.get(kunci) is not None:
             import json
 

@@ -34,6 +34,52 @@ def kategori_pajak(status_nikah, tanggungan) -> str:
     return f"{'K' if kawin else 'TK'}/{n}"
 
 
+
+
+def _baca_jawaban(v):
+    """
+    Baca kolom `answers`, apa pun bentuk penyimpanannya.
+
+    Baris LAMA tersandi dua kali — akibat `json.dumps` yang dipanggil sebelum
+    SQLAlchemy menyandikannya lagi — sehingga membacanya sekali menghasilkan
+    string, bukan objek. Layar yang menerimanya menampilkan "0 isian" tanpa
+    satu pun galat.
+
+    Membaca berulang sampai menjadi objek membuat baris lama tetap terbaca
+    tanpa perlu memperbaiki datanya lebih dulu; baris baru sudah tersimpan
+    benar dan berhenti pada putaran pertama.
+    """
+    import json as _json
+
+    for _ in range(3):
+        if isinstance(v, (dict, list)):
+            return v
+        if not isinstance(v, str):
+            return {}
+        try:
+            v = _json.loads(v)
+        except (ValueError, TypeError):
+            return {}
+    return v if isinstance(v, (dict, list)) else {}
+
+def _siap_json(v):
+    """
+    Ubah nilai yang tidak dikenal JSON menjadi teks, tanpa menyandikannya.
+
+    `json.dumps(..., default=str)` sebelumnya menangani tanggal dan Decimal
+    sekaligus. Karena penyandiannya kini diserahkan kepada SQLAlchemy,
+    pengubahan itu perlu dilakukan tersendiri — tanpa itu, satu tanggal di
+    dalam jawaban membuat seluruh penyimpanan gagal.
+    """
+    if isinstance(v, dict):
+        return {k: _siap_json(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_siap_json(x) for x in v]
+    if v is None or isinstance(v, (str, int, float, bool)):
+        return v
+    return str(v)
+
+
 class EmployeeFormRepository:
     """
     Formulir keadaan karyawan yang ditanyakan berkala.
@@ -78,7 +124,12 @@ class EmployeeFormRepository:
             )
             row = await database.fetch_one(query)
             if row:
-                return dict(row)
+                d = dict(row)
+            # `fields` dibaca lewat pembaca yang sama: baris lama tersandi
+            # dua kali dan tanpa ini terbaca sebagai teks, sehingga label
+            # pertanyaan tidak pernah sampai ke layar.
+            d["fields"] = _baca_jawaban(d.get("fields"))
+            return d
 
             return await EmployeeFormRepository._buat_versi_bawaan()
         except Exception as e:
@@ -107,7 +158,11 @@ class EmployeeFormRepository:
                     period="-",
                     title="Pembaruan data karyawan",
                     description=None,
-                    fields=json.dumps(FORMULIR_BAWAAN),
+                    # Kolomnya bertipe JSON; SQLAlchemy menyandikannya
+                    # sendiri. Menyandikan lebih dulu membuat isinya tersandi
+                    # DUA KALI, dan pembacanya menerima teks yang tidak punya
+                    # satu pun kunci.
+                    fields=_siap_json(FORMULIR_BAWAAN),
                     isActive=True,
                     isDelete=False,
                     createdAt=dt.now(),
@@ -171,7 +226,7 @@ class EmployeeFormRepository:
                 "period": periode,
                 "title": (data.get("title") or f"Pembaruan data karyawan {periode}"),
                 "description": data.get("description"),
-                "fields": json.dumps(definisi),
+                "fields": _siap_json(definisi),
                 "isActive": bool(data.get("isActive", True)),
                 "isDelete": False,
                 # Default kolom sisi-Python tidak pernah berlaku pada
@@ -309,7 +364,14 @@ class EmployeeFormRepository:
                 """,
                 {"id": employee_id},
             )
-            return [dict(r) for r in rows]
+            # Jawaban dibaca lewat `_baca_jawaban`: baris lama tersandi
+            # dua kali dan tanpa ini terbaca sebagai teks, bukan objek.
+            hasil = []
+            for r in rows:
+                d = dict(r)
+                d["answers"] = _baca_jawaban(d.get("answers"))
+                hasil.append(d)
+            return hasil
         except Exception as e:
             log_error(f"Error fetching form history: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
@@ -336,7 +398,9 @@ class EmployeeFormRepository:
             )
             row = await database.fetch_one(query)
             if row:
-                return dict(row)
+                d = dict(row)
+                d["answers"] = _baca_jawaban(d.get("answers"))
+                return d
 
             # Belum pernah mengisi: jawaban awal DIISI dari data karyawan.
             #
@@ -423,7 +487,19 @@ class EmployeeFormRepository:
                 insert(employee_form_submissions_table).values(
                     employeeID=employee_id,
                     versionID=version_id,
-                    answers=json.dumps(answers, default=str),
+                    # Diserahkan APA ADANYA, bukan di-`json.dumps` dulu.
+                    #
+                    # Kolomnya bertipe JSON, sehingga SQLAlchemy sudah
+                    # menyandikannya sendiri. Menyandikannya lebih dulu
+                    # membuat isinya tersandi DUA KALI — yang tersimpan
+                    # menjadi string berisi JSON, bukan objek — dan
+                    # pembacanya menerima teks yang tampak benar tetapi tidak
+                    # punya satu pun kunci.
+                    #
+                    # `default=str` yang hilang digantikan `_siap_json` di
+                    # bawah: tanggal dan Decimal tetap perlu diubah menjadi
+                    # teks sebelum diserahkan.
+                    answers=_siap_json(answers),
                     submittedAt=dt.now(),
                     submittedBy=user_id,
                     isDelete=False,

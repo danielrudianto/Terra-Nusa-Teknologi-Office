@@ -254,8 +254,18 @@ async def ubah_purchase_order(
     user_id = current_user["id"]
     user_level = int(current_user["authenticationLevel"] or 1)
 
+    # Nama diambil dari token, bukan dikueri ulang.
+    #
+    # Jejak aktivitas menampilkan nama pelakunya; tanpa ini kolom itu berisi
+    # tanda hubung, dan riwayat perubahan menjadi daftar yang tidak menyebut
+    # siapa pun.
+    try:
+        nama_pengguna = current_user["name"]
+    except (KeyError, TypeError):
+        nama_pengguna = None
+
     hasil = await PurchaseOrderController.update_purchase_order(
-        purchase_order_id, body, user_id, user_level
+        purchase_order_id, body, user_id, user_level, nama_pengguna
     )
     if isinstance(hasil, dict) and "error" in hasil:
         raise HTTPException(
