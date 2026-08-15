@@ -450,15 +450,15 @@ class ProjectRepository:
             )
             from repository.audit_log_repository import AuditLogRepository
 
-            # Dicatat pada PROYEKNYA, bukan pada kontraknya.
+            # Dicatat pada KONTRAKNYA sendiri.
             #
-            # Kontrak tidak punya halaman sendiri — ia dibaca dari halaman
-            # proyek. Mencatatnya dengan entityID kontrak membuat jejaknya
-            # tersimpan di tempat yang tidak pernah dibuka siapa pun,
-            # padahal justru perubahan nilai kontrak yang paling perlu
-            # ditelusuri saat audit.
+            # Alasan lama — "kontrak tidak punya halaman sendiri" — sudah
+            # tidak berlaku: dialog lihat kontrak kini menampilkan riwayatnya
+            # dan mencarinya sebagai `project_contracts` beserta id kontrak
+            # itu. Mencatatnya sebagai `projects` membuat riwayat itu selalu
+            # kosong, tanpa galat apa pun.
             await AuditLogRepository.record(
-                entity="projects",
+                entity="project_contracts",
                 # `project_id` dari parameternya, BUKAN `data["projectID"]`.
                 #
                 # `projectID` tidak pernah ada di dalam `data`: ia disisipkan
@@ -466,7 +466,7 @@ class ProjectRepository:
                 # melempar KeyError — dan karena seluruh fungsi ini dibungkus
                 # try/except, galatnya keluar sebagai "Internal server error"
                 # SETELAH kontraknya sudah tersimpan.
-                entityID=project_id,
+                entityID=contract_id,
                 action="contract_create",
                 note=f"{data.get('documentType', 'spk')} {data.get('documentNumber', '')}".strip(),
             )
@@ -510,8 +510,14 @@ class ProjectRepository:
             from repository.audit_log_repository import AuditLogRepository
 
             await AuditLogRepository.record(
-                entity="projects",
-                entityID=_sebelum["projectID"],
+                # Dicatat pada KONTRAKNYA, bukan pada proyeknya.
+                #
+                # Layar riwayat kontrak mencari `project_contracts` beserta id
+                # kontrak itu sendiri; mencatatnya sebagai `projects` membuat
+                # riwayatnya selalu kosong — tanpa galat, hanya daftar hampa
+                # yang tampak seperti belum pernah ada perubahan.
+                entity="project_contracts",
+                entityID=_sebelum["id"],
                 action="contract_update",
                 changes=AuditLogRepository.diff(dict(_sebelum), values),
                 note=f"{_sebelum['documentType']} {_sebelum['documentNumber']}".strip(),
@@ -540,8 +546,8 @@ class ProjectRepository:
             from repository.audit_log_repository import AuditLogRepository
 
             await AuditLogRepository.record(
-                entity="projects",
-                entityID=_sebelum["projectID"],
+                entity="project_contracts",
+                entityID=_sebelum["id"],
                 action="contract_delete",
                 note=(
                     f"{_sebelum['documentType']} {_sebelum['documentNumber']} "

@@ -30,3 +30,5 @@ storage/
 # menjadi 98% isi direktori ini.
 prisma/
 tsconfig.json
+env/
+data.ms/
