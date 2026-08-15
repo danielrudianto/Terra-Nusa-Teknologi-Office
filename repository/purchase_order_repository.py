@@ -1,5 +1,7 @@
 import json
 from datetime import datetime as dt
+from utils.permission import boleh_menyetujui_sendiri
+from utils.errors import app_error, ErrorCode
 from sqlalchemy import insert, select, func, update, or_
 from sqlalchemy.exc import IntegrityError
 from utils.database import database
@@ -426,6 +428,16 @@ class PurchaseOrderRepository:
                     or_(
                         purchase_orders_table.c.name.ilike(pattern),
                         purchase_orders_table.c.projectName.ilike(pattern),
+                        # Nama pemasok ikut dicari.
+                        #
+                        # Yang mencatat tagihan memegang faktur dari pemasok,
+                        # bukan nomor purchase order — nomornya justru yang
+                        # sedang ia cari. Tanpa ini, satu-satunya jalan adalah
+                        # menelusuri daftar halaman demi halaman.
+                        #
+                        # `suppliers_table` sudah ter-join pada kueri ini,
+                        # sehingga tidak ada beban tambahan.
+                        suppliers_table.c.name.ilike(pattern),
                     )
                 )
 
@@ -518,8 +530,39 @@ class PurchaseOrderRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
-    async def update_status(purchase_order_id: int, status: str, user_id: int):
-        """Update only the status of a purchase order."""
+    async def update_status(
+        purchase_order_id: int,
+        status: str,
+        user_id: int,
+        user_level: int | None = None,
+    ):
+        """
+        Update only the status of a purchase order.
+
+        Inilah pintu persetujuan purchase order yang sebenarnya dipakai layar
+        — `approve()` di bawah tidak pernah dipanggil dari rute mana pun.
+        Karena itu penjagaan persetujuan-sendiri harus ada DI SINI; menaruhnya
+        hanya di `approve()` berarti aturannya tidak pernah berlaku.
+        """
+        # Yang membuat dokumen tidak boleh menyetujuinya sendiri.
+        #
+        # Dikecualikan untuk level 4 ke atas: keduanya memang berwenang atas
+        # seluruh dokumen, dan kerap merekalah satu-satunya yang hadir untuk
+        # menyetujui. Pengecualian itu tetap tercatat pada jejak aktivitas.
+        if status == "approved" and not boleh_menyetujui_sendiri(user_level):
+            pembuat = await database.fetch_val(
+                select(purchase_orders_table.c.createdBy).where(
+                    purchase_orders_table.c.id == purchase_order_id
+                )
+            )
+            if pembuat is not None and int(pembuat) == int(user_id):
+                return app_error(
+                    ErrorCode.SELF_APPROVAL_FORBIDDEN,
+                    "Dokumen tidak dapat disetujui oleh pembuatnya sendiri. "
+                    "Mintakan persetujuan kepada pengguna lain.",
+                    403,
+                )
+
         try:
             # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
             # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
@@ -558,7 +601,9 @@ class PurchaseOrderRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
-    async def approve(purchase_order_id: int, user_id: int):
+    async def approve(
+        purchase_order_id: int, user_id: int, user_level: int | None = None
+    ):
         """
         Setujui satu purchase order.
 
@@ -575,6 +620,25 @@ class PurchaseOrderRepository:
         Tombol yang tersembunyi hanya menghalangi yang menekan lewat layar.
         """
         try:
+            # Yang membuat dokumen tidak boleh menyetujuinya sendiri.
+            #
+            # Dikecualikan untuk level 4 ke atas: keduanya memang berwenang atas
+            # seluruh dokumen, dan kerap merekalah satu-satunya yang hadir untuk
+            # menyetujui. Pengecualian itu tetap tercatat pada jejak aktivitas.
+            if not boleh_menyetujui_sendiri(user_level):
+                pembuat = await database.fetch_val(
+                    select(purchase_orders_table.c.createdBy).where(
+                        purchase_orders_table.c.id == purchase_order_id
+                    )
+                )
+                if pembuat is not None and int(pembuat) == int(user_id):
+                    return app_error(
+                        ErrorCode.SELF_APPROVAL_FORBIDDEN,
+                        "Dokumen tidak dapat disetujui oleh pembuatnya "
+                        "sendiri. Mintakan persetujuan kepada pengguna lain.",
+                        403,
+                    )
+
             keadaan = await database.fetch_one(
                 """
                 SELECT isApproved, isDelete FROM purchase_orders
