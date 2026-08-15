@@ -152,26 +152,52 @@ async def audit_context_middleware(request: Request, call_next):
         clear_current_user()
 
 
+
+def _asal_diizinkan() -> list[str]:
+    """
+    Susun daftar asal yang boleh memanggil API ini.
+
+    Produksi hanya menerima domain aplikasinya. Di luar produksi, alamat
+    pengembangan ikut diterima — `localhost:4200` untuk `ng serve` dan
+    `localhost:3000` untuk build yang disajikan setempat.
+
+    Bila `CORS_ORIGINS` diisi, isinya MENGGANTIKAN seluruh daftar — bukan
+    menambah. Deployment yang memerlukan domain lain menyebutkannya utuh,
+    sehingga daftar yang berlaku selalu terbaca dari satu tempat.
+    """
+    dari_env = (os.getenv("CORS_ORIGINS") or "").strip()
+    if dari_env:
+        return [o.strip() for o in dari_env.split(",") if o.strip()]
+
+    produksi = [
+        "https://terrabot.alphakonstruksi.id",
+        "http://terrabot.alphakonstruksi.id",
+    ]
+    lingkungan = (os.getenv("APP_ENV") or "development").strip().lower()
+    if lingkungan in ("production", "produksi", "prod"):
+        return produksi
+
+    return produksi + [
+        "http://localhost:4200",
+        "http://localhost:3000",
+        "http://127.0.0.1:4200",
+        "http://127.0.0.1:3000",
+    ]
+
+
 app.add_middleware(
     CORSMiddleware,
-    # Daftar asal yang diizinkan; TIDAK lagi `*`.
+    # Daftar asal yang diizinkan; TIDAK pernah `*`.
     #
-    # Dengan `*` dan `allow_credentials=True`, situs mana pun yang dibuka
-    # staf di peramban yang sama dapat memanggil API ini memakai kredensial
-    # mereka yang sedang aktif — tanpa perlu mencuri token apa pun.
+    # Dengan `*` dan `allow_credentials=True`, situs mana pun yang dibuka staf
+    # di peramban yang sama dapat memanggil API ini memakai kredensial mereka
+    # yang sedang aktif — tanpa perlu mencuri token apa pun.
     #
-    # Dibaca dari env agar domain tambahan dapat ditambahkan tanpa menyunting
-    # kode. Bawaannya alamat produksi; saat pengembangan, sebutkan alamat
-    # mesin lokal lewat `CORS_ORIGINS` dipisah koma.
-    allow_origins=[
-        o.strip()
-        for o in (
-            os.getenv("CORS_ORIGINS")
-            or "https://terrabot.alphakonstruksi.id,"
-               "http://terrabot.alphakonstruksi.id"
-        ).split(",")
-        if o.strip()
-    ],
+    # Alamat pengembangan (`localhost`) hanya diizinkan DI LUAR produksi.
+    # Membiarkannya menyala di produksi berarti siapa pun yang menjalankan
+    # halaman di mesinnya sendiri dapat memanggil API sungguhan — dan itu
+    # persis pintu yang hendak ditutup daftar ini.
+    allow_origins=_asal_diizinkan(),
     allow_credentials=True,
     allow_methods=["*"],  # Allow all HTTP methods
     allow_headers=["*"],  # Allow all headers
