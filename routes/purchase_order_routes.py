@@ -50,6 +50,23 @@ async def create_purchase_order(
             detail={"code": ErrorCode.INTERNAL, "message": "Internal server error."},
         )
     
+@router.get("/rekap")
+async def rekap_proyek(
+    proyek: str,
+    user: Annotated[User, Depends(require("purchase_order", "read"))],
+):
+    """
+    Rekap seluruh purchase order sebuah proyek, untuk diunduh sebagai Excel.
+
+    Ditaruh SEBELUM rute ber-parameter: FastAPI mencocokkan berurutan, dan
+    "rekap" akan tertangkap sebagai id dokumen bila di bawah.
+    """
+    hasil = await PurchaseOrderController.rekap_proyek(proyek)
+    if isinstance(hasil, dict) and "error" in hasil:
+        raise HTTPException(status_code=hasil["status"], detail=error_detail(hasil))
+    return hasil
+
+
 @router.get("/{purchase_order_id}/rantai")
 async def get_rantai_dokumen(
     purchase_order_id: int,

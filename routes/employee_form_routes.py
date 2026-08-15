@@ -74,6 +74,20 @@ async def belum_mengisi(
     return _periksa(await EmployeeFormRepository.pending(version_id))
 
 
+@router.get("/{employee_id}/riwayat")
+async def riwayat_pembaruan(
+    employee_id: int,
+    user: Annotated[User, Depends(require("employee_form", "read"))],
+):
+    """
+    Riwayat pembaruan data seorang karyawan, terbaru lebih dulu.
+
+    Ditaruh SEBELUM `/{employee_id}/{version_id}`: FastAPI mencocokkan
+    berurutan, dan "riwayat" akan tertangkap sebagai id versi bila di bawah.
+    """
+    return _periksa(await EmployeeFormRepository.riwayat(employee_id))
+
+
 @router.get("/{employee_id}/{version_id}")
 async def ambil_jawaban(
     employee_id: int,

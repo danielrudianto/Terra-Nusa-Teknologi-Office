@@ -39,22 +39,72 @@ class EmployeeFormRepository:
     @staticmethod
     async def active_version():
         """
-        Versi yang sedang berlaku; None bila belum ada.
+        Definisi pertanyaan yang sedang berlaku.
 
-        None BUKAN galat: sebelum periode pertama dibuat, memang belum ada
-        formulir yang dapat diisi — dan layarnya perlu menawarkan pembuatan
-        periode, bukan menampilkan pesan gagal.
+        BUKAN periode. Sejak pembaruan data dapat dilakukan kapan saja, versi
+        di sini hanya menandai BENTUK PERTANYAANNYA — ia bertambah ketika
+        daftar pertanyaannya diubah, bukan tiap tahun.
+
+        Dibuat OTOMATIS bila belum ada. Tanpa itu layar formulir buntu:
+        tidak ada pertanyaan untuk ditampilkan, dan tidak ada tempat bagi
+        pengguna untuk membuatnya karena pembuatan periode sudah dibuang.
         """
         try:
             query = select(employee_form_versions_table).where(
-                employee_form_versions_table.c.isActive == True,
-                employee_form_versions_table.c.isDelete == False,
+                employee_form_versions_table.c.isActive == True,  # noqa: E712
+                employee_form_versions_table.c.isDelete == False,  # noqa: E712
             )
             row = await database.fetch_one(query)
-            return dict(row) if row else None
+            if row:
+                return dict(row)
+
+            return await EmployeeFormRepository._buat_versi_bawaan()
         except Exception as e:
             log_error(f"Error fetching active form version: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def _buat_versi_bawaan():
+        """
+        Terbitkan definisi pertanyaan bawaan.
+
+        Dipanggil sekali saja seumur basis data — pemanggilan berikutnya
+        menemukan versi yang sudah aktif dan tidak sampai ke sini.
+
+        Bila dua permintaan tiba bersamaan dan keduanya membuat versi, yang
+        kedua ditemukan lebih dulu pada pembacaan ulang di bawah; barisnya
+        boleh kembar sesaat, dan yang dipakai tetap satu.
+        """
+        import json
+
+        from constants.employee_form_default import FORMULIR_BAWAAN
+
+        try:
+            await database.execute(
+                insert(employee_form_versions_table).values(
+                    period="-",
+                    title="Pembaruan data karyawan",
+                    description=None,
+                    fields=json.dumps(FORMULIR_BAWAAN),
+                    isActive=True,
+                    isDelete=False,
+                    createdAt=dt.now(),
+                    createdBy=1,
+                )
+            )
+            row = await database.fetch_one(
+                select(employee_form_versions_table)
+                .where(
+                    employee_form_versions_table.c.isActive == True,  # noqa: E712
+                    employee_form_versions_table.c.isDelete == False,  # noqa: E712
+                )
+                .order_by(employee_form_versions_table.c.id.desc())
+                .limit(1)
+            )
+            return dict(row) if row else None
+        except Exception as e:
+            log_error(f"Error creating default form version: {str(e)}")
+            return None
 
     @staticmethod
     async def create_version(data: dict, user_id: int):
@@ -139,13 +189,128 @@ class EmployeeFormRepository:
     # ----------------------------------------------------------- pengisian
 
     @staticmethod
+    async def kedaluwarsa(batas_bulan: int = 12, jangkauan_hari: int = 30):
+        """
+        Karyawan yang datanya perlu dikonfirmasi ulang.
+
+        Yang dihitung adalah pembaruan data karyawan APA PUN — mengisi profil
+        pribadi maupun menyimpan formulir keadaan. Keduanya sama-sama berarti
+        datanya baru saja ditinjau, dan memisahkannya membuat orang yang
+        profilnya baru diisi tetap tertagih seolah belum pernah menyentuh
+        datanya.
+
+        Tiga kelompok masuk ke sini:
+          - yang pembaruan terakhirnya lebih dari `batas_bulan`;
+          - yang baru mengisi salah satunya lebih dari `batas_bulan` lalu;
+          - yang belum pernah mengisi apa pun.
+
+        Ketiganya memerlukan tindakan yang sama dari HRD, jadi tidak dibedakan
+        pada daftarnya — yang membedakan hanya kolom `terakhir`, yang kosong
+        bagi yang belum pernah.
+
+        `jangkauan_hari` memunculkannya SEBELUM jatuh tempo. Tiga puluh hari,
+        bukan tujuh seperti ulang tahun: mengumpulkan data karyawan perlu
+        menghubungi orangnya, menunggu jawabannya, dan kerap menunggu ia
+        pulang dari lapangan.
+
+        Karyawan yang sudah keluar tidak ikut: menanyakan data orang yang
+        tidak lagi bekerja tidak ada gunanya.
+        """
+        try:
+            rows = await database.fetch_all(
+                """
+                SELECT
+                    e.id,
+                    e.name,
+                    e.position,
+                    -- Yang paling akhir di antara KEDUA sumber.
+                    --
+                    -- `updatedAt` profil bernilai NULL sampai ada penyuntingan
+                    -- pertama, sehingga `createdAt` dipakai sebagai
+                    -- cadangannya — mengisi profil pertama kali juga sebuah
+                    -- peninjauan data.
+                    GREATEST(
+                        COALESCE(p.updatedAt, p.createdAt, '1000-01-01'),
+                        COALESCE(MAX(s.submittedAt), '1000-01-01')
+                    ) AS terakhir_mentah,
+                    NULLIF(
+                        GREATEST(
+                            COALESCE(p.updatedAt, p.createdAt, '1000-01-01'),
+                            COALESCE(MAX(s.submittedAt), '1000-01-01')
+                        ),
+                        '1000-01-01'
+                    ) AS terakhir
+                FROM employees e
+                LEFT JOIN employee_profiles p
+                       ON p.employeeID = e.id
+                LEFT JOIN employee_form_submissions s
+                       ON s.employeeID = e.id AND s.isDelete = 0
+                WHERE e.isDelete = 0
+                  AND e.endDate IS NULL
+                GROUP BY e.id, e.name, e.position, p.updatedAt, p.createdAt
+                HAVING terakhir IS NULL
+                    OR terakhir <= DATE_SUB(
+                           DATE_ADD(NOW(), INTERVAL :jangkauan DAY),
+                           INTERVAL :bulan MONTH
+                       )
+                ORDER BY terakhir IS NOT NULL, terakhir ASC
+                """,
+                {"bulan": batas_bulan, "jangkauan": jangkauan_hari},
+            )
+            hasil = []
+            for r in rows:
+                d = dict(r)
+                d.pop("terakhir_mentah", None)
+                hasil.append(d)
+            return hasil
+        except Exception as e:
+            log_error(f"Error listing stale employee forms: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def riwayat(employee_id: int):
+        """
+        Seluruh pembaruan seorang karyawan, terbaru lebih dulu.
+
+        Dipakai melihat apa yang berubah dan kapan — alamat lama, jumlah
+        tanggungan sebelumnya. Yang berlaku selalu baris pertama.
+        """
+        try:
+            rows = await database.fetch_all(
+                """
+                SELECT s.id, s.answers, s.submittedAt, s.submittedBy,
+                       u.name AS submittedByName, s.versionID
+                FROM employee_form_submissions s
+                LEFT JOIN users u ON u.id = s.submittedBy
+                WHERE s.employeeID = :id AND s.isDelete = 0
+                ORDER BY s.submittedAt DESC
+                """,
+                {"id": employee_id},
+            )
+            return [dict(r) for r in rows]
+        except Exception as e:
+            log_error(f"Error fetching form history: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def get_submission(employee_id: int, version_id: int):
         """Jawaban satu karyawan untuk satu periode; None bila belum mengisi."""
         try:
-            query = select(employee_form_submissions_table).where(
-                employee_form_submissions_table.c.employeeID == employee_id,
-                employee_form_submissions_table.c.versionID == version_id,
-                employee_form_submissions_table.c.isDelete == False,
+            # Yang diambil adalah pembaruan TERAKHIR.
+            #
+            # Tiap penyimpanan kini membuat baris baru, sehingga satu karyawan
+            # dapat punya banyak baris untuk versi formulir yang sama. Tanpa
+            # pengurutan, basis data bebas mengembalikan yang mana pun — dan
+            # layar dapat menampilkan alamat lama sebagai keadaan sekarang.
+            query = (
+                select(employee_form_submissions_table)
+                .where(
+                    employee_form_submissions_table.c.employeeID == employee_id,
+                    employee_form_submissions_table.c.versionID == version_id,
+                    employee_form_submissions_table.c.isDelete == False,
+                )
+                .order_by(employee_form_submissions_table.c.submittedAt.desc())
+                .limit(1)
             )
             row = await database.fetch_one(query)
             return dict(row) if row else None
@@ -185,38 +350,31 @@ class EmployeeFormRepository:
 
             import json
 
-            lama = await database.fetch_one(
-                select(employee_form_submissions_table.c.id).where(
-                    employee_form_submissions_table.c.employeeID == employee_id,
-                    employee_form_submissions_table.c.versionID == version_id,
+            # Tiap penyimpanan membuat BARIS BARU, bukan menimpa.
+            #
+            # Pembaruan data karyawan dapat dilakukan kapan saja, dan yang
+            # berlaku adalah yang terakhir. Menimpa baris lama menghapus
+            # riwayatnya: alamat lama, jumlah tanggungan sebelumnya, dan
+            # kapan tiap keadaan itu berlaku ikut hilang.
+            #
+            # Riwayat itu yang membuat "sudah setahun tidak diperbarui" dapat
+            # dihitung sama sekali — tanpa baris per penyimpanan, tidak ada
+            # tanggal yang dapat dibandingkan.
+            #
+            # Menyimpan ULANG tanpa mengubah apa pun tetap dicatat: yang
+            # dikonfirmasi bukan datanya berubah, melainkan bahwa datanya
+            # MASIH BENAR.
+            submission_id = await database.execute(
+                insert(employee_form_submissions_table).values(
+                    employeeID=employee_id,
+                    versionID=version_id,
+                    answers=json.dumps(answers, default=str),
+                    submittedAt=dt.now(),
+                    submittedBy=user_id,
+                    isDelete=False,
                 )
             )
-
-            if lama:
-                await database.execute(
-                    update(employee_form_submissions_table)
-                    .where(employee_form_submissions_table.c.id == lama["id"])
-                    .values(
-                        answers=json.dumps(answers, default=str),
-                        updatedAt=dt.now(),
-                        updatedBy=user_id,
-                        isDelete=False,
-                    )
-                )
-                submission_id = lama["id"]
-                aksi = "update"
-            else:
-                submission_id = await database.execute(
-                    insert(employee_form_submissions_table).values(
-                        employeeID=employee_id,
-                        versionID=version_id,
-                        answers=json.dumps(answers, default=str),
-                        submittedAt=dt.now(),
-                        submittedBy=user_id,
-                        isDelete=False,
-                    )
-                )
-                aksi = "create"
+            aksi = "create"
 
             from repository.audit_log_repository import AuditLogRepository
 

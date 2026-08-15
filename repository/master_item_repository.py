@@ -19,6 +19,16 @@ class MasterItemRepository:
             query = insert(master_item_table).values(
                 **item_data.model_dump(exclude_none=True),
                 isDelete=False,
+                # Diisi EKSPLISIT, tidak mengandalkan default kolomnya.
+                #
+                # `default=False` pada model dievaluasi mesin SQLAlchemy saat
+                # eksekusi; pustaka `databases` menjalankan kueri yang sudah
+                # dikompilasi, sehingga langkah itu dilewati dan nilainya
+                # sampai ke MySQL sebagai NULL — lalu ditolak `NOT NULL`.
+                #
+                # Pola yang sama dipakai dua puluh dua tempat yang mengisi
+                # `createdAt` manual, dengan alasan yang sama persis.
+                isFavorite=False,
             )
             item_id = await database.execute(query)
             

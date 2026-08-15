@@ -6,6 +6,8 @@ from datetime import date as d,datetime as dt
 from utils.database import database
 from utils.logger_utils import log_error
 from sqlalchemy.exc import IntegrityError
+from models.employee_profile_model import employee_profiles_table
+
 
 # Define the Purchase model
 class Employee(BaseModel):
@@ -135,8 +137,27 @@ class Employee(BaseModel):
         
         try:
             offset = (page - 1) * pageSize  # Assuming page size is 10
+            # Penanda "profil pribadinya sudah ada".
+            #
+            # Layar memakainya untuk memilih menu mana yang ditampilkan:
+            # sebelum profil terisi, yang berlaku hanya PENGISIAN PERTAMA;
+            # sesudahnya, pembaruan. Menampilkan keduanya sekaligus membuat
+            # dua jalur menulis kolom yang sama, dan yang satu diam-diam
+            # menimpa yang lain.
+            #
+            # Dihitung di basis data lewat subkueri, bukan dengan memuat
+            # seluruh profil: yang diperlukan hanya ada atau tidaknya.
+            punya_profil = (
+                select(func.count(employee_profiles_table.c.id))
+                .where(employee_profiles_table.c.employeeID == employees_table.c.id)
+                .correlate(employees_table)
+                .scalar_subquery()
+                .label("hasProfile")
+            )
+
             query = select(
                 employees_table,
+                punya_profil,
                 func.count(employees_table.c.id).over().label("total_count"),
             )
 

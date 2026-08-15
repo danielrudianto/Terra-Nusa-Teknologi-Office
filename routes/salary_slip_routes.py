@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Query
-from utils.errors import error_detail
+from utils.errors import ErrorCode, error_detail
 from utils.logger_utils import log_error, log_info
 from utils.auth_utils import get_current_user
 from utils.permission import require

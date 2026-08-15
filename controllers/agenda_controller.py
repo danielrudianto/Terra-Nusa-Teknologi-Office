@@ -4,6 +4,7 @@ from utils.errors import ErrorCode, app_error
 from datetime import timedelta
 
 from repository.reminder_repository import BirthdayRepository, ReminderRepository
+from repository.employee_form_repository import EmployeeFormRepository
 from utils.logger_utils import log_error
 
 # Akses minimum untuk membuat pengingat bagi SELURUH pengguna.
@@ -17,7 +18,13 @@ LEVEL_PENGINGAT_UMUM = 4
 
 class AgendaController:
     @staticmethod
-    async def agenda(user_id: int, hari_ini: d, jangkauan: int = 7):
+    async def agenda(user_id: int, hari_ini: d, jangkauan: int = 7,
+        # Muncul TIGA PULUH hari sebelum jatuh tempo, bukan tujuh
+        # seperti ulang tahun: mengumpulkan data karyawan perlu
+        # menghubungi orangnya dan kerap menunggu ia pulang dari
+        # lapangan.
+        jangkauan_konfirmasi: int = 30,
+    ):
         """
         Isi agenda: ulang tahun dan pengingat, dalam satu permintaan.
 
@@ -57,7 +64,30 @@ class AgendaController:
             log_error(f"Agenda: pengingat gagal dibaca: {type(e).__name__}: {e}")
             pengingat = []
 
-        return {"birthdays": ulang_tahun, "reminders": pengingat}
+        # ---- pembaruan data karyawan ----
+        #
+        # Dibungkus `try` tersendiri seperti sumber lain: agenda memuat
+        # beberapa hal yang tidak berkaitan, dan satu yang gagal tidak boleh
+        # mengosongkan seluruh halaman.
+        konfirmasi = []
+        try:
+            hasil = await EmployeeFormRepository.kedaluwarsa(
+                batas_bulan=12, jangkauan_hari=jangkauan_konfirmasi
+            )
+            if isinstance(hasil, dict) and "error" in hasil:
+                log_error(f"Agenda: konfirmasi data gagal dibaca: {hasil['error']}")
+            else:
+                konfirmasi = hasil
+        except Exception as e:
+            log_error(
+                f"Agenda: konfirmasi data gagal dibaca: {type(e).__name__}: {e}"
+            )
+
+        return {
+            "birthdays": ulang_tahun,
+            "reminders": pengingat,
+            "employeeFormDue": konfirmasi,
+        }
 
     @staticmethod
     async def rentang(user_id: int, dari: d, sampai: d):

@@ -11,6 +11,21 @@ class UserRepository:
         # modul di-import, sehingga semua user akan tercatat dengan waktu
         # yang sama. Diisi eksplisit di sini agar benar-benar waktu simpan.
         user_data.setdefault("createdAt", datetime.now())
+
+        # `isActive` dan `isDeleted` juga diisi eksplisit, dengan alasan yang
+        # sama seperti `createdAt` di atas.
+        #
+        # `default=` pada model dievaluasi mesin SQLAlchemy saat eksekusi;
+        # pustaka `databases` menjalankan kueri yang sudah dikompilasi,
+        # sehingga langkah itu dilewati dan nilainya tersimpan sebagai NULL.
+        #
+        # Kolomnya nullable, jadi penyimpanannya BERHASIL — dan barulah
+        # jawaban rutenya ditolak `response_model` karena NULL bukan boolean.
+        # Penggunanya sudah terbuat, tetapi layar menerima galat 500 dan
+        # menyangka pembuatannya gagal, lalu mencoba lagi.
+        user_data.setdefault("isActive", True)
+        user_data.setdefault("isDeleted", False)
+
         query = insert(users_table).values(**user_data)
         user_id = await database.execute(query)
 

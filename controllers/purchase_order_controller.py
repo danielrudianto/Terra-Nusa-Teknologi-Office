@@ -395,6 +395,19 @@ class PurchaseOrderController:
             return {"error": str(e), "status": 500}
 
     @staticmethod
+    async def rekap_proyek(project_name: str):
+        """
+        Rekap seluruh purchase order sebuah proyek, untuk diunduh sebagai
+        Excel.
+
+        Melewati controller seperti seluruh rute lain di berkas ini, bukan
+        memanggil repository langsung: rutenya tidak mengimpor repository, dan
+        menyimpang dari polanya membuat satu jalur yang berbeda sendiri tanpa
+        alasan.
+        """
+        return await PurchaseOrderRepository.rekap_proyek(project_name)
+
+    @staticmethod
     async def get_all_purchase_orders(
         page: int = 1,
         page_size: int = 10,

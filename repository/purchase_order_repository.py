@@ -336,6 +336,71 @@ class PurchaseOrderRepository:
 
 
     @staticmethod
+    async def rekap_proyek(project_name: str):
+        """
+        Seluruh purchase order sebuah proyek beserta baris barangnya.
+
+        Untuk rekap yang diunduh sebagai Excel. Dikembalikan dalam SATU
+        permintaan, bukan satu per dokumen: proyek dengan lima puluh dokumen
+        berarti lima puluh permintaan, dan rekapnya menjadi lambat justru pada
+        proyek yang paling perlu direkap.
+
+        Dokumen terhapus dikecualikan. Dokumen DRAF tetap disertakan — yang
+        membacanya perlu tahu berapa nilai yang belum disahkan, dan itu
+        ditandai lewat kolom status, bukan dengan menyembunyikannya.
+
+        Mobilisasi dan demobilisasi ikut dikembalikan sebagaimana tersimpan
+        (`remarks_4`, `remarks_5`); layar yang menyusun rekap menjadikannya
+        baris tersendiri, sama seperti pada dokumen tercetak.
+        """
+        try:
+            dokumen = await database.fetch_all(
+                """
+                SELECT po.id, po.date, po.name, po.purchaseType, po.projectName,
+                       po.dpp, po.ppn, po.pphPercentage, po.status,
+                       po.isApproved, po.parentPurchaseOrderID,
+                       -- Nama pemasok datang dari tabel `suppliers`; tabel
+                       -- purchase_orders hanya menyimpan `supplierID`.
+                       s.name AS supplierName,
+                       s.prefix AS supplierPrefix
+                FROM purchase_orders po
+                LEFT JOIN suppliers s ON s.id = po.supplierID
+                WHERE po.projectName = :proyek
+                  AND po.isDelete = 0
+                ORDER BY po.number ASC
+                """,
+                {"proyek": project_name},
+            )
+            if not dokumen:
+                return {"purchaseOrders": [], "items": []}
+
+            ids = [d["id"] for d in dokumen]
+            tanda = ",".join(f":id{i}" for i in range(len(ids)))
+            nilai = {f"id{i}": v for i, v in enumerate(ids)}
+
+            baris = await database.fetch_all(
+                f"""
+                SELECT i.purchaseOrderID, i.task, i.quantity, i.price, i.unit,
+                       i.remarks_1, i.remarks_4, i.remarks_5,
+                       mi.description AS itemDescription, mi.sku,
+                       me.name AS equipmentName
+                FROM purchase_order_items i
+                LEFT JOIN master_item mi ON mi.id = i.item_id
+                LEFT JOIN master_equipment me ON me.id = i.equipment_id
+                WHERE i.purchaseOrderID IN ({tanda})
+                ORDER BY i.id ASC
+                """,
+                nilai,
+            )
+            return {
+                "purchaseOrders": [dict(d) for d in dokumen],
+                "items": [dict(b) for b in baris],
+            }
+        except Exception as e:
+            log_error(f"Error building project recap: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def get_all(
         page: int = 1,
         page_size: int = 10,
