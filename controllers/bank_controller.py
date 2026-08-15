@@ -49,6 +49,18 @@ class BankController:
                 "bankName": bank_data["bankName"],
             }))
 
+            # Rekening bank dicatat: nomor rekening menentukan ke mana uang
+            # perusahaan berpindah, dan perubahannya perlu dapat ditelusuri
+            # sampai ke orangnya.
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="bank_accounts",
+                entityID=int(bank_id),
+                action="create",
+                userID=userID,
+            )
+
             log_info(f"Bank account created successfully with ID: {result['bank_account_id']}")
             return {"message": "Bank account created successfully", "bank_id": result['bank_account_id']}
         except IntegrityError as e:
@@ -178,9 +190,33 @@ class BankController:
                 .where(bank_accounts_table.c.id == bank_id)
                 .values(**update_fields)
             )
+            # Keadaan SEBELUM diubah diambil lebih dulu.
+            #
+            # Setelah `execute`, nilai lamanya sudah tertimpa dan tidak dapat
+            # direkam lagi — jejak yang hanya menyebut "diubah" tanpa
+            # menyebut dari apa menjadi apa tidak menjawab pertanyaan yang
+            # membuatnya diperlukan.
+            sebelum = await database.fetch_one(
+                select(bank_accounts_table).where(
+                    bank_accounts_table.c.id == bank_id
+                )
+            )
+
             result = await database.execute(query)
             if result == 0:  # Check if any rows were affected
                 return {"error": "Update failed or bank account not found", "status": 404}
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="bank_accounts",
+                entityID=int(bank_id),
+                action="update",
+                userID=userID,
+                changes=AuditLogRepository.diff(
+                    dict(sebelum) if sebelum else {}, bank_data
+                ),
+            )
+
             return {"message": "Bank account updated successfully"}
         except Exception as e:
             log_error(f"Error updating bank account with ID {bank_id}: {str(e)}")
@@ -212,6 +248,15 @@ class BankController:
                     account_data["isDelete"] = True
                     r.lset("bank_account", index, json.dumps(account_data))
                     break
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="bank_accounts",
+                entityID=int(bankID),
+                action="delete",
+                userID=userID,
+            )
+
             return {"message": "Bank account deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting bank account with ID {bankID}: {str(e)}")

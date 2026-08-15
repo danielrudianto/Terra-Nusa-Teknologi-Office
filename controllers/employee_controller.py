@@ -27,6 +27,18 @@ class EmployeeController:
                 log_error(f"Error creating employee: {result['error']}")
                 raise HTTPException(status_code=result["status"], detail=result["error"])
             
+            # Data karyawan dicatat: NIK, jabatan, dan kategori pajaknya
+            # ikut menentukan isi slip gaji, sehingga perubahannya perlu
+            # dapat ditelusuri sampai ke orangnya.
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="employees",
+                entityID=int(result.get("employee_id") or 0) or None,
+                action="create",
+                userID=userID,
+            )
+
             return result
         except Exception as e:
             log_error(f"Unexpected error: {str(e)}")
@@ -128,6 +140,30 @@ class EmployeeController:
             updated_employee_data.updatedAt = dt.now()
 
             result = await updated_employee_data.update_employee()
+
+            # Dicatat SEBELUM galat diperiksa? Tidak — hanya bila berhasil.
+            #
+            # Jejak yang mencatat percobaan yang gagal membuat riwayat penuh
+            # baris yang tidak pernah mengubah apa pun, dan yang menelusuri
+            # harus memilah sendiri mana yang benar-benar terjadi.
+            if "error" not in result:
+                from repository.audit_log_repository import AuditLogRepository
+
+                await AuditLogRepository.record(
+                    entity="employees",
+                    entityID=int(employee_data["id"]),
+                    action="update",
+                    userID=userID,
+                    changes=AuditLogRepository.diff(
+                        {
+                            k: getattr(existing_employee_data, k, None)
+                            for k in employee_data
+                            if k != "id"
+                        },
+                        {k: v for k, v in employee_data.items() if k != "id"},
+                    ),
+                )
+
             if "error" in result:
                 log_error(f"Error updating employee: {result['error']}")
                 return {"error": result["error"], "status": result["status"]}
