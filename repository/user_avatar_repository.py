@@ -4,6 +4,7 @@ from sqlalchemy import insert, select, update
 from utils.database import database
 from models.user_avatar_model import user_avatars_table
 from utils.logger_utils import log_error
+from utils.errors import internal_error
 
 # Fields that make up an avatar. Kept in one place so the controller, the
 # Redis cache and the API response never drift apart.
@@ -45,7 +46,7 @@ class UserAvatarRepository:
             return dict(row) if row else None
         except Exception as e:
             log_error(f"Error fetching avatar: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_user_ids(user_ids: list[int]):
@@ -60,7 +61,7 @@ class UserAvatarRepository:
             return [dict(r) for r in rows]
         except Exception as e:
             log_error(f"Error batch fetching avatars: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def upsert(user_id: int, values: dict):
@@ -93,4 +94,4 @@ class UserAvatarRepository:
             return await UserAvatarRepository.get_by_user_id(user_id)
         except Exception as e:
             log_error(f"Error saving avatar: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

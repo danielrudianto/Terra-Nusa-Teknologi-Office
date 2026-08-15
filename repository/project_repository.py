@@ -318,7 +318,8 @@ class ProjectRepository:
                     COALESCE(b.beli, 0)           AS beli,
                     COALESCE(b.beli_internal, 0)  AS beli_internal,
                     COALESCE(d.draft, 0)          AS draft,
-                    COALESCE(r.reimburse, 0)      AS reimburse
+                    COALESCE(r.reimburse, 0)      AS reimburse,
+                    COALESCE(si.tertagih, 0)      AS tertagih
                 FROM projects p
                 LEFT JOIN (
                     SELECT projectID, SUM(dpp) AS kontrak
@@ -342,11 +343,34 @@ class ProjectRepository:
                     GROUP BY projectName
                 ) d ON d.projectName = p.code
                 LEFT JOIN (
-                    SELECT projectName, SUM(amount) AS reimburse
-                    FROM reimbursements
+                    -- Nilai reimbursement ada di BARISNYA, bukan di kepalanya.
+                    --
+                    -- `reimbursements` hanya menyimpan meta dokumen; nominalnya
+                    -- tersebar pada `reimbursement_items`. Menjumlahkan dari
+                    -- tabel kepala gagal dengan "Unknown column 'amount'".
+                    SELECT rh.projectName, SUM(ri.amount) AS reimburse
+                    FROM reimbursements rh
+                    JOIN reimbursement_items ri
+                      ON ri.reimbursementID = rh.id
+                    WHERE rh.isDelete = 0
+                    GROUP BY rh.projectName
+                ) r ON r.projectName = p.code
+                LEFT JOIN (
+                    -- Yang SUDAH difakturkan ke klien.
+                    --
+                    -- Inilah pembanding biaya yang sebenarnya. Nilai kontrak
+                    -- adalah pekerjaan yang akan dikerjakan, bukan yang sudah
+                    -- menghasilkan: proyek berbiaya 500 juta dengan kontrak
+                    -- 40 miliar akan tampak bermargin 98%, padahal belum
+                    -- satu rupiah pun ditagihkan.
+                    --
+                    -- `dpp` tanpa PPN: PPN dipungut untuk negara, bukan
+                    -- pendapatan proyek.
+                    SELECT projectName, SUM(dpp) AS tertagih
+                    FROM sales_invoices
                     WHERE isDelete = 0
                     GROUP BY projectName
-                ) r ON r.projectName = p.code
+                ) si ON si.projectName = p.code
                 WHERE p.isDelete = 0
                 ORDER BY p.isActive DESC, p.code ASC
                 LIMIT :limit OFFSET :offset
@@ -362,6 +386,7 @@ class ProjectRepository:
                 internal = float(r["beli_internal"] or 0)
                 draft = float(r["draft"] or 0)
                 reimburse = float(r["reimburse"] or 0)
+                tertagih = float(r["tertagih"] or 0)
 
                 # Draft IKUT dihitung sebagai biaya.
                 #
@@ -378,7 +403,18 @@ class ProjectRepository:
                         "isActive": bool(r["isActive"]),
                         "isCancelled": bool(r["isCancelled"]),
                         "kontrak": kontrak,
+                        # Yang SUDAH difakturkan; pembanding biaya yang
+                        # sebenarnya. Lihat catatan pada subkuerinya.
+                        "tertagih": tertagih,
                         "pembelian": beli,
+                        # Bagian pembelian yang berasal dari DALAM grup.
+                        #
+                        # Sudah termasuk dalam `pembelian`; dikirim tersendiri
+                        # agar layar dapat MENGURANGKANNYA bila diminta —
+                        # bukan menambahkannya. Sebelumnya layar menghitungnya
+                        # dari selisih dua margin, dan itu membuat pembelian
+                        # internal masuk dua kali ke dalam biaya.
+                        "pembelianInternal": internal,
                         "draft": draft,
                         "reimbursement": reimburse,
                         # Dengan pembelian internal dihitung sebagai biaya.

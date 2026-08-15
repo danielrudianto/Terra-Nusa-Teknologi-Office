@@ -7,6 +7,7 @@ from models.mutation_model import Mutation
 from utils.logger_utils import log_error, log_info
 from datetime import datetime
 from repository.purchase_repository import PurchaseRepository
+from utils.errors import internal_error
 
 class PurchaseDraftController:
     @staticmethod
@@ -25,7 +26,7 @@ class PurchaseDraftController:
             return {"message": "Purchase draft created successfully", "purchase_draft_id": purchase_id}
         except Exception as e:
             log_error(f"Error creating purchase draft: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
     
     @staticmethod
     async def get_purchase_draft(page: int, pageSize: int, isPending: bool, isApproved: bool, sortBy: str, sortByDirection: str, keyword: str | None):
@@ -39,7 +40,7 @@ class PurchaseDraftController:
             return result
         except Exception as e:
             log_error(f"Error fetching purchases: {str(e)}")
-            return {"error": str(e), "status": 500}         
+            return internal_error()         
 
     @staticmethod
     async def get_purchase_draft_by_id(purchaseID: int):
@@ -112,4 +113,4 @@ class PurchaseDraftController:
             return {"message": "Purchase draft converted successfully", "purchase_id": purchase_id}
         except Exception as e:
             log_error(f"Error converting purchase: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

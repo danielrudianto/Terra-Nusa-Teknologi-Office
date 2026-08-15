@@ -4,6 +4,7 @@ from datetime import datetime as dt
 from utils.logger_utils import log_info, log_error
 from fastapi import HTTPException
 from schemas.income_schema import IncomeCreate
+from utils.errors import internal_error
 
 class IncomeController:
     """
@@ -28,7 +29,7 @@ class IncomeController:
             return {"message": "Income created successfully", "incomeID": result.get("incomeID")}
         except Exception as e:
             log_error(f"Unexpected error creating income: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def get_income(page: int, pageSize: int, sortBy: str, start: str, end: str, sortByDirection: str, keyword: str | None, ignore: bool):

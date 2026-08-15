@@ -12,6 +12,28 @@ from utils.database import database
 from utils.logger_utils import log_error
 
 
+
+def kategori_pajak(status_nikah, tanggungan) -> str:
+    """
+    Kategori PTKP dari status pernikahan dan jumlah tanggungan.
+
+    Hanya "Kawin" menghasilkan awalan `K`. Cerai dan duda/janda kembali ke
+    `TK`: PTKP mengikuti keadaan pada awal tahun pajak, dan yang menentukan
+    adalah ada tidaknya pasangan — bukan pernah tidaknya menikah.
+
+    Tanggungan dibatasi TIGA. Batas itu bukan pilihan kami; PTKP memang tidak
+    mengakui lebih dari tiga, dan membiarkan angka keempat masuk membuat
+    kategori yang tidak ada seperti `K/4`.
+    """
+    kawin = str(status_nikah or "").strip().lower() == "kawin"
+    try:
+        n = int(tanggungan or 0)
+    except (TypeError, ValueError):
+        n = 0
+    n = max(0, min(3, n))
+    return f"{'K' if kawin else 'TK'}/{n}"
+
+
 class EmployeeFormRepository:
     """
     Formulir keadaan karyawan yang ditanyakan berkala.
@@ -313,7 +335,40 @@ class EmployeeFormRepository:
                 .limit(1)
             )
             row = await database.fetch_one(query)
-            return dict(row) if row else None
+            if row:
+                return dict(row)
+
+            # Belum pernah mengisi: jawaban awal DIISI dari data karyawan.
+            #
+            # Untuk karyawan lama, alamat dan telepon sudah tersimpan sejak
+            # dulu di data pokoknya. Menampilkan formulir kosong membuat yang
+            # mengisi mengetiknya ulang — dan yang diketik ulang kerap
+            # berbeda dari yang sudah ada.
+            #
+            # Kategori pajak SENGAJA tidak diturunkan balik menjadi status
+            # pernikahan: `K/2` tidak menyatakan siapa dua tanggungan itu,
+            # dan menebaknya akan menuliskan keterangan yang tidak pernah
+            # dinyatakan siapa pun.
+            karyawan = await database.fetch_one(
+                select(
+                    employees_table.c.address,
+                    employees_table.c.phoneNumber,
+                    employees_table.c.email,
+                ).where(employees_table.c.id == employee_id)
+            )
+            if not karyawan:
+                return None
+
+            awal = {}
+            for kolom, kunci in (
+                ("address", "currentAddress"),
+                ("phoneNumber", "mobilePhone"),
+                ("email", "personalEmail"),
+            ):
+                nilai = getattr(karyawan, kolom, None)
+                if nilai:
+                    awal[kunci] = nilai
+            return {"answers": awal, "prefilled": True} if awal else None
         except Exception as e:
             log_error(f"Error fetching form submission: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
@@ -375,6 +430,48 @@ class EmployeeFormRepository:
                 )
             )
             aksi = "create"
+
+            # Data karyawan diselaraskan dari jawaban formulir.
+            #
+            # Kategori pajak, alamat, dan nomor telepon SEBELUMNYA diketik
+            # dua kali: sekali di data karyawan, sekali di formulir ini.
+            # Dua tempat untuk satu kenyataan berarti keduanya pasti akan
+            # berbeda suatu saat — dan yang dipakai slip gaji adalah yang di
+            # data karyawan, yang justru paling jarang disentuh.
+            #
+            # Sejak sekarang formulir ini yang menjadi sumbernya.
+            perubahan = {}
+
+            status_nikah = answers.get("maritalStatus")
+            tanggungan = answers.get("dependents")
+            if status_nikah is not None or tanggungan is not None:
+                perubahan["taxCategory"] = kategori_pajak(
+                    status_nikah, tanggungan
+                )
+
+            alamat = (answers.get("currentAddress") or "").strip()
+            if alamat:
+                perubahan["address"] = alamat[:255]
+
+            hp = (answers.get("mobilePhone") or "").strip()
+            if hp:
+                perubahan["phoneNumber"] = hp[:30]
+
+            surel = (answers.get("personalEmail") or "").strip()
+            if surel:
+                perubahan["email"] = surel[:100]
+
+            if perubahan:
+                # Nilai KOSONG tidak menimpa yang sudah ada: mengosongkan
+                # satu isian pada formulir tidak berarti alamat karyawannya
+                # hilang, hanya belum diisi ulang.
+                perubahan["updatedAt"] = dt.now()
+                perubahan["updatedBy"] = user_id
+                await database.execute(
+                    employees_table.update()
+                    .where(employees_table.c.id == employee_id)
+                    .values(**perubahan)
+                )
 
             from repository.audit_log_repository import AuditLogRepository
 

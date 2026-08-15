@@ -1,9 +1,11 @@
 from typing import Dict
+from utils.errors import ErrorCode, app_error
 from datetime import datetime as dt
 from utils.logger_utils import log_info, log_error
 from repository.purchase_order_repository import PurchaseOrderRepository
 from repository.purchase_order_item_repository import PurchaseOrderItemRepository
 from repository.supplier_repository import SupplierRepository
+from utils.errors import internal_error
 
 
 class PurchaseOrderController:
@@ -339,7 +341,7 @@ class PurchaseOrderController:
             }
         except Exception as e:
             log_error(f"Error creating purchase order: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_purchase_order_by_id(purchase_order_id: int):
@@ -392,7 +394,7 @@ class PurchaseOrderController:
             return result
         except Exception as e:
             log_error(f"Error fetching purchase order: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def rekap_proyek(project_name: str):
@@ -424,11 +426,49 @@ class PurchaseOrderController:
             return result
         except Exception as e:
             log_error(f"Error fetching purchase orders: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
-    async def update_purchase_order(purchase_order_id: int, fields: Dict, user_id: int):
+    async def update_purchase_order(
+        purchase_order_id: int,
+        fields: Dict,
+        user_id: int,
+        user_level: int = 1,
+    ):
+        """
+        Ubah purchase order yang belum disetujui.
+
+        Yang boleh: PEMBUATNYA sendiri, atau level 4 ke atas.
+
+        Pembuatnya diikutkan dengan sengaja — yang salah ketik biasanya yang
+        mengisi, dan memaksanya meminta tolong orang lain membuat orang
+        menghindari koreksi. Yang dijaga bukan siapa yang mengetik, melainkan
+        bahwa dokumennya belum disetujui.
+        """
         try:
+            dokumen = await PurchaseOrderRepository.get_by_id(purchase_order_id)
+            if not dokumen or (isinstance(dokumen, dict) and "error" in dokumen):
+                return app_error(
+                    ErrorCode.NOT_FOUND, "Purchase order tidak ditemukan.", 404
+                )
+
+            pembuat = None
+            try:
+                pembuat = dokumen["createdBy"]
+            except (KeyError, TypeError):
+                pembuat = getattr(dokumen, "createdBy", None)
+
+            boleh = (
+                pembuat is not None and int(pembuat) == int(user_id)
+            ) or int(user_level or 1) >= 4
+            if not boleh:
+                return app_error(
+                    ErrorCode.FORBIDDEN,
+                    "Hanya pembuat dokumen atau level 4 ke atas yang dapat "
+                    "mengubah purchase order ini.",
+                    403,
+                )
+
             # drop None values so we only update provided fields
             clean = {k: v for k, v in fields.items() if v is not None}
             status = clean.get("status")
@@ -440,29 +480,34 @@ class PurchaseOrderController:
             return result
         except Exception as e:
             log_error(f"Error updating purchase order: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
-    async def update_purchase_order_status(purchase_order_id: int, status: str, user_id: int):
+    async def update_purchase_order_status(
+        purchase_order_id: int, status: str, user_id: int,
+        user_level: int | None = None,
+    ):
         try:
-            result = await PurchaseOrderRepository.update_status(purchase_order_id, status, user_id)
+            result = await PurchaseOrderRepository.update_status(
+                purchase_order_id, status, user_id, user_level
+            )
             if "error" in result:
                 return {"error": result["error"], "status": result.get("status", 500)}
             return result
         except Exception as e:
             log_error(f"Error updating purchase order status: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
-    async def approve_purchase_order(purchase_order_id: int, user_id: int):
+    async def approve_purchase_order(purchase_order_id: int, user_id: int, user_level: int | None = None):
         try:
-            result = await PurchaseOrderRepository.approve(purchase_order_id, user_id)
+            result = await PurchaseOrderRepository.approve(purchase_order_id, user_id, user_level)
             if "error" in result:
                 return {"error": result["error"], "status": result.get("status", 500)}
             return result
         except Exception as e:
             log_error(f"Error approving purchase order: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def delete_purchase_order(purchase_order_id: int, user_id: int):
@@ -473,4 +518,4 @@ class PurchaseOrderController:
             return result
         except Exception as e:
             log_error(f"Error deleting purchase order: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

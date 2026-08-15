@@ -10,6 +10,7 @@ from models.loans_model import loans_table
 from models.bank_model import bank_accounts_table
 from utils.logger_utils import log_error, log_info
 from datetime import datetime
+from utils.errors import internal_error
 
 class PaymentIncomingRepository:
     @staticmethod
@@ -36,7 +37,7 @@ class PaymentIncomingRepository:
             return {"payment_id": result}
         except Exception as e:
             log_error(f"Error creating payment incoming: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_sales_invoice_id(sales_invoice_id: int):
@@ -55,7 +56,7 @@ class PaymentIncomingRepository:
             return [dict(payment) for payment in payments]
         except Exception as e:
             log_error(f"Error getting payments by sales invoice ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_income_id(income_id: int):
@@ -72,7 +73,7 @@ class PaymentIncomingRepository:
             return [dict(payment) for payment in payments]
         except Exception as e:
             log_error(f"Error getting payments by income ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_calendar_data(month: int, year: int, bank_accounts: Optional[List[int]] = None):
@@ -131,7 +132,7 @@ class PaymentIncomingRepository:
             ]
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_loan_id(loan_id: int):
@@ -148,7 +149,7 @@ class PaymentIncomingRepository:
             return [dict(payment) for payment in payments]
         except Exception as e:
             log_error(f"Error getting payments by loan ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_id(payment_id: int):
@@ -163,7 +164,7 @@ class PaymentIncomingRepository:
             return dict(payment) if payment else None
         except Exception as e:
             log_error(f"Error getting payment by ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def update(payment_id: int, update_data: dict):
@@ -211,7 +212,7 @@ class PaymentIncomingRepository:
             return {"affected_rows": result}
         except Exception as e:
             log_error(f"Error updating payment incoming: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def soft_delete(payment_id: int, user_id: int):
@@ -243,7 +244,7 @@ class PaymentIncomingRepository:
             return {"message": "Payment deleted successfully"}
         except Exception as e:
             log_error(f"Error soft deleting payment incoming: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_total_by_sales_invoice_id(sales_invoice_id: int):
@@ -260,4 +261,4 @@ class PaymentIncomingRepository:
             return result or 0
         except Exception as e:
             log_error(f"Error getting total payment by sales invoice ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

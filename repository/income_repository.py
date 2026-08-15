@@ -5,6 +5,7 @@ from models.income_model import income_table
 from models.expense_opponent_model import expense_opponents_table
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime as dt
+from utils.errors import internal_error
 
 class IncomeRepository:
     @staticmethod
@@ -124,7 +125,7 @@ class IncomeRepository:
             }
         except Exception as e:
             log_error(f"Error fetching incomes: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_id(income_id: int):
@@ -160,7 +161,7 @@ class IncomeRepository:
             return income_dict
         except Exception as e:
             log_error(f"Error fetching income by ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def update(income_id: int, income_data: dict):
@@ -211,7 +212,7 @@ class IncomeRepository:
             return {"message": "Income updated successfully"}
         except Exception as e:
             log_error(f"Error updating income: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def delete(income_id: int, user_id: int):
@@ -245,4 +246,4 @@ class IncomeRepository:
             return {"message": "Income deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting income: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

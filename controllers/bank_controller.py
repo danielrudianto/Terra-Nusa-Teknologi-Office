@@ -12,6 +12,7 @@ import json
 from models.bank_model import bank_accounts_table
 from models.balance_model import Balance
 from functools import reduce
+from utils.errors import internal_error
 
 class BankController:
     @staticmethod 
@@ -100,7 +101,7 @@ class BankController:
             }
         except Exception as e:
             log_error(f"Error retrieving bank accounts: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_all_bank_accounts() -> List[Dict]:
@@ -120,7 +121,7 @@ class BankController:
             return accounts
         except Exception as e:
             log_error(f"Error retrieving top bank accounts: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
     @staticmethod
     async def get_bank_account_by_id(bank_id: int) -> Optional[Dict]:
         """
@@ -183,7 +184,7 @@ class BankController:
             return {"message": "Bank account updated successfully"}
         except Exception as e:
             log_error(f"Error updating bank account with ID {bank_id}: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def delete_bank_account(bankID: int, userID: int):
@@ -214,7 +215,7 @@ class BankController:
             return {"message": "Bank account deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting bank account with ID {bankID}: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def fetch_mutation(bankAccountID: int, page: int, pageSize: int, startDate: str, endDate: str):
@@ -234,5 +235,5 @@ class BankController:
             return result
         except Exception as e:
             log_error(f"Error retrieving bank account mutation: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         

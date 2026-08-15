@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime as dt
 from models.supplier_model import suppliers_table
 from schemas.supplier_schema import SupplierCreate, SupplierUpdate, SupplierResponse
+from utils.errors import internal_error
 
 class SupplierRepository:
     @staticmethod
@@ -35,7 +36,7 @@ class SupplierRepository:
             return {"error": "Something wrong with your input.", "status": 400}
         except Exception as e:
             log_error(f"Error creating supplier: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def update(supplier_id: int, supplier_data: SupplierUpdate) -> Dict[str, Any]:
@@ -83,7 +84,7 @@ class SupplierRepository:
             return {"error": "Something wrong with your input.", "status": 400}
         except Exception as e:
             log_error(f"Error updating supplier: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_id(supplier_id: int) -> Optional[SupplierResponse]:
@@ -258,7 +259,7 @@ class SupplierRepository:
             return {"message": "Supplier deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting supplier: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def set_blacklist(supplier_id: int, is_blacklist: bool,
@@ -285,7 +286,7 @@ class SupplierRepository:
             return {"message": f"Supplier {action} successfully"}
         except Exception as e:
             log_error(f"Error updating supplier blacklist: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def search_by_keyword(keyword: str) -> List[SupplierResponse]:

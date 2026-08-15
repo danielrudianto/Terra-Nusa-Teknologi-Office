@@ -1,5 +1,5 @@
 import asyncio
-from utils.errors import ErrorCode, app_error
+from utils.errors import ErrorCode, app_error, internal_error
 from sqlalchemy import func, insert, select, update, delete, or_
 from utils.database import database
 from models.payment_outgoing_model import PaymentOutgoing
@@ -51,7 +51,7 @@ class PaymentOutgoingController:
             return result
         except Exception as e:
             log_error(f"Error creating payment: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def get_payments_by_purchase_id(purchase_id: int):
@@ -76,7 +76,7 @@ class PaymentOutgoingController:
             return {"payments": payments}
         except Exception as e:
             log_error(f"Error retrieving payments: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
     
     @staticmethod
     async def get_payment_by_id(id: int):
@@ -154,7 +154,7 @@ class PaymentOutgoingController:
             }
         except Exception as e:
             log_error(f"Error retrieving payment: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_payments(page: int, pageSize: int, filterObject: dict, sortBy: str, sortByDirection: str):
@@ -181,7 +181,7 @@ class PaymentOutgoingController:
             return result
         except Exception as e:
             log_error(f"Error retrieving payments: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_mutation_data(startDate: date, endDate: date, page: int, pageSize: int, bankAccountID: int):
@@ -200,7 +200,7 @@ class PaymentOutgoingController:
             return result
         except Exception as e:
             log_error(f"Error retrieving payments: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def move_payment(id: int, date: str, userID: int, reason: str = ""):
@@ -247,7 +247,7 @@ class PaymentOutgoingController:
             return result
         except Exception as e:
             log_error(f"Error moving payment: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def update_payment_status(
@@ -591,7 +591,7 @@ class PaymentOutgoingController:
             return result
         except Exception as e:
             log_error(f"Error updating status for payments with IDs {payment_ids}: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def delete_payment_by_id(id: int):
@@ -717,7 +717,7 @@ class PaymentOutgoingController:
             }
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def get_calendar_selector_by_date(date: d, bankAccounts: List[int] | None):
@@ -750,7 +750,7 @@ class PaymentOutgoingController:
             }
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def get_pph_report(month: int, year: int):
@@ -771,4 +771,4 @@ class PaymentOutgoingController:
             }
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

@@ -7,6 +7,7 @@ from utils.database import database
 from utils.logger_utils import log_error
 from sqlalchemy.exc import IntegrityError
 from models.employee_profile_model import employee_profiles_table
+from utils.errors import internal_error
 
 
 # Define the Purchase model
@@ -30,6 +31,14 @@ class Employee(BaseModel):
     deletedBy: Optional[int] = None  # ID of the user who deleted the employee
     startDate: Optional[d] = None
     endDate: Optional[d] = None
+
+    # Profil pribadinya sudah ada.
+    #
+    # Dihitung lewat subkueri pada `get_employees`, BUKAN kolom tabel. Harus
+    # disebut di sini dan disalin di bawah — hasil kueri disalin bidang per
+    # bidang ke kelas ini, sehingga apa pun yang tidak disebut akan dihitung
+    # basis data lalu dibuang tanpa satu pun galat.
+    hasProfile: Optional[int] = 0
 
     #Initialize the model
     def __init__(self, **data):
@@ -213,7 +222,19 @@ class Employee(BaseModel):
                     deletedAt=row.deletedAt,
                     deletedBy=row.deletedBy,
                     startDate=row.startDate,
-                    endDate=row.endDate
+                    endDate=row.endDate,
+                    # Dibaca lewat `getattr`, BUKAN `.get()`.
+                    #
+                    # Baris yang dikembalikan `databases` adalah Record —
+                    # bukan dict, dan `_mapping`-nya pun bukan. Memanggil
+                    # `.get()` padanya membuat pustaka mencari KOLOM bernama
+                    # "get", lalu gagal dengan "Could not locate column in
+                    # row for column 'get'" — pesan yang sama sekali tidak
+                    # menyebut sebabnya.
+                    #
+                    # Nilai bawaan tetap diperlukan: `hasProfile` adalah label
+                    # subkueri, dan kueri lain di berkas ini tidak memuatnya.
+                    hasProfile=int(getattr(row, "hasProfile", 0) or 0),
                 )
                 response.append(employee_data)
 
@@ -236,7 +257,7 @@ class Employee(BaseModel):
             return {"data": response, "count": total_count}
         except Exception as e:
             log_error(f"Error fetching employees: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_employee_by_id(employee_id: int) -> dict:
@@ -273,7 +294,7 @@ class Employee(BaseModel):
             )
         except Exception as e:
             log_error(f"Error fetching employee: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
 employees_table = Table(
     "employees",

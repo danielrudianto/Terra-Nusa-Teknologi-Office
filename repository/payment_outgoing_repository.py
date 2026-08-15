@@ -13,6 +13,7 @@ from models.supplier_model import suppliers_table
 from models.bank_model import bank_accounts_table
 from models.loans_model import loans_table
 from utils.logger_utils import log_error, log_info
+from utils.errors import internal_error
 
 
 def _month_start(month: int, year: int) -> d:
@@ -82,7 +83,7 @@ class PaymentOutgoingRepository:
             return {"message": "Payment created successfully", "payment_id": result}
         except Exception as e:
             log_error(f"Error creating payment: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
     
     @staticmethod
     async def get_payments(page: int, pageSize: int, filterObject: dict, sortBy: str, sortByDirection: str):
@@ -408,7 +409,7 @@ class PaymentOutgoingRepository:
             )
         except Exception as e:
             log_error(f"Error retrieving payment by ID {id}: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_payments_by_ids(payment_ids: List[int]):
@@ -661,7 +662,7 @@ class PaymentOutgoingRepository:
             return {"message": "Payment status updated successfully"}
         except Exception as e:
             log_error(f"Error updating payment status: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
       
     @staticmethod
     async def update_bulk_status(payment_ids: List[int], status: str, userID: int):
@@ -729,7 +730,7 @@ class PaymentOutgoingRepository:
             return {"message": "Status updated successfully"}
         except Exception as e:
             log_error(f"Error updating status for payments with IDs {payment_ids}: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def move_payment(
@@ -768,7 +769,7 @@ class PaymentOutgoingRepository:
             return {"message": "Payment moved successfully"}
         except Exception as e:
             log_error(f"Error moving payment: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def delete_payment_by_purchase_id(purchaseID: int, userID: int):
@@ -805,7 +806,7 @@ class PaymentOutgoingRepository:
             return {"message": "Payments deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting payments for purchase ID {purchaseID}: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_calendar_data(month: int, year: int, bankAccounts: List[int]):
@@ -849,7 +850,7 @@ class PaymentOutgoingRepository:
             ]
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def download_calendar_data(month: int, year: int, bankAccounts: List[int]):
@@ -1086,7 +1087,7 @@ class PaymentOutgoingRepository:
             ]
         except Exception as e:
             log_error(f"Error retrieving payment outgoing calendar data: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def get_calendar_selector_data_by_date(date: int, month: int, year: int, bankAccounts: List[int]):
@@ -1106,7 +1107,7 @@ class PaymentOutgoingRepository:
             return total
         except Exception as e:
             log_error(f"Error retrieving payment outgoing calendar data: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
 
     @staticmethod
@@ -1175,7 +1176,7 @@ class PaymentOutgoingRepository:
             return purchase_list
         except Exception as e:
             log_error(f"Error fetching PPN report: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def get_expense_pph_report(month: int, year: int):
@@ -1239,4 +1240,4 @@ class PaymentOutgoingRepository:
             return purchase_list
         except Exception as e:
             log_error(f"Error fetching purchase report by project: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

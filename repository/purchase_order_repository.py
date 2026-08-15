@@ -462,9 +462,24 @@ class PurchaseOrderRepository:
             )
             rows = await database.fetch_all(query)
 
+            # Penghitung memakai SUMBER YANG SAMA dengan kueri datanya.
+            #
+            # `conditions` memuat syarat nama pemasok, dan syarat itu merujuk
+            # `suppliers_table`. Tanpa join yang sama di sini, basis data
+            # merangkai silang seluruh baris pemasok — jumlahnya melonjak
+            # menjadi kelipatan, sementara daftarnya tetap benar.
+            #
+            # Bedanya tidak menimbulkan galat: yang salah hanya angka di
+            # bawah daftar dan jumlah halamannya.
             count_query = (
                 select(func.count())
-                .select_from(purchase_orders_table)
+                .select_from(
+                    purchase_orders_table.outerjoin(
+                        suppliers_table,
+                        purchase_orders_table.c.supplierID
+                        == suppliers_table.c.id,
+                    )
+                )
                 .where(*conditions)
             )
             total_count = await database.fetch_val(count_query) or 0
@@ -486,7 +501,20 @@ class PurchaseOrderRepository:
         user_id: int = None,
         user_name: str = None,
     ):
-        """Update editable fields of a purchase order and bump its revision."""
+        """
+        Ubah purchase order yang BELUM disetujui.
+
+        Draf memang belum mengikat — cap DRAFT pada cetakannya menyatakan itu
+        — sehingga membetulkannya bukan pemalsuan, melainkan gunanya tahap
+        draf. Tanpa jalur ini yang tersisa hanya dua pilihan buruk: menghapus
+        lalu membuat ulang, yang membuat deret nomor proyek berlubang; atau
+        menerbitkan yang salah lalu diadendum, yang memakai dokumen resmi
+        untuk membetulkan sesuatu yang belum pernah terbit.
+
+        Dokumen yang SUDAH disetujui ditolak di sini. Untuk itu jalurnya
+        adendum, dan alasannya tidak berubah: lembar yang dipegang vendor
+        tidak boleh berbeda dari yang tersimpan.
+        """
         try:
             if not fields:
                 return {"message": "No changes"}
@@ -498,6 +526,63 @@ class PurchaseOrderRepository:
                     purchase_orders_table.c.id == purchase_order_id
                 )
             )
+            if sebelum is None:
+                return app_error(
+                    ErrorCode.NOT_FOUND, "Purchase order tidak ditemukan.", 404
+                )
+
+            # Ditolak begitu disetujui — di SERVER, bukan cukup dengan
+            # menyembunyikan tombolnya. Muatan permintaan dapat disusun
+            # sendiri oleh siapa pun yang membuka Network tab.
+            sudah = bool(getattr(sebelum, "isApproved", 0)) or str(
+                getattr(sebelum, "status", "") or ""
+            ).lower() == "approved"
+            if sudah:
+                return app_error(
+                    ErrorCode.FORBIDDEN,
+                    "Purchase order yang sudah disetujui tidak dapat diubah. "
+                    "Gunakan adendum.",
+                    403,
+                )
+
+            # Kolom yang menentukan IDENTITAS dokumen tidak boleh berubah.
+            #
+            # Nomor, pemasok, proyek, dan jenisnya menyusun nomor dokumennya
+            # sendiri. Mengubah pemasok bukan koreksi melainkan dokumen lain;
+            # yang seperti itu dibatalkan lalu dibuat baru.
+            TERKUNCI = (
+                "id", "name", "number", "supplierID", "projectName",
+                "purchaseType", "isApproved", "approvedBy", "approvedAt",
+                "createdBy", "createdAt", "revision",
+                "parentPurchaseOrderID", "addendumNumber",
+            )
+            fields = {k: v for k, v in fields.items() if k not in TERKUNCI}
+
+            # Baris barang dipisahkan dari kolom dokumen.
+            #
+            # `items` bukan kolom `purchase_orders`; membiarkannya masuk ke
+            # `update()` membuat SQLAlchemy menolak seluruh permintaan dengan
+            # "Unconsumed column names" — dan pesan itu tidak menyebut bahwa
+            # yang salah hanya satu kunci di antara belasan.
+            baris_baru = fields.pop("items", None)
+
+            # Kunci yang BUKAN kolom tabel dibuang, bukan diteruskan.
+            #
+            # Formulir mengirim muatan yang sama seperti saat membuat dokumen,
+            # dan sebagian isinya memang tidak pernah menjadi kolom —
+            # `projectCode` misalnya, yang hanya dipakai server untuk
+            # menyusun nomor.
+            # Nama kolom dibaca lewat `columns`, bukan `.c.keys()`.
+            #
+            # Bentuk `tabel.c.sesuatu` dibaca pemeriksa sebagai akses KOLOM
+            # bernama "sesuatu", dan `keys` bukan kolom mana pun — pemeriksa
+            # yang benar itu melaporkannya sebagai kesalahan.
+            kolom_sah = {k.name for k in purchase_orders_table.columns}
+            fields = {k: v for k, v in fields.items() if k in kolom_sah}
+
+            if not fields and baris_baru is None:
+                return {"message": "No changes"}
+
 
             query = (
                 update(purchase_orders_table)
@@ -505,6 +590,26 @@ class PurchaseOrderRepository:
                 .values(revision=purchase_orders_table.c.revision + 1, **fields)
             )
             await database.execute(query)
+
+            # Baris barang DIGANTI seluruhnya, bukan dicocokkan satu per satu.
+            #
+            # Yang mengubah dapat menambah, menghapus, dan menukar urutan
+            # barisnya sekaligus; mencocokkan berdasarkan id membuat baris
+            # yang dihapus lalu ditambah kembali kehilangan kaitannya, dan
+            # urutan pada dokumen tercetak berubah tanpa sebab.
+            #
+            # Dokumen ini belum pernah terbit, sehingga tidak ada apa pun yang
+            # merujuk id barisnya.
+            if baris_baru is not None:
+                from repository.purchase_order_item_repository import (
+                    PurchaseOrderItemRepository,
+                )
+
+                await PurchaseOrderItemRepository.delete_by_po(purchase_order_id)
+                if baris_baru:
+                    await PurchaseOrderItemRepository.insert_many(
+                        purchase_order_id, baris_baru
+                    )
 
             # Impor lokal agar modul repository tidak saling bergantung
             # saat dimuat.

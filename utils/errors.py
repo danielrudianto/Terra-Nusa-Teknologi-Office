@@ -118,3 +118,22 @@ def error_detail(result: Dict[str, Any]) -> Any:
     if result.get("context"):
         detail["context"] = result["context"]
     return detail
+
+
+def internal_error() -> Dict[str, Any]:
+    """
+    Galat tak terduga, tanpa membocorkan sebabnya kepada klien.
+
+    Pesan asli pengecualian kerap memuat nama tabel, nama kolom, dan potongan
+    SQL. Mengirimkannya ke layar memberi peta sistem kepada siapa pun yang
+    membuka Network tab — dan tidak menolong pengguna sama sekali, karena
+    kalimatnya bukan bahasa yang ia mengerti.
+
+    Jejak lengkapnya tetap dicatat `log_error` di tempat kejadiannya; yang
+    berubah hanya apa yang keluar dari server.
+    """
+    return app_error(
+        ErrorCode.INTERNAL,
+        "Terjadi kesalahan pada sistem. Silakan coba lagi.",
+        500,
+    )

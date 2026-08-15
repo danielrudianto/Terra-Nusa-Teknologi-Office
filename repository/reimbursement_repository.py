@@ -1,4 +1,6 @@
 from sqlalchemy import select, insert, update, delete, func, or_, and_
+from utils.permission import boleh_menyetujui_sendiri
+from utils.errors import ErrorCode, app_error, internal_error
 from utils.database import database
 from models.reimbursement_model import reimbursements_table, reimbursement_items_table
 from utils.logger_utils import log_error, log_info
@@ -16,7 +18,7 @@ class ReimbursementRepository:
             return count if count is not None else 0
         except Exception as e:
             log_error(f"Error counting reimbursements by project name: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def create_reimbursement(reimbursement_data: dict):
@@ -34,7 +36,7 @@ class ReimbursementRepository:
             return reimbursement_id
         except Exception as e:
             log_error(f"Error creating reimbursement: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def create_reimbursement_items(reimbursement_items_data: list):
@@ -57,7 +59,7 @@ class ReimbursementRepository:
             return {"message": "Reimbursement items created successfully"}
         except Exception as e:
             log_error(f"Error creating reimbursement items: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_reimbursements(page: int, pageSize: int, filterObject: dict, sortBy: str, sortByDirection: str, keyword: str | None):
@@ -140,7 +142,7 @@ class ReimbursementRepository:
             return {"data": reimbursements, "count": count}
         except Exception as e:
             log_error(f"Error getting reimbursements: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_reimbursement_by_id(reimbursementID: int):
@@ -154,7 +156,7 @@ class ReimbursementRepository:
             return reimbursement
         except Exception as e:
             log_error(f"Error getting reimbursement by ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_reimbursement_items_by_reimbursement_id(reimbursementID: int):
@@ -166,7 +168,7 @@ class ReimbursementRepository:
             return reimbursement_items
         except Exception as e:
             log_error(f"Error getting reimbursement items by ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_project(projectName: str):
@@ -196,11 +198,32 @@ class ReimbursementRepository:
             return [dict(record) for record in reimbursements]
         except Exception as e:
             log_error(f"Error getting reimbursement items by project: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
-    async def approve_reimbursement_by_id(reimbursementID: int, userID: int):
+    async def approve_reimbursement_by_id(
+        reimbursementID: int, userID: int, user_level: int | None = None
+    ):
         try:
+            # Yang membuat dokumen tidak boleh menyetujuinya sendiri.
+            #
+            # Dikecualikan untuk level 4 ke atas: keduanya memang berwenang atas
+            # seluruh dokumen, dan kerap merekalah satu-satunya yang hadir untuk
+            # menyetujui. Pengecualian itu tetap tercatat pada jejak aktivitas.
+            if not boleh_menyetujui_sendiri(user_level):
+                pembuat = await database.fetch_val(
+                    select(reimbursements_table.c.createdBy).where(
+                        reimbursements_table.c.id == reimbursementID
+                    )
+                )
+                if pembuat is not None and int(pembuat) == int(userID):
+                    return app_error(
+                        ErrorCode.SELF_APPROVAL_FORBIDDEN,
+                        "Dokumen tidak dapat disetujui oleh pembuatnya "
+                        "sendiri. Mintakan persetujuan kepada pengguna lain.",
+                        403,
+                    )
+
             query = (
                 reimbursements_table.update()
                 .where(
@@ -228,7 +251,7 @@ class ReimbursementRepository:
             return {"message": "Reimbursement approved successfully"}
         except Exception as e:
             log_error(f"Error approving reimbursement by ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def reject_reimbursement_by_id(reimbursementID: int, userID: int):
@@ -258,7 +281,7 @@ class ReimbursementRepository:
             return {"message": "Reimbursement rejected successfully"}
         except Exception as e:
             log_error(f"Error rejecting reimbursement by ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def update_payment_status(reimbursementID: int, isPaid: bool, userID: int):
@@ -303,4 +326,4 @@ class ReimbursementRepository:
             return {"message": f"Reimbursement payment status updated successfully"}
         except Exception as e:
             log_error(f"Error updating reimbursement payment status: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

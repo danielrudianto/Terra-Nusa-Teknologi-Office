@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime as dt
 from models.client_model import clients_table
 from schemas.client_schema import ClientCreate, ClientUpdate, ClientResponse
+from utils.errors import internal_error
 
 class ClientRepository:
     @staticmethod
@@ -34,7 +35,7 @@ class ClientRepository:
             return {"error": "Client with similar data already exists", "status": 400}
         except Exception as e:
             log_error(f"Error creating client: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def update(client_id: int, client_data: ClientUpdate) -> Dict[str, Any]:
@@ -86,7 +87,7 @@ class ClientRepository:
             return {"error": "Client with similar data already exists", "status": 400}
         except Exception as e:
             log_error(f"Error updating client: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_id(client_id: int) -> Optional[ClientResponse]:
@@ -256,7 +257,7 @@ class ClientRepository:
             return {"message": "Client deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting client: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def exists(client_id: int) -> bool:

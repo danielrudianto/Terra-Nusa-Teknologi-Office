@@ -6,6 +6,7 @@ from datetime import datetime
 from utils.meilisearch import client
 from schemas.supplier_schema import SupplierCreate, SupplierUpdate, SupplierSearchDocument, SupplierBlacklistUpdate
 from repository.supplier_repository import SupplierRepository
+from utils.errors import internal_error
 
 class SupplierController:
     @staticmethod
@@ -231,7 +232,7 @@ class SupplierController:
             return result
         except Exception as e:
             log_error(f"Error setting supplier blacklist: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def _index_supplier_in_search(supplier_id: int, supplier_data: dict):

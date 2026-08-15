@@ -105,6 +105,24 @@ class EmployeeController:
                 log_error("Cannot update a deleted employee.")
                 return {"error": "Cannot update a deleted employee.", "status": 400}
             
+            # Bidang yang BUKAN lagi milik layar ini dipertahankan dari
+            # data yang tersimpan, bukan diambil dari muatan.
+            #
+            # Kategori pajak, alamat, telepon, dan email kini berasal dari
+            # formulir pembaruan data — satu sumber, dengan riwayat siapa
+            # mengubah kapan. Membiarkan layar ini menulisnya berarti dua
+            # jalur menuju satu kolom, dan yang terakhir menang tanpa jejak.
+            #
+            # Dijaga di SERVER, bukan cukup dengan menyembunyikan isiannya:
+            # muatan permintaan dapat disusun sendiri oleh siapa pun yang
+            # membuka Network tab.
+            DIKUNCI = ("taxCategory", "address", "phoneNumber", "email")
+            for kolom in DIKUNCI:
+                try:
+                    employee_data[kolom] = getattr(existing_employee_data, kolom)
+                except AttributeError:
+                    employee_data.pop(kolom, None)
+
             updated_employee_data = Employee(**employee_data)
             updated_employee_data.updatedBy = userID
             updated_employee_data.updatedAt = dt.now()

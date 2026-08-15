@@ -3,6 +3,7 @@ from typing import Optional, List
 
 from utils.database import database
 from utils.logger_utils import log_error
+from utils.errors import internal_error
 
 
 class DashboardModel:
@@ -98,4 +99,4 @@ class DashboardModel:
             # Matches the app convention: if the `mutation` view is missing the
             # balance query fails -- surface it rather than returning wrong zeros.
             log_error(f"Error fetching cash position (mutation view may not exist): {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

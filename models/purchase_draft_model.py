@@ -6,6 +6,7 @@ from datetime import datetime as d
 from utils.logger_utils import log_error, log_info
 from models.supplier_model import suppliers_table
 from utils.database import database
+from utils.errors import internal_error
 
 # Define the Purchase model
 class PurchaseDraft(BaseModel):
@@ -31,7 +32,7 @@ class PurchaseDraft(BaseModel):
             return purchase_id
         except Exception as e:
             log_error(f"Error creating purchase: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def delete_purcase_draft(purchase_data_id: int, userID: int):
@@ -41,7 +42,7 @@ class PurchaseDraft(BaseModel):
             return True
         except Exception as e:
             log_error(f"Error deleting purchase: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
     
     @staticmethod
     async def get_purchase_draft(page: int, pageSize: int, isPending: bool, isApproved: bool,sortBy: str, sortByDirection: str, keyword: str):
@@ -140,7 +141,7 @@ class PurchaseDraft(BaseModel):
             return {"data": purchase_result, "count": count}
         except Exception as e:
             log_error(f"Error fetching purchases: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_project(projectName: str):

@@ -4,6 +4,7 @@ from utils.meilisearch import client
 from utils.meilisearch_equipment import index_document, delete_document
 from schemas.master_equipment_schema import MasterEquipmentCreate, MasterEquipmentUpdate
 from repository.master_equipment_repository import MasterEquipmentRepository
+from utils.errors import internal_error
 
 INDEX_NAME = "master_equipment"
 
@@ -22,7 +23,7 @@ class MasterEquipmentController:
             return result
         except Exception as e:
             log_error(f"Unexpected error creating equipment: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_equipment(item_id: int) -> Dict[str, Any]:
@@ -79,7 +80,7 @@ class MasterEquipmentController:
             return result
         except Exception as e:
             log_error(f"Unexpected error updating equipment: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def delete_equipment(item_id: int, user_id: int) -> Dict[str, Any]:

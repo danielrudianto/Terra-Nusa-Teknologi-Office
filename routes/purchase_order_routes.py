@@ -180,7 +180,8 @@ async def update_purchase_order_status(
         result = await PurchaseOrderController.update_purchase_order_status(
             purchase_order_id, 
             status.value, 
-            user_id
+            user_id,
+            int(current_user["authenticationLevel"] or 1),
         )
         
         if "error" in result:
@@ -232,3 +233,32 @@ async def delete_purchase_order(
             status_code=500,
             detail={"code": ErrorCode.INTERNAL, "message": "Internal server error."},
         )
+
+
+@router.put("/{purchase_order_id}")
+async def ubah_purchase_order(
+    purchase_order_id: int,
+    body: dict,
+    current_user: Annotated[User, Depends(require("purchase_order", "update"))],
+):
+    """
+    Ubah purchase order yang BELUM disetujui.
+
+    Dokumen yang sudah disetujui ditolak repository, bukan di sini: itu
+    aturan tentang dokumennya, bukan tentang rutenya, dan menaruhnya di satu
+    tempat membuat jalur lain tidak dapat melewatinya.
+
+    Nomor revisi dinaikkan setiap kali. Bila draf lama sempat tercetak dan
+    sampai ke vendor, nomor itulah yang membedakan mana yang lebih baru.
+    """
+    user_id = current_user["id"]
+    user_level = int(current_user["authenticationLevel"] or 1)
+
+    hasil = await PurchaseOrderController.update_purchase_order(
+        purchase_order_id, body, user_id, user_level
+    )
+    if isinstance(hasil, dict) and "error" in hasil:
+        raise HTTPException(
+            status_code=hasil.get("status", 500), detail=error_detail(hasil)
+        )
+    return hasil

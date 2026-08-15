@@ -11,6 +11,7 @@ from repository.asset_repository import AssetRepository
 from repository.loan_repository import LoanRepository
 from repository.bank_account_repository import BankAccount
 from repository.expense_repository import ExpenseRepository
+from utils.errors import internal_error
 
 class TaxController:
     @staticmethod
@@ -58,10 +59,10 @@ class TaxController:
             baris.sort(key=lambda x: (x.get("date") is None, x.get("date")))
             return baris
         except RuntimeError as e:
-            return {"error": str(e), "status": 500}
+            return internal_error()
         except Exception as e:
             log_error(f"Error fetching PPN report: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def get_pph_report(month: int, year: int):

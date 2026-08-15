@@ -8,6 +8,7 @@ from models.reminder_model import reminder_targets_table, reminders_table
 from models.user_model import users_table
 from utils.database import database
 from utils.logger_utils import log_error
+from utils.errors import internal_error
 
 
 class ReminderRepository:
@@ -92,7 +93,7 @@ class ReminderRepository:
             return hasil
         except Exception as e:
             log_error(f"Error fetching reminders: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_id(reminder_id: int):
@@ -103,7 +104,7 @@ class ReminderRepository:
             return dict(baris) if baris else None
         except Exception as e:
             log_error(f"Error fetching reminder {reminder_id}: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def create(data: dict, target_ids: List[int]):
@@ -113,7 +114,7 @@ class ReminderRepository:
             return {"id": reminder_id}
         except Exception as e:
             log_error(f"Error creating reminder: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def update(reminder_id: int, data: dict, target_ids: List[int] | None):
@@ -131,7 +132,7 @@ class ReminderRepository:
             return {"message": "Reminder updated successfully"}
         except Exception as e:
             log_error(f"Error updating reminder {reminder_id}: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def soft_delete(reminder_id: int):
@@ -144,7 +145,7 @@ class ReminderRepository:
             return {"message": "Reminder deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting reminder {reminder_id}: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def _set_targets(reminder_id: int, target_ids: List[int]):
@@ -196,7 +197,7 @@ class TaggableUserRepository:
             return [{"id": b["id"], "name": b["name"]} for b in baris]
         except Exception as e:
             log_error(f"Error fetching taggable users: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
 
 class BirthdayRepository:
@@ -260,7 +261,7 @@ class BirthdayRepository:
             return hasil
         except Exception as e:
             log_error(f"Error fetching birthdays: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def in_range(dari: d, sampai: d):
@@ -333,7 +334,7 @@ class BirthdayRepository:
             return hasil
         except Exception as e:
             log_error(f"Error fetching birthdays in range: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     def days_until(bulan: int, hari: int, hari_ini: d) -> int | None:

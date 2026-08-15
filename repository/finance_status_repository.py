@@ -11,6 +11,7 @@ from models.sales_invoice_model import sales_invoice_tables
 from models.payment_outgoing_model import payments_outgoing_table
 from models.payment_incoming_model import payment_incoming_table
 from models.loans_model import loans_table
+from utils.errors import ErrorCode, internal_error
 
 """
 Posisi keuangan: kas, piutang usaha, utang usaha, dan pinjaman.
@@ -117,7 +118,8 @@ class FinanceStatusRepository:
             return {"total": total, "umur": ember, "jumlahDokumen": len(rows)}
         except Exception as e:
             log_error(f"Error menghitung piutang: {str(e)}")
-            return {"total": 0.0, "umur": {}, "jumlahDokumen": 0, "error": str(e)}
+            return {"total": 0.0, "umur": {}, "jumlahDokumen": 0,
+                    "error": ErrorCode.INTERNAL}
 
     @staticmethod
     async def utang_usaha() -> Dict[str, Any]:
@@ -194,7 +196,8 @@ class FinanceStatusRepository:
             return {"total": total, "tempo": ember, "jumlahDokumen": len(rows)}
         except Exception as e:
             log_error(f"Error menghitung utang usaha: {str(e)}")
-            return {"total": 0.0, "tempo": {}, "jumlahDokumen": 0, "error": str(e)}
+            return {"total": 0.0, "tempo": {}, "jumlahDokumen": 0,
+                    "error": ErrorCode.INTERNAL}
 
     @staticmethod
     async def pinjaman() -> Dict[str, Any]:
@@ -245,4 +248,5 @@ class FinanceStatusRepository:
             return {"total": total, "jumlahPinjaman": len(rows)}
         except Exception as e:
             log_error(f"Error menghitung pinjaman: {str(e)}")
-            return {"total": 0.0, "jumlahPinjaman": 0, "error": str(e)}
+            return {"total": 0.0, "jumlahPinjaman": 0,
+                    "error": ErrorCode.INTERNAL}

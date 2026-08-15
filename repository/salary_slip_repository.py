@@ -1,5 +1,5 @@
 from sqlalchemy import select, func, update
-from utils.errors import ErrorCode, app_error
+from utils.errors import ErrorCode, app_error, internal_error
 from utils.database import database
 from utils.logger_utils import log_error
 from models.salary_slip_model import salary_slips_table, salary_slips_allowance_table, salary_slips_deduction_table
@@ -36,7 +36,7 @@ class SalarySlipRepository:
             return result
         except Exception as e:
             log_error(f"Error creating salary slip: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def fetch(
@@ -145,7 +145,7 @@ class SalarySlipRepository:
             }
         except Exception as e:
             log_error(f"Error fetching salary slips: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_id(id: int):
@@ -184,7 +184,7 @@ class SalarySlipRepository:
             return dict(result)
         except Exception as e:
             log_error(f"Error fetching salary slip by ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def delete_by_id(id: int, userID: int):
@@ -269,7 +269,7 @@ class SalarySlipRepository:
             return [dict(row) for row in result]
         except Exception as e:
             log_error(f"Error fetching allowances: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_deductions_by_salary_slip_id(salary_slip_id: int):
@@ -281,7 +281,7 @@ class SalarySlipRepository:
             return [dict(row) for row in result]
         except Exception as e:
             log_error(f"Error fetching deductions: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_pph_report(month: int, year: int):
@@ -369,7 +369,7 @@ class SalarySlipRepository:
 
         except Exception as e:
             log_error(f"Error fetching PPH report: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
 class SalarySlipAllowanceRepository:
     @staticmethod
@@ -402,7 +402,7 @@ class SalarySlipAllowanceRepository:
             return {"message": "Salary slip allowances created successfully."}
         except Exception as e:
             log_error(f"Error creating salary slip allowance: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def get_by_salary_slip_id(salarySlipID: int):
@@ -412,7 +412,7 @@ class SalarySlipAllowanceRepository:
             return [dict(row) for row in result]
         except Exception as e:
             log_error(f"Error fetching allowances: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
 class SalarySlipDeductionRepository:
     @staticmethod
@@ -445,7 +445,7 @@ class SalarySlipDeductionRepository:
             return {"message": "Salary slip deductions created successfully."}
         except Exception as e:
             log_error(f"Error creating salary slip deduction: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def get_by_salary_slip_id(salarySlipID: int):
@@ -455,4 +455,4 @@ class SalarySlipDeductionRepository:
             return [dict(row) for row in result]
         except Exception as e:
             log_error(f"Error fetching deductions: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

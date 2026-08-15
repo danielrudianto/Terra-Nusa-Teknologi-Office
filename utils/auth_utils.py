@@ -105,6 +105,30 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
         user = await database.fetch_one(query)
         if user is None:
             raise HTTPException(status_code=401, detail="Invalid authentication credentials 2")
+
+        # Pengguna yang DINONAKTIFKAN atau DIHAPUS ditolak di sini.
+        #
+        # Tanpa pemeriksaan ini, menonaktifkan seseorang tidak berpengaruh
+        # apa pun sampai tokennya kedaluwarsa — dan masa berlaku refresh
+        # token adalah tujuh hari. Orang yang baru saja dikeluarkan tetap
+        # dapat menyetujui pembayaran selama seminggu penuh.
+        #
+        # Diperiksa di sini, bukan pada tiap rute: ini satu-satunya pintu
+        # yang dilewati SELURUH permintaan bertoken, sehingga tidak ada rute
+        # yang dapat lupa memeriksanya.
+        try:
+            if not user["isActive"] or user["isDeleted"]:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Akun tidak aktif. Hubungi administrator.",
+                )
+        except KeyError:
+            # Kolomnya seharusnya selalu ada; bila tidak, jangan diam-diam
+            # meloloskan — perlakukan sebagai tidak sah.
+            raise HTTPException(
+                status_code=401, detail="Invalid authentication credentials"
+            )
+
         return user
     except InvalidTokenError as e:
         print(e)

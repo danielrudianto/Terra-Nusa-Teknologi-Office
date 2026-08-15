@@ -9,6 +9,7 @@ from repository.bank_account_repository import BankAccount
 from repository.payment_income_repository import PaymentIncomingRepository
 from models.mutation_model import Mutation
 from typing import List
+from utils.errors import internal_error
 
 class CalendarController:
     @staticmethod
@@ -62,7 +63,7 @@ class CalendarController:
             }
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def download_calendar_data(month: int, year: int, bankAccounts: List[int]):
@@ -114,4 +115,4 @@ class CalendarController:
             }
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

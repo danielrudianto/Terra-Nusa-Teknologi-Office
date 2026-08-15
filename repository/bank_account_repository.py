@@ -8,6 +8,7 @@ from models.payment_outgoing_model import payments_outgoing_table
 from models.payment_incoming_model import payment_incoming_table
 from utils.logger_utils import log_error
 from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, select, func
+from utils.errors import internal_error
 
 # Define the Purchase model
 class BankAccount(BaseModel):
@@ -150,7 +151,7 @@ class BankAccount(BaseModel):
             return {"data": response, "count": count if count is not None else 0}
         except Exception as e:
             log_error(f"Error fetching bank accounts: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_bank_account_by_id(id: int) -> dict:
@@ -187,7 +188,7 @@ class BankAccount(BaseModel):
                 return None
         except Exception as e:
             log_error(f"Error fetching bank account by ID {id}: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
     
     @staticmethod
     async def get_bank_accounts_by_ids(ids: list[int] | None):
@@ -247,4 +248,4 @@ class BankAccount(BaseModel):
                 return {"error": "Bank account not found.", "status": 404}
         except Exception as e:
             log_error(f"Error deleting bank account with ID {id}: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

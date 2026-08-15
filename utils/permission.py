@@ -183,3 +183,28 @@ def require(module: str, action: str):
         return current_user
 
     return _cek
+
+#: Level yang DIKECUALIKAN dari larangan menyetujui dokumen sendiri.
+#
+# General manager (4) dan pemilik (5). Keduanya memang berwenang atas seluruh
+# dokumen, dan pada perusahaan sebesar ini kerap merekalah satu-satunya yang
+# hadir untuk menyetujui — melarangnya berarti dokumen tertahan tanpa ada
+# orang lain yang berwenang.
+#
+# Pengecualian ini BUKAN berarti tanpa catatan: persetujuan atas dokumen
+# sendiri tetap tercatat pada jejak aktivitas, sehingga dapat ditelusuri.
+LEVEL_BOLEH_SETUJU_SENDIRI = 4
+
+
+def boleh_menyetujui_sendiri(level) -> bool:
+    """
+    Pengguna ini boleh menyetujui dokumen yang dibuatnya sendiri.
+
+    Ditulis sekali di sini, bukan diulang di tiap controller: ambangnya
+    pernah berbeda antar modul, dan yang tertinggal saat aturannya berubah
+    tidak menimbulkan galat — hanya satu modul yang diam-diam lebih longgar.
+    """
+    try:
+        return int(level or 1) >= LEVEL_BOLEH_SETUJU_SENDIRI
+    except (TypeError, ValueError):
+        return False

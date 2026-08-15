@@ -11,6 +11,7 @@ from utils.meilisearch_item import (
 )
 from schemas.master_item_schema import MasterItemCreate, MasterItemUpdate
 from repository.master_item_repository import MasterItemRepository
+from utils.errors import internal_error
 
 INDEX_NAME = "master_items"
 
@@ -56,7 +57,7 @@ class MasterItemController:
             return {"error": "SKU already exists.", "status": 400}
         except Exception as e:
             log_error(f"Unexpected error creating master item: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_master_item(item_id: int) -> Dict[str, Any]:
@@ -172,7 +173,7 @@ class MasterItemController:
             return {"error": "SKU already exists.", "status": 400}
         except Exception as e:
             log_error(f"Unexpected error updating master item: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def delete_master_item(item_id: int, user_id: int) -> Dict[str, Any]:
@@ -281,4 +282,4 @@ class MasterItemController:
             return {"error": "File bukan CSV UTF-8 yang valid.", "status": 400}
         except Exception as e:
             log_error(f"Error importing master items CSV: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
