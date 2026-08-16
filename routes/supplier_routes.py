@@ -22,6 +22,31 @@ async def create_supplier(
         )
     return result
 
+
+@router.get("/{supplier_id}/laporan")
+async def laporan_supplier(
+    supplier_id: int,
+    current_user: Annotated[User, Depends(require("supplier", "read"))],
+    date_from: str = Query(None, description="Tanggal pembelian sejak (YYYY-MM-DD)"),
+    date_to: str = Query(None, description="Tanggal pembelian sampai (YYYY-MM-DD)"),
+    project_name: str = Query(None, description="Kode proyek, persis"),
+):
+    """
+    Laporan satu pemasok.
+
+    Dijaga izin `supplier:read` — sama dengan melihat datanya. Yang ditampilkan
+    di sini adalah rekapan dari data yang sudah boleh dilihat orang tersebut,
+    bukan keterangan baru.
+    """
+    hasil = await SupplierController.laporan(
+        supplier_id, date_from, date_to, project_name
+    )
+    if "error" in hasil:
+        raise HTTPException(
+            status_code=hasil.get("status", 500), detail=error_detail(hasil)
+        )
+    return hasil
+
 @router.get("/{supplier_id}")
 async def get_supplier(
     supplier_id: int, 

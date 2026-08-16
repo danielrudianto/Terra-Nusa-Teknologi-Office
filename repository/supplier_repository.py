@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from sqlalchemy import insert, select, update, delete, func
+from sqlalchemy import and_, case, delete, func, insert, select, update
 from utils.database import database
 from utils.logger_utils import log_error
 from sqlalchemy.exc import IntegrityError
@@ -9,6 +9,142 @@ from schemas.supplier_schema import SupplierCreate, SupplierUpdate, SupplierResp
 from utils.errors import internal_error
 
 class SupplierRepository:
+    @staticmethod
+    async def laporan(
+        supplier_id: int,
+        date_from: str = None,
+        date_to: str = None,
+        project_name: str = None,
+    ):
+        """
+        Laporan satu pemasok: ringkasan nilai, sebaran proyek, dokumen terakhir.
+
+        Dihitung dari PEMBELIAN, bukan purchase order. Purchase order adalah
+        pesanan — sebagian tidak pernah ditagih, sebagian lain ditagih dengan
+        nilai berbeda karena volume terpasang tidak sama dengan yang dipesan.
+        Yang menentukan hubungan dagang dengan pemasok adalah apa yang
+        benar-benar ditagihkan.
+        """
+        from models.purchase_model import purchases_table
+        from models.payment_outgoing_model import payments_outgoing_table
+
+        try:
+            syarat = [
+                purchases_table.c.supplierID == supplier_id,
+                purchases_table.c.isDelete == False,
+            ]
+            if date_from:
+                syarat.append(purchases_table.c.date >= date_from)
+            if date_to:
+                syarat.append(purchases_table.c.date <= date_to)
+            if project_name:
+                syarat.append(purchases_table.c.projectName == project_name)
+
+            # Nilai tagihan sebuah pembelian.
+            #
+            # PPn disimpan sebagai PERSEN, bukan rupiah — mengalikannya
+            # langsung menghasilkan angka yang terlalu kecil sepersekian
+            # ribu kali.
+            nilai = (
+                purchases_table.c.dpp
+                + (purchases_table.c.ppn * purchases_table.c.dpp / 100)
+                + func.coalesce(purchases_table.c.pbbkb, 0)
+            )
+
+            ringkas = await database.fetch_one(
+                select(
+                    func.count().label("jumlah"),
+                    func.coalesce(func.sum(nilai), 0).label("total"),
+                    func.coalesce(
+                        func.sum(
+                            case((purchases_table.c.isPaid == False, nilai), else_=0)
+                        ),
+                        0,
+                    ).label("belum_dibayar"),
+                    # Lewat tempo: belum lunas DAN tanggal jatuh temponya
+                    # sudah lewat. Keduanya harus benar; yang belum lunas
+                    # tetapi belum jatuh tempo bukan tunggakan.
+                    func.coalesce(
+                        func.sum(
+                            case(
+                                (
+                                    and_(
+                                        purchases_table.c.isPaid == False,
+                                        purchases_table.c.dueDate.isnot(None),
+                                        purchases_table.c.dueDate < func.curdate(),
+                                    ),
+                                    nilai,
+                                ),
+                                else_=0,
+                            )
+                        ),
+                        0,
+                    ).label("lewat_tempo"),
+                ).where(*syarat)
+            )
+
+            proyek = await database.fetch_all(
+                select(
+                    purchases_table.c.projectName,
+                    func.coalesce(func.sum(nilai), 0).label("total"),
+                    func.count().label("jumlah"),
+                )
+                .where(*syarat)
+                .group_by(purchases_table.c.projectName)
+                .order_by(func.sum(nilai).desc())
+            )
+
+            # Lima dokumen terakhir; yang membuka laporan ingin gambaran,
+            # bukan seluruh riwayat. Daftar penuh ada di layar Pembelian.
+            terakhir = await database.fetch_all(
+                select(
+                    purchases_table.c.id,
+                    purchases_table.c.invoiceName,
+                    purchases_table.c.purchaseOrderName,
+                    purchases_table.c.projectName,
+                    purchases_table.c.date,
+                    purchases_table.c.dueDate,
+                    purchases_table.c.isPaid,
+                    nilai.label("nilai"),
+                )
+                .where(*syarat)
+                .order_by(purchases_table.c.date.desc(), purchases_table.c.id.desc())
+                .limit(5)
+            )
+
+            return {
+                "ringkasan": {
+                    "jumlah": int(ringkas["jumlah"] or 0),
+                    "total": float(ringkas["total"] or 0),
+                    "belumDibayar": float(ringkas["belum_dibayar"] or 0),
+                    "lewatTempo": float(ringkas["lewat_tempo"] or 0),
+                },
+                "proyek": [
+                    {
+                        "projectName": r["projectName"],
+                        "total": float(r["total"] or 0),
+                        "jumlah": int(r["jumlah"] or 0),
+                    }
+                    for r in proyek
+                ],
+                "terakhir": [
+                    {
+                        "id": r["id"],
+                        "invoiceName": r["invoiceName"],
+                        "purchaseOrderName": r["purchaseOrderName"],
+                        "projectName": r["projectName"],
+                        "date": r["date"],
+                        "dueDate": r["dueDate"],
+                        "isPaid": bool(r["isPaid"]),
+                        "nilai": float(r["nilai"] or 0),
+                    }
+                    for r in terakhir
+                ],
+            }
+        except Exception as e:
+            log_error(f"Error building supplier report: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
     @staticmethod
     async def create(supplier_data: SupplierCreate) -> Dict[str, Any]:
         """

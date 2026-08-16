@@ -10,6 +10,18 @@ from utils.errors import internal_error
 
 class SupplierController:
     @staticmethod
+    async def laporan(
+        supplier_id: int,
+        date_from: str = None,
+        date_to: str = None,
+        project_name: str = None,
+    ):
+        """Laporan satu pemasok; seluruh penyaring opsional."""
+        return await SupplierRepository.laporan(
+            supplier_id, date_from, date_to, project_name
+        )
+
+    @staticmethod
     async def create_supplier(supplier_data: dict, user_id: int) -> Dict[str, Any]:
         """
         Create a new supplier in the database.
