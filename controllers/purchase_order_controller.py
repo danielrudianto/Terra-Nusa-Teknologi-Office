@@ -41,6 +41,60 @@ class PurchaseOrderController:
     )
 
     @staticmethod
+    async def pemeriksaan(
+        supplier_id: int,
+        project_name: str = "",
+        dpp: float = 0,
+        item_id: int = 0,
+        price: float = 0,
+        kecuali_id: int = 0,
+    ) -> dict:
+        """
+        Peringatan sebelum dokumen dibuat: harga melompat, dan kemungkinan
+        duplikat.
+
+        Keduanya PERINGATAN, bukan penghalang. Harga memang dapat melompat —
+        pemasok mengganti spesifikasi, kurs bergerak, atau justru catatan
+        lama yang keliru. Yang diperlukan bukan menghentikan orang,
+        melainkan menyodorkan angka pembandingnya beserta nomor dokumennya,
+        sehingga dapat diperiksa saat itu juga.
+        """
+        hasil = {"harga": None, "duplikat": None}
+
+        if item_id and price and float(price) > 0:
+            terakhir = await PurchaseOrderRepository.harga_terakhir(
+                item_id, supplier_id
+            )
+            if terakhir and terakhir["price"] > 0:
+                rasio = float(price) / terakhir["price"]
+
+                # Ambang 1,5x naik dan 0,6x turun.
+                #
+                # Dipilih dari bentuk kesalahan yang benar-benar terjadi:
+                # kelebihan satu nol menghasilkan 10x, kekurangan satu nol
+                # 0,1x, dan digit tertukar sekitar 4x. Gerak harga yang wajar
+                # — bahkan kenaikan besi yang tajam — jarang melampaui 30%.
+                #
+                # Ambang yang lebih ketat akan berbunyi pada kenaikan biasa,
+                # dan peringatan yang sering keliru berhenti dibaca.
+                if rasio >= 1.5 or rasio <= 0.6:
+                    hasil["harga"] = {
+                        "sebelumnya": terakhir["price"],
+                        "sekarang": float(price),
+                        "rasio": round(rasio, 2),
+                        "tanggal": terakhir["date"],
+                        "nomor": terakhir["number"],
+                        "satuan": terakhir["unit"],
+                    }
+
+        if project_name and dpp:
+            hasil["duplikat"] = await PurchaseOrderRepository.kemungkinan_duplikat(
+                supplier_id, project_name, float(dpp), kecuali_id or None
+            )
+
+        return hasil
+
+    @staticmethod
     def _periksa_kunci_adendum(induk: dict, baru: dict) -> list[str]:
         """
         Bandingkan adendum dengan induknya; kembalikan daftar yang berbeda.

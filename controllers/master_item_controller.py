@@ -104,12 +104,51 @@ class MasterItemController:
                     filters.append(f'type = "{item_type}"')
                 if filters:
                     search_params["filter"] = " AND ".join(filters)
+                # Seluruh kata harus ada, bukan sebagian.
+                #
+                # Bawaan Meilisearch adalah `last`: bila tidak ada barang yang
+                # memuat semua kata, kata TERAKHIR dibuang lalu dicari lagi,
+                # berulang sampai ada hasil. Pencarian "besi ulir 22mm" karena
+                # itu akhirnya menjadi pencarian "besi" saja — dan mata
+                # gerinda besi ikut muncul di antara tulangan sirip.
+                #
+                # Dengan `all`, kueri yang meleset menghasilkan daftar KOSONG.
+                # Itu disengaja: daftar kosong jelas artinya, sedangkan daftar
+                # yang melebar membuat orang memilih barang yang salah — dan
+                # D22 tertukar D25 pada dokumen yang ditandatangani vendor
+                # jauh lebih mahal daripada mengetik ulang.
+                search_params["matchingStrategy"] = "all"
+
                 result = client.index(INDEX_NAME).search(keyword or "", search_params)
+                hits = result["hits"]
+                jumlah = result.get("estimatedTotalHits", len(hits))
+
+                # Bila kosong, tawarkan yang MENDEKATI — terpisah, bukan
+                # dicampur.
+                #
+                # Dipisah supaya yang membaca tahu ia sedang melihat saran,
+                # bukan hasil. Mencampurnya mengembalikan persoalan semula:
+                # barang yang tidak dicari muncul seolah-olah cocok.
+                saran = []
+                if keyword and not hits:
+                    longgar = dict(search_params)
+                    longgar["matchingStrategy"] = "last"
+                    longgar["limit"] = 5
+                    longgar["offset"] = 0
+                    longgar.pop("sort", None)
+                    try:
+                        saran = client.index(INDEX_NAME).search(keyword, longgar)["hits"]
+                    except Exception as e:
+                        # Saran adalah pelengkap; kegagalannya tidak boleh
+                        # menggagalkan pencarian yang sudah berhasil.
+                        log_error(f"Gagal menyusun saran pencarian: {str(e)}")
+
                 return {
-                    "data": result["hits"],
-                    "count": result.get("estimatedTotalHits", len(result["hits"])),
+                    "data": hits,
+                    "count": jumlah,
                     "page": page,
                     "page_size": page_size,
+                    "suggestions": saran,
                 }
             except Exception as search_error:
                 log_error(f"Meilisearch error, falling back to database: {str(search_error)}")

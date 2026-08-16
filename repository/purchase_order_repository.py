@@ -31,6 +31,129 @@ def _normalize_row(row):
 
 class PurchaseOrderRepository:
     @staticmethod
+    async def kemungkinan_duplikat(
+        supplier_id: int, project_name: str, dpp: float, kecuali_id: int = None
+    ):
+        """
+        Dokumen serupa yang dibuat pada HARI YANG SAMA.
+
+        Yang dicari: pemasok sama, proyek sama, dan nilai yang praktis sama.
+        Gabungan itu jarang terjadi dua kali dalam sehari secara sengaja —
+        dan kalau terjadi, biasanya karena permintaan yang sama dikirim dua
+        kali, atau layar yang tidak menjawab lalu ditekan lagi.
+
+        Draf ikut dihitung. Justru draf yang paling sering menggandakan:
+        dokumen pertama belum disetujui, sehingga tidak terlihat pada daftar
+        yang disaring, lalu dibuat lagi.
+
+        `kecuali_id` untuk mode ubah — dokumen tidak boleh menganggap dirinya
+        sendiri sebagai duplikat.
+        """
+        try:
+            nilai = float(dpp or 0)
+            if nilai <= 0:
+                return None
+
+            # Toleransi seperseribu, bukan sama persis: pembulatan pajak dan
+            # pembulatan di layar menghasilkan selisih beberapa rupiah pada
+            # dokumen yang sebenarnya identik.
+            batas = max(1.0, nilai * 0.001)
+
+            kueri = (
+                select(
+                    purchase_orders_table.c.id,
+                    purchase_orders_table.c.number,
+                    purchase_orders_table.c.dpp,
+                    purchase_orders_table.c.isApproved,
+                    # Tanpa `.label()`: nama label akan dianggap bagian dari
+                    # jawaban PurchaseOrderResponse, padahal hasil ini dipakai
+                    # sebagai pemeriksaan tersendiri, bukan sebagai dokumen.
+                    users_table.c.name,
+                )
+                .select_from(
+                    purchase_orders_table.outerjoin(
+                        users_table,
+                        purchase_orders_table.c.createdBy == users_table.c.id,
+                    )
+                )
+                .where(purchase_orders_table.c.supplierID == supplier_id)
+                .where(purchase_orders_table.c.projectName == project_name)
+                .where(purchase_orders_table.c.isDelete == 0)
+                .where(func.date(purchase_orders_table.c.createdAt) == func.curdate())
+                .where(
+                    func.abs(purchase_orders_table.c.dpp - nilai) <= batas
+                )
+                .order_by(purchase_orders_table.c.id.desc())
+                .limit(1)
+            )
+            if kecuali_id:
+                kueri = kueri.where(purchase_orders_table.c.id != kecuali_id)
+
+            baris = await database.fetch_one(kueri)
+            if baris is None:
+                return None
+            return {
+                "id": baris["id"],
+                "number": baris["number"],
+                "dpp": float(baris["dpp"] or 0),
+                "isApproved": bool(baris["isApproved"]),
+                "pembuat": baris["name"],
+            }
+        except Exception as e:
+            log_error(f"Gagal memeriksa duplikat: {str(e)}")
+            return None
+
+    @staticmethod
+    async def harga_terakhir(item_id: int, supplier_id: int):
+        """
+        Harga terakhir barang ini dari pemasok ini.
+
+        Hanya dari dokumen yang SUDAH DISETUJUI. Draf memuat angka yang masih
+        dicoba-coba; membandingkan dengan draf berarti membandingkan dengan
+        tebakan orang lain, dan kesalahan yang belum sempat dibetulkan justru
+        menjadi acuan.
+
+        Mengembalikan `None` bila belum pernah ada — barang baru dari pemasok
+        baru tidak punya pembanding, dan itu bukan keadaan yang mencurigakan.
+        """
+        from models.purchase_order_item_model import purchase_order_items_table as poi
+
+        try:
+            kueri = (
+                select(
+                    poi.c.price,
+                    purchase_orders_table.c.date,
+                    purchase_orders_table.c.number,
+                    poi.c.unit,
+                )
+                .select_from(
+                    poi.join(
+                        purchase_orders_table,
+                        poi.c.purchaseOrderID == purchase_orders_table.c.id,
+                    )
+                )
+                .where(poi.c.item_id == item_id)
+                .where(purchase_orders_table.c.supplierID == supplier_id)
+                .where(purchase_orders_table.c.isApproved == 1)
+                .where(purchase_orders_table.c.isDelete == 0)
+                .where(poi.c.price > 0)
+                .order_by(purchase_orders_table.c.date.desc())
+                .limit(1)
+            )
+            baris = await database.fetch_one(kueri)
+            if baris is None:
+                return None
+            return {
+                "price": float(baris["price"]),
+                "date": baris["date"],
+                "number": baris["number"],
+                "unit": baris["unit"],
+            }
+        except Exception as e:
+            log_error(f"Gagal membaca harga terakhir: {str(e)}")
+            return None
+
+    @staticmethod
     async def get_project_purchase_order_count(project_name: str) -> int:
         """Count non-deleted purchase orders for a specific project."""
         try:

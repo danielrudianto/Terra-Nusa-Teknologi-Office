@@ -50,6 +50,32 @@ async def create_purchase_order(
             detail={"code": ErrorCode.INTERNAL, "message": "Internal server error."},
         )
     
+
+@router.get("/pemeriksaan")
+async def pemeriksaan_sebelum_terbit(
+    current_user: Annotated[User, Depends(require("purchase_order", "create"))],
+    supplierID: int,
+    projectName: str = "",
+    dpp: float = 0,
+    itemID: int = 0,
+    price: float = 0,
+    kecualiID: int = 0,
+):
+    """
+    Peringatan sebelum dokumen dibuat.
+
+    Dikembalikan sebagai satu jawaban agar layar cukup memanggil sekali.
+    """
+    return await PurchaseOrderController.pemeriksaan(
+        supplier_id=supplierID,
+        project_name=projectName,
+        dpp=dpp,
+        item_id=itemID,
+        price=price,
+        kecuali_id=kecualiID,
+    )
+
+
 @router.get("/rekap")
 async def rekap_proyek(
     proyek: str,

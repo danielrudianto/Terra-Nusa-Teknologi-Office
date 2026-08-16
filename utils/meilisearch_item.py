@@ -20,13 +20,31 @@ settings = {
     "searchableAttributes": ["sku", "description", "brand", "type"],
     "filterableAttributes": ["brand", "type", "unit", "availablePurchaseType"],
     "sortableAttributes": ["sku", "brand", "type", "isFavorite"],
-    "rankingRules": ["words", "typo", "proximity", "attribute", "sort", "exactness"],
+    # `exactness` DIDAHULUKAN daripada `typo` dan `proximity`.
+    #
+    # Pada katalog besi, yang membedakan barang sering hanya satu karakter —
+    # D22 dan D25, 16L dan 16T. Dengan urutan bawaan, hasil yang meleset satu
+    # huruf dapat menempati peringkat di atas yang persis, sehingga barang
+    # yang salah muncul lebih dulu dan tampak seperti jawabannya.
+    "rankingRules": ["words", "exactness", "typo", "proximity", "attribute", "sort"],
     "nonSeparatorTokens": [".", ",", "-", "_"],
     "separatorTokens": ["/", "&"],
 }
 
 typo_settings = {
-    "minWordSizeForTypos": {"oneTypo": 4, "twoTypos": 8},
+    # Kata pendek harus PERSIS.
+    #
+    # Dengan ambang bawaan 4, "22mm" — yang panjangnya tepat empat —
+    # dianggap cocok dengan "25mm". Pada katalog besi itu bukan kesalahan
+    # ketik yang wajar dimaafkan, melainkan barang yang berbeda: diameternya
+    # tiga milimeter lebih besar, dan dokumennya sudah ditandatangani vendor
+    # sebelum ada yang menyadarinya.
+    #
+    # Ambang enam membuat seluruh sebutan ukuran — 10mm sampai 40mm, D22,
+    # 16L — harus diketik benar.
+    "minWordSizeForTypos": {"oneTypo": 6, "twoTypos": 10},
+
+    # SKU tidak pernah dimaafkan salah ketik; ia kode, bukan kalimat.
     "disableOnAttributes": ["sku"],
 }
 
