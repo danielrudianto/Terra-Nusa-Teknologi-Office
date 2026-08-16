@@ -160,11 +160,15 @@ def unik_model() -> dict[str, set[tuple[str, ...]]]:
                             break
                 if re.search(r'unique\s*=\s*True', blok[i:akhir]):
                     kunci.add((m2.group(1),))
-                # Kunci utama selalu unik, dan basis data memuatnya sebagai
-                # indeks unik tersendiri pada sebagian tabel. Menghitungnya
-                # sebagai temuan berarti melaporkan `id` pada tabel mana pun.
-                if re.search(r'primary_key\s*=\s*True', blok[i:akhir]):
-                    kunci.add((m2.group(1),))
+                # Kunci utama SENGAJA tidak dihitung.
+                #
+                # Sisi basis data mengecualikannya lewat `INDEX_NAME <>
+                # 'PRIMARY'`, sehingga menghitungnya di sisi model membuat
+                # setiap tabel melapor kekurangan satu indeks — tiga puluh
+                # lima temuan yang seluruhnya kolom `id`.
+                #
+                # Kedua sisi harus mengecualikan hal yang sama; yang
+                # dibandingkan di sini hanya indeks unik SELAIN kunci utama.
             hasil[nama] = kunci
     return hasil
 
@@ -281,7 +285,12 @@ async def main() -> int:
         for t, k in kolom_lebih:
             print(f"  BERLEBIH      {t}.{k}")
         for t, u in unik_asing:
-            print(f"  UNIK ASING    {t} ({', '.join(u)})")
+            # Indeks unik pada kolom kunci utama adalah kelebihan, bukan
+            # batasan yang belum dinyatakan: kunci utamanya sudah menjamin
+            # keunikannya. Dibedakan supaya tidak diperlakukan sama dengan
+            # temuan yang benar-benar membatasi penyimpanan.
+            catatan = "  (kelebihan; kunci utama sudah menjaminnya)" if u == ("id",) else ""
+            print(f"  UNIK ASING    {t} ({', '.join(u)}){catatan}")
         for t, u in unik_kurang:
             print(f"  UNIK KURANG   {t} ({', '.join(u)})")
 
