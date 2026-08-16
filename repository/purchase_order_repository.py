@@ -532,6 +532,11 @@ class PurchaseOrderRepository:
         keyword: str = None,
         sortBy: str = None,
         sortByDirection: str = "desc",
+        status: str = None,
+        purchase_type: str = None,
+        project_name: str = None,
+        date_from: str = None,
+        date_to: str = None,
     ):
         """
         Get purchase orders with pagination (newest first).
@@ -565,6 +570,48 @@ class PurchaseOrderRepository:
                 )
 
             # Join ke suppliers: daftar PO menampilkan nama supplier, dan
+            # --- penyaring ---
+            #
+            # Masing-masing hanya berlaku bila DIISI. Yang kosong tidak
+            # menambah kondisi apa pun, sehingga daftar tanpa penyaring tetap
+            # menghasilkan kueri yang sama seperti sebelumnya.
+
+            # Status disimpulkan dari `isApproved`, bukan kolom tersendiri.
+            #
+            # Dokumen hanya punya dua keadaan yang berarti di sini: masih
+            # draf, atau sudah disetujui. Yang dibatalkan sudah tersaring
+            # lebih dulu lewat `isDelete`.
+            if status == "draft":
+                conditions.append(purchase_orders_table.c.isApproved == False)
+            elif status == "approved":
+                conditions.append(purchase_orders_table.c.isApproved == True)
+
+            # Beberapa tipe sekaligus, dipisah koma.
+            #
+            # "Semua PO mandor" berarti D, 5.1.1, dan 5.1.2 — memilihnya satu
+            # per satu berarti tiga kali memuat ulang daftar.
+            if purchase_type:
+                tipe = [t.strip() for t in str(purchase_type).split(",") if t.strip()]
+                if tipe:
+                    conditions.append(
+                        purchase_orders_table.c.purchaseType.in_(tipe)
+                    )
+
+            if project_name:
+                conditions.append(
+                    purchase_orders_table.c.projectName == project_name
+                )
+
+            # Rentang tanggal memakai `date`, BUKAN `createdAt`.
+            #
+            # Yang dicari saat merekap adalah tanggal dokumennya — yang
+            # tercetak dan disepakati vendor — bukan kapan barisnya kebetulan
+            # dimasukkan ke sistem. Keduanya kerap berbeda beberapa hari.
+            if date_from:
+                conditions.append(purchase_orders_table.c.date >= date_from)
+            if date_to:
+                conditions.append(purchase_orders_table.c.date <= date_to)
+
             # sebelumnya kolom itu tidak ikut diambil sehingga tampil "?".
             query = (
                 select(

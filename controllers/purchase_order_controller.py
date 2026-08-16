@@ -470,10 +470,24 @@ class PurchaseOrderController:
         keyword: str = None,
         sortBy: str = None,
         sortByDirection: str = "desc",
+        status: str = None,
+        purchase_type: str = None,
+        project_name: str = None,
+        date_from: str = None,
+        date_to: str = None,
     ):
         try:
             result = await PurchaseOrderRepository.get_all(
-                page, page_size, keyword, sortBy, sortByDirection
+                page,
+                page_size,
+                keyword,
+                sortBy,
+                sortByDirection,
+                status=status,
+                purchase_type=purchase_type,
+                project_name=project_name,
+                date_from=date_from,
+                date_to=date_to,
             )
             if "error" in result:
                 return {"error": result["error"], "status": result.get("status", 500)}

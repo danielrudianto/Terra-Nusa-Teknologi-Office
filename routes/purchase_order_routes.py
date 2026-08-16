@@ -164,13 +164,31 @@ async def get_all_purchase_orders(
     keyword: str = Query(None, description="Search by PO number, project, or supplier"),
     sortBy: str = Query(None, description="Sort column: date, value, supplier, project, name, status"),
     sortByDirection: str = Query("desc", description="Sort direction: asc or desc"),
+    status: str = Query(None, description="draft | approved"),
+    purchase_type: str = Query(None, description="Kode tipe PO, dipisah koma"),
+    project_name: str = Query(None, description="Kode proyek, persis"),
+    date_from: str = Query(None, description="Tanggal dokumen sejak (YYYY-MM-DD)"),
+    date_to: str = Query(None, description="Tanggal dokumen sampai (YYYY-MM-DD)"),
 ):
     """
     Get all purchase orders with pagination.
+
+    Seluruh penyaring OPSIONAL dan saling melengkapi. Yang kosong tidak
+    menambah kondisi apa pun, sehingga daftar tanpa penyaring menghasilkan
+    kueri yang sama seperti sebelum penyaring ini ada.
     """
     try:
         result = await PurchaseOrderController.get_all_purchase_orders(
-            page, page_size, keyword, sortBy, sortByDirection
+            page,
+            page_size,
+            keyword,
+            sortBy,
+            sortByDirection,
+            status=status,
+            purchase_type=purchase_type,
+            project_name=project_name,
+            date_from=date_from,
+            date_to=date_to,
         )
         
         if "error" in result:
