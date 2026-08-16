@@ -1,4 +1,5 @@
 from sqlalchemy import select, insert, update, delete, func, or_, and_
+from sqlalchemy.exc import IntegrityError
 from utils.permission import boleh_menyetujui_sendiri
 from utils.errors import ErrorCode, app_error, internal_error
 from utils.database import database
@@ -34,6 +35,21 @@ class ReimbursementRepository:
                 action="create",
             )
             return reimbursement_id
+        except IntegrityError as e:
+            # Nama yang sudah terpakai ditolak basis data.
+            #
+            # Tanpa cabang ini, penolakannya jatuh ke galat 500 yang tidak
+            # menyebut sebabnya sama sekali — dan yang mengisinya menyimpulkan
+            # sistemnya rusak, lalu mencoba lagi dengan nama yang sama.
+            if "Duplicate entry" in str(e):
+                log_error(f"Nama reimbursement ganda: {str(e)}")
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "Nama reimbursement ini sudah dipakai. Gunakan nama lain.",
+                    400,
+                )
+            log_error(f"Error creating reimbursement: {str(e)}")
+            return internal_error()
         except Exception as e:
             log_error(f"Error creating reimbursement: {str(e)}")
             return internal_error()
