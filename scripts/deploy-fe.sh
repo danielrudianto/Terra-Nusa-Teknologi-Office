@@ -97,7 +97,13 @@ if [[ "${TERSEDIA_MB:-0}" -lt 2048 ]]; then
   kuning "    pertimbangkan menambah swap, atau bangun di mesin lain"
 fi
 
-npx ng build --configuration production || gagal "build"
+# `npm run build`, BUKAN `npx ng build`.
+#
+# Yang pertama menjalankan `prebuild` lebih dulu — dan `prebuild` itulah yang
+# menuliskan `src/app/versi.ts` dengan tanggal serta commit build ini.
+# `npx ng build` melewatinya, sehingga aplikasi menampilkan keterangan versi
+# dari build yang lain — atau gagal sama sekali bila berkasnya belum ada.
+npm run build -- --configuration production || gagal "build"
 
 HASIL="$SUMBER/dist/$PROYEK/browser"
 [[ -d "$HASIL" ]] || gagal "folder hasil tidak ada: $HASIL"
@@ -139,10 +145,19 @@ fi
 # ---------------------------------------------------------------------
 # 6. Uji hidup
 # ---------------------------------------------------------------------
-if curl -fsS --max-time 10 -o /dev/null http://127.0.0.1/; then
-  hijau "Frontend tersaji."
+# Diuji dengan NAMA DOMAINnya, bukan 127.0.0.1.
+#
+# Nginx melayani lebih dari satu domain dari mesin yang sama, dan permintaan
+# tanpa `Host` yang cocok jatuh ke blok server pertama — yang belum tentu
+# frontend ini. Pemeriksaan tanpa domain karena itu melaporkan 404 pada
+# deploy yang sebenarnya berhasil, dan peringatan yang keliru membuat
+# peringatan berikutnya ikut diabaikan.
+DOMAIN="${DOMAIN_FRONTEND:-terrabot.alphakonstruksi.id}"
+
+if curl -fsS --max-time 10 -o /dev/null "https://${DOMAIN}/"; then
+  hijau "Frontend tersaji di https://${DOMAIN}"
 else
-  kuning "Berkas tersalin, tetapi Nginx tidak menjawab di porta 80."
+  kuning "Berkas tersalin, tetapi https://${DOMAIN} tidak menjawab."
   kuning "Periksa: sudo nginx -t && sudo systemctl status nginx"
 fi
 

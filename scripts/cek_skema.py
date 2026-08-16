@@ -111,6 +111,66 @@ async def kolom_basis_data(nama_tabel: str) -> set[str] | None:
     return {r["COLUMN_NAME"] for r in rows}
 
 
+def unik_model() -> dict[str, set[tuple[str, ...]]]:
+    """
+    Tabel -> himpunan indeks UNIK yang disebut model.
+
+    Dibaca dari `UniqueConstraint(...)` dan `unique=True` pada Column.
+    """
+    akar = os.path.join(AKAR, "models")
+    hasil: dict[str, set[tuple[str, ...]]] = {}
+    for p in sorted(glob(os.path.join(akar, "*.py"))):
+        s = open(p).read()
+        for m in re.finditer(r'(\w+)\s*=\s*Table\(\s*\n?\s*[\'"](\w+)[\'"]', s):
+            nama = m.group(2)
+            awal = m.end()
+            lanjut = s.find("= Table(", awal)
+            blok = s[awal:lanjut] if lanjut != -1 else s[awal:]
+
+            kunci: set[tuple[str, ...]] = set()
+            for u in re.finditer(r'UniqueConstraint\(([^)]*)\)', blok):
+                kolom = tuple(
+                    sorted(re.findall(r'[\'"](\w+)[\'"]', u.group(1)))
+                )
+                if kolom:
+                    kunci.add(kolom)
+            for c in re.finditer(
+                r'Column\(\s*[\'"](\w+)[\'"][^)]*unique\s*=\s*True', blok
+            ):
+                kunci.add((c.group(1),))
+            hasil[nama] = kunci
+    return hasil
+
+
+async def unik_basis_data(tabel: str) -> set[tuple[str, ...]] | None:
+    """
+    Indeks UNIK yang benar-benar ada di basis data.
+
+    Kunci utama dikecualikan: ia selalu unik dan tidak pernah dinyatakan
+    sebagai `UniqueConstraint` di model.
+    """
+    try:
+        baris = await database.fetch_all(
+            """
+            SELECT INDEX_NAME, COLUMN_NAME
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = :t
+              AND NON_UNIQUE = 0
+              AND INDEX_NAME <> 'PRIMARY'
+            ORDER BY INDEX_NAME, SEQ_IN_INDEX
+            """,
+            {"t": tabel},
+        )
+    except Exception:
+        return None
+
+    per_indeks: dict[str, list[str]] = {}
+    for b in baris:
+        per_indeks.setdefault(b["INDEX_NAME"], []).append(b["COLUMN_NAME"])
+    return {tuple(sorted(v)) for v in per_indeks.values()}
+
+
 async def main() -> int:
     try:
         await database.connect()
@@ -154,10 +214,37 @@ async def main() -> int:
                 if k not in kolom:
                     kolom_lebih.append((tabel, k))
 
+        # Indeks UNIK yang ada di basis data tetapi tidak di model.
+        #
+        # Ini yang paling berbahaya di antara semua ketidakcocokan: kolom
+        # yang hilang gagal seketika dan langsung ketahuan, sedangkan indeks
+        # unik yang tidak diketahui baru menolak ketika seseorang menyimpan
+        # baris KEDUA — kadang berminggu-minggu setelah dipasang.
+        #
+        # Sudah terjadi: `uq_submission` membatasi satu jawaban formulir per
+        # karyawan, padahal kode sengaja menyimpan tiap pembaruan sebagai
+        # baris baru demi riwayatnya. Yang memperbarui data untuk kedua
+        # kalinya menerima galat 500 tanpa keterangan.
+        unik_harapan = unik_model()
+        unik_asing: list[tuple[str, tuple[str, ...]]] = []
+        unik_kurang: list[tuple[str, tuple[str, ...]]] = []
+
+        for tabel in harapan:
+            ada = await unik_basis_data(tabel)
+            if ada is None:
+                continue
+            diminta = unik_harapan.get(tabel, set())
+            for u in sorted(ada - diminta):
+                unik_asing.append((tabel, u))
+            for u in sorted(diminta - ada):
+                unik_kurang.append((tabel, u))
+
         print(f"tabel diperiksa : {len(harapan)}")
         print(f"tabel hilang    : {len(tabel_hilang)}")
         print(f"kolom hilang    : {len(kolom_hilang)}")
         print(f"kolom berlebih  : {len(kolom_lebih)}")
+        print(f"unik asing      : {len(unik_asing)}")
+        print(f"unik kurang     : {len(unik_kurang)}")
         print()
 
         for t in tabel_hilang:
@@ -166,6 +253,26 @@ async def main() -> int:
             print(f"  KOLOM HILANG  {t}.{k}")
         for t, k in kolom_lebih:
             print(f"  BERLEBIH      {t}.{k}")
+        for t, u in unik_asing:
+            print(f"  UNIK ASING    {t} ({', '.join(u)})")
+        for t, u in unik_kurang:
+            print(f"  UNIK KURANG   {t} ({', '.join(u)})")
+
+        # Indeks unik yang tidak diketahui menggagalkan penyimpanan, sama
+        # seperti kolom yang hilang — karena itu nilai keluarnya sama.
+        if unik_asing or unik_kurang:
+            print()
+            print("Indeks unik di basis data tidak sesuai dengan model.")
+            print()
+            print("  UNIK ASING menolak baris kedua yang menurut kode sah,")
+            print("  dengan galat 500 yang tidak menyebut sebabnya. Buang bila")
+            print("  memang tidak dikehendaki:")
+            print("    ALTER TABLE <tabel> DROP INDEX <nama>;")
+            print()
+            print("  Bila indeksnya dipakai foreign key, buat indeks biasa")
+            print("  untuk kolom itu lebih dulu — MySQL menolak membuang")
+            print("  satu-satunya indeks yang menopang sebuah foreign key.")
+            return 1
 
         if kolom_lebih and not (tabel_hilang or kolom_hilang):
             print()
