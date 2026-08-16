@@ -104,6 +104,24 @@ async def update_master_item(
     current_user: Annotated[User, Depends(require("master_item", "update"))],
 ):
     payload = item.model_dump()
+
+    # SKU hanya dapat diubah oleh level 5.
+    #
+    # Kode ini penyebut yang dipegang seluruh dokumen — purchase order,
+    # pembelian, dan rekap semuanya menyebutnya. Mengubahnya bukan
+    # pembetulan biasa seperti memperbaiki deskripsi.
+    #
+    # Diperiksa DI SINI, bukan cukup dengan mengunci isiannya di layar:
+    # muatan permintaan dapat disusun sendiri oleh siapa pun yang membuka
+    # Network tab, dan izin `master_item:update` terbuka sampai level 3.
+    if payload.get("sku") is not None:
+        try:
+            level = int(current_user["authenticationLevel"] or 1)
+        except Exception:
+            level = 1
+        if level < 5:
+            payload.pop("sku", None)
+
     payload["id"] = item_id
     result = await MasterItemController.update_master_item(payload, current_user["id"])
     if "error" in result:

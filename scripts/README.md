@@ -199,3 +199,35 @@ aplikasi tetap bisa dipakai selama pencadangan berjalan.
 
 Kata sandi dikirim lewat variabel lingkungan `MYSQL_PWD`, bukan argumen baris
 perintah. Argumen terlihat oleh semua pengguna di server lewat `ps`.
+
+
+---
+
+## Deploy
+
+```bash
+# backend
+cd /var/www/terrabot/backend
+./scripts/deploy.sh
+
+# frontend
+/var/www/terrabot/deploy-fe.sh
+```
+
+Keduanya BERHENTI pada kegagalan pertama. Itu bedanya dengan menempel
+beberapa perintah sekaligus di terminal: bila `git pull` gagal di sana,
+sisanya tetap berjalan dan yang ter-deploy adalah kode lama.
+
+`deploy.sh` menjalankan seluruh uji sebelum menyalakan ulang layanan, dan
+memeriksa skema basis data lebih dulu — kolom yang belum ada menghasilkan
+galat 500 yang tidak menyebut kolom mana.
+
+`deploy-fe.sh` memeriksa hasil build SEBELUM menyalinnya. Entri `assets`
+yang tidak menemukan berkasnya tidak menggagalkan build; Angular hanya tidak
+menyalin apa pun, dan itu baru terasa ketika halamannya dibuka.
+
+Untuk memeriksa tanpa mengubah apa pun:
+
+```bash
+./scripts/deploy.sh --periksa
+```
