@@ -28,6 +28,65 @@ def add(x, y):
 
 class PaymentOutgoingController:
     @staticmethod
+    async def _sisa_tagihan(payment_data: dict):
+        """
+        Berapa yang masih boleh dibayarkan atas dokumen ini.
+
+        Dihitung dari nilai dokumennya dikurangi pembayaran yang sudah
+        DISETUJUI dan belum dihapus — sama persis dengan cara `isPaid`
+        disimpulkan, sehingga keduanya tidak pernah berbeda pendapat.
+
+        Mengembalikan `None` bila dokumennya tidak dikenali; pemanggil
+        memperlakukannya sebagai "tidak dapat diperiksa" dan melanjutkan,
+        bukan menolak. Menolak yang tidak dapat diperiksa akan memblokir
+        jenis pembayaran baru yang belum sempat didaftarkan di sini.
+        """
+
+        def jumlah(daftar) -> float:
+            if isinstance(daftar, dict):
+                return 0.0
+            return float(
+                sum(p.amount for p in daftar if p.isApprove and not p.isDelete)
+            )
+
+        try:
+            if payment_data.get("purchaseID"):
+                pid = int(payment_data["purchaseID"])
+                d = await PurchaseRepository.get_by_id(pid)
+                nilai = round(
+                    d["dpp"] + (d["ppn"] * d["dpp"] / 100) + (d["pbbkb"] or 0), 2
+                )
+                bayar = await PaymentOutgoingRepository.get_payments_by_purchase_id(pid)
+
+            elif payment_data.get("reimbursementID"):
+                rid = int(payment_data["reimbursementID"])
+                items = await ReimbursementRepository.get_reimbursement_items_by_reimbursement_id(
+                    rid
+                )
+                nilai = float(sum(r.amount for r in items))
+                bayar = await PaymentOutgoingRepository.get_payments_by_reimbursement_id(rid)
+
+            elif payment_data.get("expenseID"):
+                eid = int(payment_data["expenseID"])
+                d = await ExpenseRepository.get_expense_by_id(eid)
+                nilai = float(d["amount"])
+                bayar = await PaymentOutgoingRepository.get_payments_by_expense_id(eid)
+
+            elif payment_data.get("loanID"):
+                lid = int(payment_data["loanID"])
+                d = await LoanRepository.get_loan_by_id(lid)
+                nilai = float(d["debt"])
+                bayar = await PaymentOutgoingRepository.get_payments_by_loan_id(lid)
+
+            else:
+                return None
+
+            return float(nilai) - jumlah(bayar)
+        except Exception as e:
+            log_error(f"Gagal menghitung sisa tagihan: {e}")
+            return None
+
+    @staticmethod
     async def create_payment(payment_data: dict, userID: int):
         """
         Create a new payment in the database.
@@ -41,6 +100,39 @@ class PaymentOutgoingController:
         """
         payment_data["createdBy"] = userID
         payment_data["createdAt"] = dt.now()
+
+        # Pembayaran yang MELEBIHI sisa tagihan ditolak.
+        #
+        # Tanpa ini, dokumen yang sudah lunas masih dapat dibayar sekali lagi
+        # — dan uangnya benar-benar keluar. Kesalahannya baru terlihat saat
+        # rekonsiliasi bank, ketika uangnya sudah berpindah.
+        #
+        # Toleransi 5 rupiah, sama seperti pada perhitungan `isPaid`:
+        # pembulatan pajak menyisakan selisih beberapa rupiah yang bukan
+        # kelebihan bayar.
+        #
+        # Diperiksa di SERVER, bukan cukup dengan menyembunyikan tombolnya —
+        # muatan permintaan dapat disusun sendiri oleh siapa pun yang membuka
+        # Network tab.
+        sisa = await PaymentOutgoingController._sisa_tagihan(payment_data)
+        if sisa is not None:
+            nominal = float(payment_data.get("amount") or 0)
+
+            if sisa <= 5:
+                return app_error(
+                    ErrorCode.PAYMENT_LOCKED,
+                    "Dokumen ini sudah lunas; tidak ada sisa tagihan yang "
+                    "dapat dibayarkan.",
+                    400,
+                )
+            if nominal - sisa > 5:
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    f"Nominal melebihi sisa tagihan. Sisa yang dapat "
+                    f"dibayarkan: {sisa:,.0f}.",
+                    400,
+                )
+
         log_info(f"Creating payment with data: {payment_data}")
         
         try:
