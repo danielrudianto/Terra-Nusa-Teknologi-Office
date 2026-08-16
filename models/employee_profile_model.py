@@ -29,12 +29,17 @@ employee_profiles_table = Table(
     "employee_profiles",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    # Satu karyawan satu profil; keunikannya dijaga indeks UNIQUE di SQL.
+    # Satu karyawan satu profil.
+    #
+    # `unique=True` dinyatakan DI SINI, bukan hanya di basis data: tanpa itu
+    # `cek_skema` melaporkannya sebagai indeks asing pada setiap deploy, dan
+    # temuan yang sebenarnya disengaja membuat temuan lain ikut diabaikan.
     Column(
         "employeeID",
         Integer,
         ForeignKey("employees.id"),
         nullable=False,
+        unique=True,
     ),
     # ---- identitas ----
     Column("birthPlace", String(100), nullable=True),

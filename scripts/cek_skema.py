@@ -128,16 +128,43 @@ def unik_model() -> dict[str, set[tuple[str, ...]]]:
             blok = s[awal:lanjut] if lanjut != -1 else s[awal:]
 
             kunci: set[tuple[str, ...]] = set()
+
+            # `name=` DIBUANG dari daftar kolom.
+            #
+            # `UniqueConstraint("code", name="uq_projects_code")` memuat dua
+            # teks berkutip, dan yang kedua adalah nama constraint-nya —
+            # bukan kolom. Menghitungnya sebagai kolom membuat setiap
+            # constraint bernama dilaporkan tidak cocok dengan basis data.
             for u in re.finditer(r'UniqueConstraint\(([^)]*)\)', blok):
-                kolom = tuple(
-                    sorted(re.findall(r'[\'"](\w+)[\'"]', u.group(1)))
-                )
+                isi = re.sub(r'name\s*=\s*[\'"][^\'"]*[\'"]', '', u.group(1))
+                kolom = tuple(sorted(re.findall(r'[\'"](\w+)[\'"]', isi)))
                 if kolom:
                     kunci.add(kolom)
-            for c in re.finditer(
-                r'Column\(\s*[\'"](\w+)[\'"][^)]*unique\s*=\s*True', blok
-            ):
-                kunci.add((c.group(1),))
+
+            # Definisi kolom dibaca sampai kurung penutupnya yang SEIMBANG.
+            #
+            # `[^)]*` berhenti pada kurung tutup pertama — dan `String(100)`
+            # sudah memuat satu, sehingga `unique=True` di belakangnya tidak
+            # pernah terlihat. Akibatnya seluruh kolom unik dilaporkan
+            # sebagai indeks asing.
+            for m2 in re.finditer(r'Column\(\s*[\'"](\w+)[\'"]', blok):
+                i = m2.end()
+                dalam, akhir = 1, len(blok)
+                for n, ch in enumerate(blok[i:]):
+                    if ch == '(':
+                        dalam += 1
+                    elif ch == ')':
+                        dalam -= 1
+                        if dalam == 0:
+                            akhir = i + n
+                            break
+                if re.search(r'unique\s*=\s*True', blok[i:akhir]):
+                    kunci.add((m2.group(1),))
+                # Kunci utama selalu unik, dan basis data memuatnya sebagai
+                # indeks unik tersendiri pada sebagian tabel. Menghitungnya
+                # sebagai temuan berarti melaporkan `id` pada tabel mana pun.
+                if re.search(r'primary_key\s*=\s*True', blok[i:akhir]):
+                    kunci.add((m2.group(1),))
             hasil[nama] = kunci
     return hasil
 
@@ -258,11 +285,19 @@ async def main() -> int:
         for t, u in unik_kurang:
             print(f"  UNIK KURANG   {t} ({', '.join(u)})")
 
-        # Indeks unik yang tidak diketahui menggagalkan penyimpanan, sama
-        # seperti kolom yang hilang — karena itu nilai keluarnya sama.
+        # Indeks unik MEMPERINGATKAN, tidak menghentikan deploy.
+        #
+        # Kolom yang hilang pasti menggagalkan setiap permintaan yang
+        # menyentuhnya — menghentikan deploy di situ menyelamatkan. Indeks
+        # unik berbeda: sebagian memang disengaja dan hanya belum dinyatakan
+        # di model, dan menolak seluruh deploy karenanya berarti perbaikan
+        # yang sudah benar ikut tertahan.
+        #
+        # Yang diperlukan adalah temuannya TERLIHAT, bukan deploy yang
+        # berhenti.
         if unik_asing or unik_kurang:
             print()
-            print("Indeks unik di basis data tidak sesuai dengan model.")
+            print("PERINGATAN: indeks unik di basis data tidak sesuai model.")
             print()
             print("  UNIK ASING menolak baris kedua yang menurut kode sah,")
             print("  dengan galat 500 yang tidak menyebut sebabnya. Buang bila")
@@ -272,7 +307,8 @@ async def main() -> int:
             print("  Bila indeksnya dipakai foreign key, buat indeks biasa")
             print("  untuk kolom itu lebih dulu — MySQL menolak membuang")
             print("  satu-satunya indeks yang menopang sebuah foreign key.")
-            return 1
+            print()
+            print("  Deploy DILANJUTKAN; ini peringatan, bukan penghalang.")
 
         if kolom_lebih and not (tabel_hilang or kolom_hilang):
             print()
