@@ -557,7 +557,25 @@ class PurchaseOrderRepository:
                 "parentPurchaseOrderID", "addendumNumber",
             )
             fields = {k: v for k, v in fields.items() if k not in TERKUNCI}
-            if not fields:
+
+            # Baris barang dipisahkan dari kolom dokumen.
+            #
+            # `items` bukan kolom `purchase_orders`; membiarkannya masuk ke
+            # `update()` membuat SQLAlchemy menolak seluruh permintaan dengan
+            # "Unconsumed column names" — dan pesan itu tidak menyebut bahwa
+            # yang salah hanya satu kunci di antara belasan.
+            baris_baru = fields.pop("items", None)
+
+            # Kunci yang BUKAN kolom tabel dibuang, bukan diteruskan.
+            #
+            # Formulir mengirim muatan yang sama seperti saat membuat dokumen,
+            # dan sebagian isinya memang tidak pernah menjadi kolom —
+            # `projectCode` misalnya, yang hanya dipakai server untuk
+            # menyusun nomor.
+            kolom_sah = {k.name for k in purchase_orders_table.columns}
+            fields = {k: v for k, v in fields.items() if k in kolom_sah}
+
+            if not fields and baris_baru is None:
                 return {"message": "No changes"}
 
 
@@ -567,6 +585,26 @@ class PurchaseOrderRepository:
                 .values(revision=purchase_orders_table.c.revision + 1, **fields)
             )
             await database.execute(query)
+
+            # Baris barang DIGANTI seluruhnya, bukan dicocokkan satu per satu.
+            #
+            # Yang mengubah dapat menambah, menghapus, dan menukar urutan
+            # barisnya sekaligus; mencocokkan berdasarkan id membuat baris
+            # yang dihapus lalu ditambah kembali kehilangan kaitannya, dan
+            # urutan pada dokumen tercetak berubah tanpa sebab.
+            #
+            # Dokumen ini belum pernah terbit, sehingga tidak ada apa pun yang
+            # merujuk id barisnya.
+            if baris_baru is not None:
+                from repository.purchase_order_item_repository import (
+                    PurchaseOrderItemRepository,
+                )
+
+                await PurchaseOrderItemRepository.delete_by_po(purchase_order_id)
+                if baris_baru:
+                    await PurchaseOrderItemRepository.insert_many(
+                        purchase_order_id, baris_baru
+                    )
 
             # Impor lokal agar modul repository tidak saling bergantung
             # saat dimuat.
