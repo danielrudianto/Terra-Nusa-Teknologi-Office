@@ -1,51 +1,66 @@
-# See http://help.github.com/ignore-files/ for more about ignoring files.
+# Rahasia
+#
+# `.env` memuat SECRET_KEY yang menandatangani seluruh token login, sandi
+# basis data, dan kredensial O365. Yang bocor darinya tidak dapat ditarik
+# kembali — ia harus dicabut dan dibuat ulang.
+.env
+.env.*
+!.env.example
 
-# Compiled output
-/dist
-/tmp
-/out-tsc
-/bazel-out
+# Token O365.
+#
+# Berisi kredensial hidup ke kotak surel perusahaan. Pernah nyaris ikut
+# ter-commit; GitHub yang menolaknya, bukan pemeriksaan kita sendiri.
+storage/tokens/
 
-# Node
-/node_modules
-npm-debug.log
-yarn-error.log
+# Berkas yang DIHASILKAN aplikasi, bukan bagian dari kodenya.
+#
+# Slip gaji memuat nama, NIK, dan besaran gaji tiap karyawan. Ia dihasilkan
+# ulang kapan saja dari basis data, sehingga tidak ada alasan menyimpannya di
+# riwayat git — tempat yang tidak dapat dihapus tanpa menulis ulang seluruh
+# riwayat.
+storage/salary_slips/
+storage/reimbursements/
+reimbursements/*
 
-# IDEs and editors
-.idea/
-.project
-.classpath
-.c9/
-*.launch
-.settings/
-*.sublime-workspace
+# Virtual environment.
+#
+# Terikat pada jalur tempat ia dibuat: dipindah atau di-clone ke mesin lain,
+# skrip di dalamnya menunjuk ke Python yang tidak ada. Tiap mesin membuat
+# miliknya sendiri lewat `python3 -m venv env`.
+env/
+venv/
+.venv/
 
-# Visual Studio Code
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-.history/*
+# Basis data Meilisearch.
+#
+# Dibangun ulang dari MySQL lewat `sync_master_item_meilisearch()`.
+data.ms/
 
-# Miscellaneous
-/.angular/cache
-.sass-cache/
-/connect.lock
-/coverage
-/libpeerconnection.log
-testem.log
-/typings
+# Hasil kompilasi Python.
+__pycache__/
+*.py[cod]
+*$py.class
 
-# System files
+# Sisa percobaan Prisma yang tidak dipakai aplikasi ini.
+prisma/generated/
+tsconfig.json
+
+# Cadangan basis data.
+#
+# Isinya seluruh data perusahaan. Disimpan di luar repo — dan sebaiknya di
+# luar server ini juga.
+*.sql
+*.sql.gz
+!sql/*.sql
+
+# Log
+*.log
+logs/
+
+# Sistem dan editor
 .DS_Store
 Thumbs.db
-
-# Dibangkitkan saat build oleh scripts/versi.js.
-#
-# TIDAK boleh ikut git: `git pull` akan menimpanya dengan isi yang
-# ter-commit, sehingga tanggal dan commit yang ditampilkan aplikasi beku
-# pada saat berkas itu pertama kali dibuat — bukan saat build yang sedang
-# berjalan.
-src/app/versi.ts
-storage/tokens/
+.idea/
+.vscode/*
+!.vscode/settings.json
