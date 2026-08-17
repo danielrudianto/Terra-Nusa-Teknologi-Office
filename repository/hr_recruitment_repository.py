@@ -22,6 +22,75 @@ from utils.logger_utils import log_error
 class HrRecruitmentRepository:
     # ------------------------------------------------------------ paket ujian
 
+    # ------------------------------------------------------- ujian (publik)
+
+    @staticmethod
+    async def pelamar_dari_token(token: str):
+        """
+        Baca pelamar dari tokennya, untuk halaman ujian.
+
+        Mengembalikan `None` bila tokennya tidak dikenal, sudah dihapus, atau
+        lewat masa berlakunya — ketiganya diperlakukan sama, dan pemanggil
+        menjawab dengan pesan yang sama pula. Membedakannya memberi tahu
+        penebak bahwa tokennya PERNAH ada.
+        """
+        try:
+            baris = await database.fetch_one(
+                select(
+                    hr_candidates_table.c.id,
+                    hr_candidates_table.c.name,
+                    hr_candidates_table.c.gender,
+                    hr_candidates_table.c.testID,
+                    hr_candidates_table.c.expiresAt,
+                    hr_candidates_table.c.startedAt,
+                    hr_candidates_table.c.submittedAt,
+                    hr_candidates_table.c.status,
+                    hr_tests_table.c.name.label("testName"),
+                    hr_tests_table.c.description.label("testDescription"),
+                    hr_tests_table.c.durationMinutes,
+                )
+                .select_from(
+                    hr_candidates_table.join(
+                        hr_tests_table,
+                        hr_candidates_table.c.testID == hr_tests_table.c.id,
+                    )
+                )
+                .where(hr_candidates_table.c.token == token)
+                .where(hr_candidates_table.c.isDelete == False)  # noqa: E712
+                .where(hr_candidates_table.c.expiresAt > dt.now())
+            )
+            if baris is None:
+                return None
+
+            jumlah = await database.fetch_val(
+                select(func.count()).where(
+                    hr_questions_table.c.testID == baris["testID"],
+                    hr_questions_table.c.isDelete == False,  # noqa: E712
+                )
+            )
+
+            return {
+                "name": baris["name"],
+                "gender": baris["gender"],
+                "testName": baris["testName"],
+                "testDescription": baris["testDescription"],
+                "durationMinutes": baris["durationMinutes"],
+                "jumlahSoal": int(jumlah or 0),
+                "expiresAt": baris["expiresAt"],
+                "startedAt": baris["startedAt"],
+                "submittedAt": baris["submittedAt"],
+                "status": baris["status"],
+                # `id` TIDAK dikembalikan.
+                #
+                # Halaman ujian tidak memerlukannya — seluruh rutenya
+                # menerima token, bukan id — dan nomor pelamar adalah
+                # keterangan yang tidak perlu diberikan kepada yang
+                # mengerjakan.
+            }
+        except Exception as e:
+            log_error(f"Error reading candidate by token: {str(e)}")
+            return None
+
     # -------------------------------------------------------------- pelamar
 
     @staticmethod

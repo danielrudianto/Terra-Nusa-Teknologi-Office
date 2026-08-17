@@ -31,7 +31,16 @@ def test_seluruh_rute_dijaga_modul_rekrutmen():
     s = open(RUTE).read()
     rute = re.findall(r'@router\.\w+\("([^"]*)"\)', s)
     penjaga = re.findall(r'require\("(\w+)", "(\w+)"\)', s)
-    assert len(rute) == len(penjaga), (rute, penjaga)
+
+    # `/exam/{token}` SENGAJA terbuka.
+    #
+    # Yang menandai pesertanya adalah tokennya sendiri; pelamar bukan karyawan
+    # dan tidak punya akun. Pengecualiannya disebut di sini supaya rute
+    # terbuka BERIKUTNYA tidak lolos diam-diam — yang lupa dijaga akan
+    # menambah selisihnya dan menggagalkan uji ini.
+    terbuka = [r for r in rute if r.startswith('/exam/')]
+    assert len(terbuka) == 1, terbuka
+    assert len(rute) - len(terbuka) == len(penjaga), (rute, penjaga)
     assert all(m == 'hr_recruitment' for m, _ in penjaga), penjaga
 
 

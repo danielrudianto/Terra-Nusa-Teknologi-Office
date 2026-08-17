@@ -9,7 +9,7 @@ diterima atau tidaknya.
 
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from controllers.hr_recruitment_controller import HrRecruitmentController
 from schemas.hr_recruitment_schema import (
@@ -19,6 +19,7 @@ from schemas.hr_recruitment_schema import (
 )
 from utils.auth_utils import User
 from utils.errors import error_detail
+from utils.login_guard import cek_terkunci, catat_gagal
 from utils.permission import require
 
 router = APIRouter()
@@ -155,3 +156,46 @@ async def daftarkan_pelamar(
             payload.berlakuHari or 7,
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# Ujian — TANPA masuk
+#
+# Yang menandai pesertanya adalah tokennya sendiri. Pelamar bukan karyawan dan
+# tidak punya akun; membuatkan akun untuk satu kali ujian menambah kata sandi
+# yang akan lupa lebih dulu daripada dipakai.
+#
+# Karena tanpa penjaga izin, rute di sini hanya boleh menyentuh data milik
+# pelamar yang tokennya dibawa — tidak ada parameter yang menyebut pelamar
+# lain.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/exam/{token}")
+async def periksa_token_ujian(token: str, request: Request):
+    """
+    Keterangan ujian untuk halaman peserta: nama, paket, durasi, jumlah soal.
+
+    Soalnya sendiri BELUM dikirim di sini — itu baru setelah pesertanya
+    memulai, karena membacanya lebih dulu berarti ia dapat menyiapkan jawaban
+    tanpa timer berjalan.
+    """
+    # Batasi percobaan per alamat IP.
+    #
+    # Tokennya 256 bit dan tidak mungkin ditebak, tetapi pencobaan berulang
+    # tetap membebani: setiap tebakan menjalankan dua kueri, dan rute ini
+    # terbuka — yang membanjirinya tidak perlu akun sama sekali.
+    ip = request.client.host if request.client else "?"
+    if cek_terkunci(f"exam:{ip}", ip) > 0:
+        raise HTTPException(
+            status_code=429,
+            detail="Terlalu banyak percobaan. Coba lagi beberapa saat.",
+        )
+
+    hasil = await HrRecruitmentController.pelamar_dari_token(token)
+    if hasil is None:
+        catat_gagal(f"exam:{ip}", ip)
+        raise HTTPException(
+            status_code=404, detail="Token tidak berlaku atau sudah kedaluwarsa."
+        )
+    return hasil
