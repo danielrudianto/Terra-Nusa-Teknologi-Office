@@ -25,21 +25,125 @@ def _badan_undangan(nama: str, pengundang: str, tautan: str) -> str:
     """
     Badan surel undangan.
 
+    Ditulis sebagai TABEL, bukan div ber-flexbox: klien surel — terutama
+    Outlook — mengabaikan sebagian besar CSS tata letak modern, dan yang
+    tampak rapi di peramban berantakan di kotak masuk.
+
+    Gayanya disisipkan sebaris (`style="..."`) karena banyak klien membuang
+    blok `<style>` di kepala dokumen.
+
     Menyebut pengundangnya dan masa berlakunya. Tautan tanpa asal yang jelas
     tampak seperti percobaan penipuan — dan yang berhati-hati justru tidak
     mengisinya.
     """
-    return f"""<p>Halo {nama},</p>
+    return f"""<!DOCTYPE html>
+<html lang="id">
+<body style="margin:0;padding:0;background:#f4f5f7;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+         style="background:#f4f5f7;padding:24px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+               style="max-width:520px;background:#ffffff;border-radius:12px;
+                      border:1px solid #e3e6eb;overflow:hidden;
+                      font-family:Arial,Helvetica,sans-serif;">
 
-<p>{pengundang} meminta Anda memperbarui data karyawan.
-Silakan buka tautan di bawah ini dan isi datanya.</p>
+          <tr>
+            <td style="padding:24px 28px 0;">
+              <div style="font-size:12px;font-weight:bold;letter-spacing:2px;
+                          color:#1a56db;">TERRABOT</div>
+              <div style="font-size:11px;color:#6b7280;padding-top:2px;">
+                PT ALPHA KONSTRUKSI NUSANTARA
+              </div>
+            </td>
+          </tr>
 
-<p><a href="{tautan}">{tautan}</a></p>
+          <tr>
+            <td style="padding:20px 28px 0;">
+              <div style="font-size:18px;font-weight:bold;color:#16181d;">
+                Pembaruan Data Karyawan
+              </div>
+            </td>
+          </tr>
 
-<p><b>Tautan ini berlaku 3 hari.</b> Setelah itu Anda perlu meminta tautan
-baru kepada bagian HRD.</p>
+          <tr>
+            <td style="padding:16px 28px 0;font-size:14px;line-height:1.65;
+                       color:#374151;">
+              <p style="margin:0 0 12px;">Kepada Yth.<br>
+                <strong>{nama}</strong></p>
 
-<p>Terima kasih.</p>
+              <p style="margin:0 0 12px;">
+                Bersama surel ini, <strong>{pengundang}</strong> meminta
+                Anda memperbarui data karyawan pada sistem TerraBot.
+              </p>
+
+              <p style="margin:0 0 20px;">
+                Silakan tekan tombol di bawah ini untuk membuka formulirnya.
+                Anda tidak perlu masuk; tautan tersebut sudah mengenali Anda.
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td align="center" style="padding:0 28px 20px;">
+              <!--
+                Tombol dibuat dari tabel, bukan tag <button>: klien surel
+                tidak menjalankan apa pun, dan hanya tautan yang bekerja.
+              -->
+              <table role="presentation" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="background:#1a56db;border-radius:8px;">
+                    <a href="{tautan}"
+                       style="display:inline-block;padding:12px 28px;
+                              font-size:14px;font-weight:bold;color:#ffffff;
+                              text-decoration:none;">Buka Formulir</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:0 28px 20px;">
+              <div style="background:#fff8e6;border:1px solid #f0c14b;
+                          border-radius:8px;padding:12px 14px;font-size:13px;
+                          line-height:1.6;color:#7a5c00;">
+                <strong>Tautan ini berlaku 3 hari.</strong><br>
+                Setelah itu Anda perlu meminta tautan baru kepada bagian HRD.
+              </div>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:0 28px 24px;font-size:12px;line-height:1.6;
+                       color:#6b7280;">
+              <p style="margin:0 0 8px;">
+                Bila tombol di atas tidak berfungsi, salin alamat berikut ke
+                peramban Anda:
+              </p>
+              <p style="margin:0;word-break:break-all;">
+                <a href="{tautan}" style="color:#1a56db;">{tautan}</a>
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:16px 28px;background:#f9fafb;
+                       border-top:1px solid #e3e6eb;font-size:11px;
+                       line-height:1.6;color:#9aa1b1;">
+              Surel ini dikirim otomatis oleh sistem TerraBot. Mohon tidak
+              membalas surel ini. Bila Anda merasa tidak seharusnya menerima
+              surel ini, abaikan saja — tautannya akan kedaluwarsa dengan
+              sendirinya.
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
 """
 
 
