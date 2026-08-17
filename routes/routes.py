@@ -14,6 +14,7 @@ from routes.payment_incoming_routes import router as payment_incoming_router
 from routes.employees_routes import router as employees_router
 from routes.employee_profile_routes import router as employee_profile_router
 from routes.employee_form_routes import router as employee_form_router
+from routes.hr_recruitment_routes import router as hr_recruitment_router
 from routes.expense_opponent_routes import router as expense_opponent_router
 from routes.salary_slip_routes import router as salary_slip_router
 from routes.calendar_routes import router as calendar_router
@@ -62,6 +63,13 @@ router.include_router(
     employee_form_router,
     prefix="/employee-forms",
     tags=["Employee forms"],
+)
+# Awalan terpisah dari /employees: pelamar BUKAN karyawan, dan menempelkannya
+# sebagai sub-rute membuat penjaga izinnya mudah tertukar.
+router.include_router(
+    hr_recruitment_router,
+    prefix="/hr",
+    tags=["HR recruitment"],
 )
 router.include_router(expense_opponent_router, prefix="/expense-opponents", tags=["Expense Opponents"])
 router.include_router(salary_slip_router, prefix="/salary-slips", tags=["Salary Slips"])
