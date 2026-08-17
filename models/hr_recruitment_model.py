@@ -81,12 +81,26 @@ hr_candidates_table = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("testID", Integer, ForeignKey("hr_tests.id"), nullable=False),
     Column("name", String(150), nullable=False),
+
+    # L / P.
+    #
+    # Ditanyakan di muka bersama namanya, bukan diisi pelamar: yang menyusun
+    # jadwal wawancara memerlukannya sebelum pelamarnya sempat membuka
+    # tautan, dan sebagian tidak pernah membukanya sama sekali.
+    Column("gender", String(1), nullable=True),
+
     Column("nickName", String(50), nullable=True),
     Column("dateOfBirth", Date(), nullable=True),
     Column("address", String(255), nullable=True),
     Column("city", String(100), nullable=True),
     Column("phoneNumber", String(30), nullable=True),
-    Column("email", String(150), nullable=False),
+    # Surel BOLEH kosong.
+    #
+    # Pelamar didaftarkan hanya dengan nama dan jenis kelamin; sisanya diisi
+    # sendiri lewat tautan. Mewajibkan surel di sini berarti yang mendaftarkan
+    # harus mengumpulkannya lebih dulu — dan itu justru pekerjaan yang hendak
+    # dihilangkan.
+    Column("email", String(150), nullable=True),
     # Token acak, bukan urutan: nomor berurutan dapat ditebak, dan yang
     # menerima tautannya sendiri tinggal mengubah satu angka untuk membuka
     # lembar jawaban pelamar lain.

@@ -39,3 +39,27 @@ class SoalUpdate(BaseModel):
     maxScore: Optional[int] = Field(None, ge=1, le=100)
     allowsUpload: Optional[bool] = None
     sortOrder: Optional[int] = Field(None, ge=0)
+
+
+class PelamarBaru(BaseModel):
+    """Satu pelamar; hanya nama dan jenis kelamin."""
+
+    name: str = Field(..., min_length=2, max_length=150)
+    # L atau P; kosong diterima — sebagian nama tidak menyiratkan keduanya,
+    # dan menebaknya lebih buruk daripada membiarkannya kosong.
+    gender: Optional[str] = Field(None, max_length=1)
+
+
+class PelamarBatch(BaseModel):
+    """
+    Pendaftaran beberapa pelamar sekaligus.
+
+    Dibatasi 200 sekali kirim: satu gelombang rekrutmen tidak pernah sebesar
+    itu, dan muatan tanpa batas membuat satu permintaan dapat menerbitkan
+    token tanpa henti.
+    """
+
+    testID: int
+    orang: list[PelamarBaru] = Field(..., min_length=1, max_length=200)
+    # Masa berlaku tautan, dalam hari.
+    berlakuHari: Optional[int] = Field(7, ge=1, le=30)

@@ -12,7 +12,11 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from controllers.hr_recruitment_controller import HrRecruitmentController
-from schemas.hr_recruitment_schema import SoalCreate, SoalUpdate
+from schemas.hr_recruitment_schema import (
+    PelamarBatch,
+    SoalCreate,
+    SoalUpdate,
+)
 from utils.auth_utils import User
 from utils.errors import error_detail
 from utils.permission import require
@@ -106,3 +110,48 @@ async def hapus_soal(
     jawaban yang sudah dinilai kehilangan pertanyaannya.
     """
     return _periksa(await HrRecruitmentController.hapus_soal(question_id))
+
+
+# ---------------------------------------------------------------------------
+# Pelamar
+# ---------------------------------------------------------------------------
+
+
+@router.get("/candidates")
+async def daftar_pelamar(
+    user: Annotated[User, Depends(require("hr_recruitment", "read"))],
+    testID: Optional[str] = Query(None, description="Saring per paket ujian"),
+    status: Optional[str] = Query(None, description="baru | selesai | ..."),
+):
+    """Pelamar beserta paket ujian dan keadaan pengerjaannya."""
+    try:
+        test_id = int(testID) if testID not in (None, "") else None
+    except ValueError:
+        test_id = None
+
+    return _periksa(
+        await HrRecruitmentController.daftar_pelamar(
+            test_id, (status or "").strip() or None
+        )
+    )
+
+
+@router.post("/candidates")
+async def daftarkan_pelamar(
+    payload: PelamarBatch,
+    user: Annotated[User, Depends(require("hr_recruitment", "create"))],
+):
+    """
+    Daftarkan beberapa pelamar sekaligus dan terbitkan tokennya.
+
+    Yang diminta hanya nama dan jenis kelamin; sisanya diisi pelamar sendiri
+    lewat tautan.
+    """
+    return _periksa(
+        await HrRecruitmentController.daftarkan_pelamar(
+            payload.testID,
+            [o.model_dump() for o in payload.orang],
+            user["id"],
+            payload.berlakuHari or 7,
+        )
+    )

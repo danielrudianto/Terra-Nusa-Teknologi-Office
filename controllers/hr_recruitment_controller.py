@@ -23,3 +23,15 @@ class HrRecruitmentController:
     @staticmethod
     async def hapus_soal(question_id: int):
         return await HrRecruitmentRepository.hapus_soal(question_id)
+
+    @staticmethod
+    async def daftarkan_pelamar(
+        test_id: int, orang: list, user_id: int, berlaku_hari: int = 7
+    ):
+        return await HrRecruitmentRepository.daftarkan_pelamar(
+            test_id, orang, user_id, berlaku_hari
+        )
+
+    @staticmethod
+    async def daftar_pelamar(test_id=None, status=None):
+        return await HrRecruitmentRepository.daftar_pelamar(test_id, status)

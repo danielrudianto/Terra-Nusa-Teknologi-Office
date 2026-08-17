@@ -5,11 +5,13 @@ Soalnya esai dan dinilai orang; tidak ada kunci jawaban di sini. Yang disimpan
 hanya pertanyaan, catatan, lampiran, dan nilai maksimalnya.
 """
 
-from datetime import datetime as dt
+import secrets
+from datetime import datetime as dt, timedelta
 
 from sqlalchemy import func, insert, select, update
 
 from models.hr_recruitment_model import (
+    hr_candidates_table,
     hr_questions_table,
     hr_tests_table,
 )
@@ -19,6 +21,109 @@ from utils.logger_utils import log_error
 
 class HrRecruitmentRepository:
     # ------------------------------------------------------------ paket ujian
+
+    # -------------------------------------------------------------- pelamar
+
+    @staticmethod
+    async def daftarkan_pelamar(
+        test_id: int, orang: list[dict], user_id: int, berlaku_hari: int = 7
+    ):
+        """
+        Daftarkan beberapa pelamar sekaligus, masing-masing dengan tokennya.
+
+        Yang diminta hanya nama dan jenis kelamin. Sisanya — panggilan,
+        tanggal lahir, alamat, kontak — diisi pelamar sendiri lewat tautan;
+        mengumpulkannya lebih dulu justru pekerjaan yang hendak dihilangkan.
+
+        Berlaku tujuh hari, bukan tiga seperti formulir karyawan: pelamar
+        belum terikat apa pun pada perusahaan, dan yang sedang mencari kerja
+        kerap baru membuka surel di akhir pekan.
+        """
+        try:
+            sekarang = dt.now()
+            kedaluwarsa = sekarang + timedelta(days=berlaku_hari)
+
+            hasil = []
+            for o in orang:
+                nama = str(o.get("name") or "").strip()
+                if not nama:
+                    # Baris kosong dilewati diam-diam.
+                    #
+                    # Menempel daftar nama kerap membawa baris kosong di
+                    # ujungnya, dan menolak seluruh permintaan karenanya
+                    # memaksa yang menempelnya merapikan dulu.
+                    continue
+
+                jk = str(o.get("gender") or "").strip().upper()[:1]
+                token = secrets.token_urlsafe(32)
+
+                pelamar_id = await database.execute(
+                    insert(hr_candidates_table).values(
+                        testID=test_id,
+                        name=nama,
+                        gender=jk if jk in ("L", "P") else None,
+                        token=token,
+                        expiresAt=kedaluwarsa,
+                        status="baru",
+                        createdAt=sekarang,
+                        createdBy=user_id,
+                    )
+                )
+                hasil.append(
+                    {
+                        "id": pelamar_id,
+                        "name": nama,
+                        "gender": jk if jk in ("L", "P") else None,
+                        "token": token,
+                        "expiresAt": kedaluwarsa,
+                    }
+                )
+
+            return {"dibuat": len(hasil), "pelamar": hasil}
+        except Exception as e:
+            log_error(f"Error registering candidates: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def daftar_pelamar(test_id: int = None, status: str = None):
+        """Pelamar beserta paket ujiannya."""
+        try:
+            syarat = [hr_candidates_table.c.isDelete == False]  # noqa: E712
+            if test_id:
+                syarat.append(hr_candidates_table.c.testID == test_id)
+            if status:
+                syarat.append(hr_candidates_table.c.status == status)
+
+            baris = await database.fetch_all(
+                select(
+                    hr_candidates_table.c.id,
+                    hr_candidates_table.c.testID,
+                    hr_candidates_table.c.name,
+                    hr_candidates_table.c.gender,
+                    hr_candidates_table.c.email,
+                    hr_candidates_table.c.phoneNumber,
+                    hr_candidates_table.c.token,
+                    hr_candidates_table.c.expiresAt,
+                    hr_candidates_table.c.startedAt,
+                    hr_candidates_table.c.submittedAt,
+                    hr_candidates_table.c.status,
+                    hr_candidates_table.c.createdAt,
+                    hr_tests_table.c.name.label("testName"),
+                )
+                .select_from(
+                    hr_candidates_table.join(
+                        hr_tests_table,
+                        hr_candidates_table.c.testID == hr_tests_table.c.id,
+                    )
+                )
+                .where(*syarat)
+                .order_by(hr_candidates_table.c.id.desc())
+            )
+            return [dict(r) for r in baris]
+        except Exception as e:
+            log_error(f"Error listing candidates: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
 
     @staticmethod
     async def daftar_ujian():
