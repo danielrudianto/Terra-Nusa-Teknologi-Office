@@ -94,6 +94,11 @@ class PurchaseOrderResponse(BaseModel):
     checkedAt: Optional[datetime] = None
     # Nama pemeriksa; dicetak pada keterangan penelusuran dokumen.
     checkedByName: Optional[str] = None
+    # Nama dan alamat pemasok; dipakai layar yang memuat dokumen lama.
+    supplierName: Optional[str] = None
+    supplierAddress: Optional[str] = None
+    supplierNpwp: Optional[str] = None
+    supplierPrefix: Optional[str] = None
     createdBy: Optional[int] = None
     createdAt: Optional[datetime] = None
     # Dipakai saat mencetak ulang dokumen: tanpa field ini FastAPI membuang

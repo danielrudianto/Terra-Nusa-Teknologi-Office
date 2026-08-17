@@ -411,6 +411,17 @@ class PurchaseOrderRepository:
                     # yang kedua perlu alias sendiri — tanpa itu MySQL
                     # menolak dengan "not unique table/alias".
                     pemeriksa.c.name.label("checkedByName"),
+                    # Nama dan alamat pemasok.
+                    #
+                    # Tabel PO hanya menyimpan `supplierID`. Tanpa join ini,
+                    # layar yang memuat dokumen — adendum dan koreksi —
+                    # menampilkan isian vendor KOSONG walaupun dokumennya
+                    # jelas punya pemasok, dan yang membukanya menyimpulkan
+                    # datanya hilang.
+                    suppliers_table.c.name.label("supplierName"),
+                    suppliers_table.c.address.label("supplierAddress"),
+                    suppliers_table.c.npwp.label("supplierNpwp"),
+                    suppliers_table.c.prefix.label("supplierPrefix"),
                 )
                 # Kiri luar: PO yang belum disetujui belum punya `approvedBy`,
                 # dan join dalam akan menghilangkannya dari hasil sama sekali.
@@ -421,6 +432,10 @@ class PurchaseOrderRepository:
                     ).outerjoin(
                         pemeriksa,
                         purchase_orders_table.c.checkedBy == pemeriksa.c.id,
+                    ).outerjoin(
+                        suppliers_table,
+                        purchase_orders_table.c.supplierID
+                        == suppliers_table.c.id,
                     )
                 )
                 .where(
