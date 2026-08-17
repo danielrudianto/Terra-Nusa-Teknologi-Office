@@ -133,8 +133,15 @@ FORMULIR_BAWAAN = {
                     "columns": [
                         {"key": "name", "label": "Nama", "type": "teks"},
                         {"key": "organizer", "label": "Penyelenggara", "type": "teks"},
-                        {"key": "date", "label": "Tanggal", "type": "teks"},
-                        {"key": "validUntil", "label": "Berlaku sampai", "type": "teks"},
+                        # Keduanya BERTIPE TANGGAL, bukan teks.
+                        #
+                        # Sebagai teks, yang mengisinya mengetik sendiri —
+                        # dan menghasilkan "Mei 2024", "05/2024", "2024-5-1"
+                        # untuk hal yang sama. Sertifikat yang masa
+                        # berlakunya perlu dipantau karena itu tidak dapat
+                        # diurutkan maupun disaring.
+                        {"key": "date", "label": "Tanggal", "type": "tanggal"},
+                        {"key": "validUntil", "label": "Berlaku sampai", "type": "tanggal"},
                     ],
                 },
             ],

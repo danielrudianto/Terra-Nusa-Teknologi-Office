@@ -192,3 +192,59 @@ def test_rute_publik_terdaftar_sebelum_rute_berparameter():
     assert i_isi < i_dua, (
         'rute /isi/{token} harus terdaftar sebelum /{employee_id}/...'
     )
+
+
+# ---------------------------------------------------------------------------
+# Rute terbuka menuntut pemeriksaan paling ketat.
+#
+# Tidak ada penjaga izin yang menyaring lebih dulu: siapa pun di internet
+# dapat memanggilnya tanpa akun. Yang di bawah ini menjaga tiga hal yang
+# masing-masing sudah pernah menjadi cara sistem lain dijatuhkan.
+# ---------------------------------------------------------------------------
+
+
+def test_definisi_versi_disaring():
+    """
+    `active_version()` mengembalikan SELURUH kolom barisnya — termasuk
+    `createdBy`, `updatedBy`, dan `createdAt`.
+
+    Meneruskannya mentah membocorkan id pengguna internal kepada siapa pun
+    yang memegang tautan. Tidak berbahaya seketika, tetapi tidak ada gunanya
+    bagi yang mengisi formulir — dan setiap keterangan yang tidak diperlukan
+    adalah keterangan yang tidak perlu diberikan.
+    """
+    b = _rute('baca_untuk_pengisian')
+    assert '"version": versi,' not in b
+    assert '"fields": versi.get("fields")' in b
+
+
+def test_pencobaan_berulang_dibatasi():
+    """
+    Token 256 bit tidak mungkin ditebak, tetapi setiap tebakan tetap
+    menjalankan satu kueri — dan yang membanjirinya tidak perlu akun.
+    """
+    for nama in ('baca_untuk_pengisian', 'simpan_pengisian_mandiri'):
+        b = _rute(nama)
+        assert 'cek_terkunci(' in b, nama
+        assert '429' in b, nama
+
+
+def test_tebakan_meleset_dicatat():
+    """
+    Tanpa pencatatan, pembatasnya tidak pernah menyala.
+    """
+    b = _rute('baca_untuk_pengisian')
+    i = b.index('undangan is None')
+    assert 'catat_gagal(' in b[i:i + 300]
+
+
+def test_ukuran_muatan_dibatasi():
+    """
+    `Dict[str, Any]` menerima apa pun tanpa batas.
+
+    Muatan berukuran ratusan megabyte tidak menimbulkan galat; ia hanya
+    ditulis ke kolom JSON sampai basis datanya penuh.
+    """
+    b = _rute('simpan_pengisian_mandiri')
+    assert 'BATAS_MUATAN' in b
+    assert '413' in b

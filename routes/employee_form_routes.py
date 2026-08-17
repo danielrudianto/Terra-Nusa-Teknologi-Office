@@ -1,14 +1,16 @@
 from typing import Annotated, Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from repository.employee_form_repository import EmployeeFormRepository
 from utils.auth_utils import User
 from utils.errors import error_detail
 from utils.logger_utils import log_error
+from utils.login_guard import cek_terkunci, catat_gagal
 from utils.permission import require
 
+import json
 import os
 
 from services.mail_service import MailService
@@ -239,12 +241,30 @@ async def belum_mengisi(
 
 
 @router.get("/isi/{token}")
-async def baca_untuk_pengisian(token: str):
+async def baca_untuk_pengisian(token: str, request: Request):
     """
     Pertanyaan dan jawaban yang sudah ada, untuk halaman pengisian mandiri.
     """
+    # Batasi percobaan per alamat IP.
+    #
+    # Tokennya 256 bit dan tidak mungkin ditebak, tetapi PENCOBAAN BERULANG
+    # tetap membebani: setiap tebakan menjalankan satu kueri, dan rute ini
+    # terbuka — yang membanjirinya tidak perlu akun sama sekali.
+    #
+    # Memakai penjaga yang sama dengan halaman masuk; ia sudah terbukti dan
+    # menyimpan hitungannya di Redis, bukan di memori proses.
+    ip = request.client.host if request.client else "?"
+    sisa = cek_terkunci(f"isi:{ip}", ip)
+    if sisa > 0:
+        raise HTTPException(
+            status_code=429,
+            detail="Terlalu banyak percobaan. Coba lagi beberapa saat.",
+        )
+
     undangan = await EmployeeFormRepository.undangan_dari_token(token)
     if undangan is None:
+        # Tebakan yang meleset DICATAT; yang benar tidak.
+        catat_gagal(f"isi:{ip}", ip)
         # Token tidak dikenal, sudah dicabut, dan sudah kedaluwarsa dijawab
         # SAMA. Membedakannya memberi tahu penebak bahwa tokennya pernah ada.
         raise HTTPException(status_code=404, detail="Tautan tidak berlaku.")
@@ -267,7 +287,20 @@ async def baca_untuk_pengisian(token: str):
         "employeeName": undangan["employeeName"],
         "expiresAt": undangan["expiresAt"],
         "pengundang": undangan.get("pengundang"),
-        "version": versi,
+        # Definisi pertanyaan DISARING, bukan diteruskan mentah.
+        #
+        # `active_version()` mengembalikan seluruh kolom barisnya — termasuk
+        # `createdBy`, `updatedBy`, dan `createdAt`. Rute ini terbuka tanpa
+        # masuk, dan siapa pun yang memegang tautan dapat membacanya; id
+        # pengguna internal tidak ada gunanya bagi yang mengisi formulir, dan
+        # setiap keterangan yang tidak diperlukan adalah keterangan yang
+        # tidak perlu diberikan.
+        "version": {
+            "id": versi.get("id"),
+            "title": versi.get("title"),
+            "description": versi.get("description"),
+            "fields": versi.get("fields"),
+        },
         # Jawaban sebelumnya ikut dikirim.
         #
         # Sebagian besar isian tidak berubah dari tahun lalu; meminta
@@ -277,7 +310,9 @@ async def baca_untuk_pengisian(token: str):
 
 
 @router.put("/isi/{token}")
-async def simpan_pengisian_mandiri(token: str, payload: Jawaban):
+async def simpan_pengisian_mandiri(
+    token: str, payload: Jawaban, request: Request
+):
     """
     Simpan jawaban dari halaman pengisian mandiri.
 
@@ -285,8 +320,31 @@ async def simpan_pengisian_mandiri(token: str, payload: Jawaban):
     sendiri oleh siapa pun, dan menerima employeeID dari sana berarti satu
     orang dapat menimpa data seluruh karyawan.
     """
+    # Batasi UKURAN muatan.
+    #
+    # `Dict[str, Any]` menerima apa pun, tanpa batas — dan rute ini terbuka.
+    # Muatan berukuran ratusan megabyte tidak menimbulkan galat; ia hanya
+    # ditulis ke kolom JSON sampai basis datanya penuh.
+    #
+    # 256 KB jauh melampaui formulir terpanjang yang mungkin: seluruh
+    # pertanyaannya sendiri hanya belasan kilobyte.
+    BATAS_MUATAN = 256 * 1024
+    if len(json.dumps(payload.answers)) > BATAS_MUATAN:
+        raise HTTPException(
+            status_code=413,
+            detail="Isian terlalu besar. Ringkas jawaban Anda.",
+        )
+
+    ip = request.client.host if request.client else "?"
+    if cek_terkunci(f"isi:{ip}", ip) > 0:
+        raise HTTPException(
+            status_code=429,
+            detail="Terlalu banyak percobaan. Coba lagi beberapa saat.",
+        )
+
     undangan = await EmployeeFormRepository.undangan_dari_token(token)
     if undangan is None:
+        catat_gagal(f"isi:{ip}", ip)
         raise HTTPException(status_code=404, detail="Tautan tidak berlaku.")
 
     # Versi AKTIF, sama dengan yang dibaca halaman pengisian.
