@@ -39,12 +39,28 @@ async def daftar_ujian(
 @router.get("/questions")
 async def daftar_soal(
     user: Annotated[User, Depends(require("hr_recruitment", "read"))],
-    testID: Optional[int] = Query(None, description="Saring per paket ujian"),
+    # `str`, bukan `int`.
+    #
+    # Layar mengirim `?testID=` ketika penyaringnya kosong, dan teks kosong
+    # bukan `None` bagi FastAPI: ia mencoba mengubahnya menjadi angka, gagal,
+    # lalu menolak seluruh permintaan dengan 422 — sebelum satu baris pun
+    # dibaca. Diterima sebagai teks lalu diubah sendiri di bawah.
+    testID: Optional[str] = Query(None, description="Saring per paket ujian"),
     keyword: Optional[str] = Query(None, description="Cari di soal & catatan"),
 ):
     """Bank soal, disaring paket ujian dan kata pencarian."""
+    try:
+        test_id = int(testID) if testID not in (None, "") else None
+    except ValueError:
+        # Nilai yang tidak berupa angka diperlakukan sebagai tanpa penyaring,
+        # bukan sebagai galat: yang mengetiknya di alamat tidak sedang
+        # menyerang, dan menolak permintaannya tidak menolong siapa pun.
+        test_id = None
+
     return _periksa(
-        await HrRecruitmentController.daftar_soal(testID, keyword)
+        await HrRecruitmentController.daftar_soal(
+            test_id, (keyword or "").strip() or None
+        )
     )
 
 
