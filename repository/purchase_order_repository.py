@@ -398,11 +398,19 @@ class PurchaseOrderRepository:
         dapat diisi.
         """
         try:
+            # Alias untuk join kedua ke tabel pengguna.
+            pemeriksa = users_table.alias("pemeriksa")
+
             query = (
                 select(
                     *purchase_orders_table.c,
                     users_table.c.name.label("approvedByName"),
                     users_table.c.position.label("approvedByPosition"),
+                    # Nama pemeriksa, untuk keterangan penelusuran pada
+                    # dokumen. Tabel yang sama di-join DUA KALI, sehingga
+                    # yang kedua perlu alias sendiri — tanpa itu MySQL
+                    # menolak dengan "not unique table/alias".
+                    pemeriksa.c.name.label("checkedByName"),
                 )
                 # Kiri luar: PO yang belum disetujui belum punya `approvedBy`,
                 # dan join dalam akan menghilangkannya dari hasil sama sekali.
@@ -410,6 +418,9 @@ class PurchaseOrderRepository:
                     purchase_orders_table.outerjoin(
                         users_table,
                         purchase_orders_table.c.approvedBy == users_table.c.id,
+                    ).outerjoin(
+                        pemeriksa,
+                        purchase_orders_table.c.checkedBy == pemeriksa.c.id,
                     )
                 )
                 .where(
@@ -749,10 +760,32 @@ class PurchaseOrderRepository:
                 return {"message": "No changes"}
 
 
+            # Menyunting MENCABUT pemeriksaan.
+            #
+            # Tanpa ini, seseorang dapat meminta pemeriksaan, mengubah
+            # harganya, lalu menyetujui — dan tanda pemeriksaan itu menjadi
+            # tanda atas isi yang sudah tidak ada.
+            #
+            # Dicabut diam-diam, bukan ditolak: yang menyunting kerap tidak
+            # tahu dokumennya sudah diperiksa, dan menolak permintaannya
+            # hanya membuatnya menghubungi orang lain. Layar memberitahukan
+            # pencabutannya setelah tersimpan.
+            fields.pop("isChecked", None)
+            fields.pop("checkedBy", None)
+            fields.pop("checkedAt", None)
+
+            sudah_diperiksa = bool(getattr(sebelum, "isChecked", 0))
+
             query = (
                 update(purchase_orders_table)
                 .where(purchase_orders_table.c.id == purchase_order_id)
-                .values(revision=purchase_orders_table.c.revision + 1, **fields)
+                .values(
+                    revision=purchase_orders_table.c.revision + 1,
+                    isChecked=False,
+                    checkedBy=None,
+                    checkedAt=None,
+                    **fields,
+                )
             )
             await database.execute(query)
 
@@ -791,7 +824,15 @@ class PurchaseOrderRepository:
                 ),
             )
 
-            return {"message": "Purchase order updated successfully"}
+            return {
+                "message": "Purchase order updated successfully",
+                # Layar memberitahukan pencabutan ini.
+                #
+                # Tanpa penanda, dokumen yang tadinya siap disetujui
+                # mendadak menolak disetujui — dan yang menyuntingnya tidak
+                # punya cara mengetahui sebabnya.
+                "pemeriksaanDicabut": sudah_diperiksa,
+            }
         except IntegrityError as e:
             log_error(f"Integrity error while updating purchase order: {str(e.orig)}")
             return {"error": "Internal server error.", "status": 400}

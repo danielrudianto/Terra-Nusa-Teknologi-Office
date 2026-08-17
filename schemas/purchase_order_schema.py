@@ -92,6 +92,8 @@ class PurchaseOrderResponse(BaseModel):
     isChecked: Optional[bool] = False
     checkedBy: Optional[int] = None
     checkedAt: Optional[datetime] = None
+    # Nama pemeriksa; dicetak pada keterangan penelusuran dokumen.
+    checkedByName: Optional[str] = None
     createdBy: Optional[int] = None
     createdAt: Optional[datetime] = None
     # Dipakai saat mencetak ulang dokumen: tanpa field ini FastAPI membuang
