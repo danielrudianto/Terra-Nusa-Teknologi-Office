@@ -181,6 +181,62 @@ class Employee(BaseModel):
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    async def pilihan_pic(keyword: str = None):
+        """
+        Nama dan telepon karyawan AKTIF, untuk pemilih penanggung jawab.
+
+        Sengaja HANYA dua kolom itu. Tabel karyawan memuat susunan keluarga,
+        riwayat kesehatan, dan gaji — keterangan yang dilindungi
+        `MODUL_WILAYAH_MUTLAK` dan hanya terbuka bagi HRD.
+
+        Yang membuat purchase order tidak perlu melihat semua itu; ia hanya
+        perlu tahu siapa yang dapat dihubungi dan nomornya. Membuka rute
+        `employees` untuk keperluan ini berarti membuka seluruh isinya.
+
+        Yang sudah berhenti tidak ditampilkan: mencantumkannya pada dokumen
+        baru berarti vendor menghubungi orang yang tidak lagi bekerja di sini.
+        """
+        try:
+            hari_ini = dt.now().date()
+            syarat = [
+                employees_table.c.isDelete == False,  # noqa: E712
+                or_(
+                    employees_table.c.endDate.is_(None),
+                    employees_table.c.endDate >= hari_ini,
+                ),
+            ]
+            if keyword:
+                pola = f"%{keyword}%"
+                syarat.append(employees_table.c.name.ilike(pola))
+
+            baris = await database.fetch_all(
+                select(
+                    employees_table.c.id,
+                    employees_table.c.name,
+                    employees_table.c.phoneNumber,
+                    employees_table.c.position,
+                )
+                .where(*syarat)
+                .order_by(employees_table.c.name)
+                # Dibatasi: pemilih hanya menampilkan yang muat di layar, dan
+                # daftar tanpa batas membuat setiap ketukan huruf menarik
+                # seluruh karyawan.
+                .limit(50)
+            )
+            return [
+                {
+                    "id": r["id"],
+                    "name": r["name"],
+                    "phoneNumber": r["phoneNumber"],
+                    "position": r["position"],
+                }
+                for r in baris
+            ]
+        except Exception as e:
+            log_error(f"Error listing PIC options: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def get_employees(keyword: str, page: int, pageSize: int = 10, sortBy: str = None, sortByDirection: str = "asc", status: str = None):
         """
         Retrieve a list of employees from the database.

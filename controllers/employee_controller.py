@@ -172,3 +172,8 @@ class EmployeeController:
         except Exception as e:
             log_error(f"Unexpected error: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error.")
+
+    @staticmethod
+    async def pilihan_pic(keyword: str = None):
+        """Nama dan telepon karyawan aktif, untuk pemilih penanggung jawab."""
+        return await Employee.pilihan_pic(keyword)

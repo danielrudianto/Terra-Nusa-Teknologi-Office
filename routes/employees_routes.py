@@ -1,6 +1,6 @@
-from typing import Annotated
+from typing import Annotated, Optional
 from utils.errors import error_detail
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from utils.logger_utils import log_error, log_info
 from utils.auth_utils import get_current_user
 from utils.permission import require
@@ -23,6 +23,39 @@ async def create_employee(employee: Employee, user: Annotated[dict, Depends(requ
         raise HTTPException(status_code=500, detail="Internal server error")
     
     return result
+
+
+@router.get("/pilihan-pic")
+async def pilihan_pic(
+    current_user: Annotated[
+        User, Depends(require("purchase_order", "create"))
+    ],
+    keyword: Optional[str] = Query(None, description="Cari nama"),
+):
+    """
+    Nama dan telepon karyawan AKTIF, untuk pemilih penanggung jawab pada
+    purchase order.
+
+    Dijaga `purchase_order:create`, BUKAN `employees:read` — dan itu
+    disengaja. Modul `employees` termasuk `MODUL_WILAYAH_MUTLAK`: isinya
+    susunan keluarga, riwayat kesehatan, dan gaji, yang hanya terbuka bagi
+    HRD. Yang membuat purchase order tidak perlu melihat semua itu.
+
+    Karena itu rute ini mengembalikan DUA KOLOM saja. Membuka `employees`
+    untuk keperluan ini berarti membuka seluruh isinya kepada procurement.
+
+    CATATAN URUTAN — jangan memindahkan ke bawah `/{employee_id}`.
+    FastAPI mencocokkan rute berurutan dan menjalankan dependensinya sebelum
+    memeriksa tipe jalurnya; "pilihan-pic" akan tertangkap sebagai id dan
+    ditolak sebelum sempat diketahui bahwa ia bukan angka.
+    """
+    hasil = await EmployeeController.pilihan_pic(keyword)
+    if isinstance(hasil, dict) and "error" in hasil:
+        raise HTTPException(
+            status_code=hasil.get("status", 500), detail=error_detail(hasil)
+        )
+    return hasil
+
 
 @router.get("/{employee_id}")
 async def get_employee(employee_id: int, user: Annotated[dict, Depends(require("employees", "read"))]):

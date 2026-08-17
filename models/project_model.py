@@ -9,6 +9,7 @@ from sqlalchemy import (
     Boolean,
     ForeignKey,
     UniqueConstraint,
+    Text,
 )
 from utils.database import metadata
 from datetime import datetime as dt
@@ -39,6 +40,16 @@ projects_table = Table(
     # Disimpan huruf besar agar pencocokan tidak bergantung pada cara ketik.
     Column("code", String(20), nullable=False),
     Column("name", String(255), nullable=False),
+    # Alamat lokasi proyek.
+    #
+    # Dipakai mengisi alamat pengiriman pada purchase order Franco — barang
+    # dikirim ke lokasi proyeknya, dan mengetiknya ulang pada setiap PO
+    # berarti menyalin dari catatan lain yang cepat atau lambat berbeda.
+    #
+    # `TEXT`, bukan `VARCHAR`: alamat proyek kerap beberapa baris — nama
+    # lokasi, jalan, kota, patokan — dan batas panjang membuatnya terpotong
+    # justru pada bagian yang menolong pengemudi menemukannya.
+    Column("address", Text, nullable=True),
     Column("clientID", Integer, nullable=True),
     Column("startDate", Date(), nullable=True),
     Column("endDate", Date(), nullable=True),

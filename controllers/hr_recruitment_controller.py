@@ -39,3 +39,15 @@ class HrRecruitmentController:
     @staticmethod
     async def pelamar_dari_token(token: str):
         return await HrRecruitmentRepository.pelamar_dari_token(token)
+
+    @staticmethod
+    async def mulai_ujian(token: str):
+        return await HrRecruitmentRepository.mulai_ujian(token)
+
+    @staticmethod
+    async def simpan_jawaban(token: str, jawaban: dict):
+        return await HrRecruitmentRepository.simpan_jawaban(token, jawaban)
+
+    @staticmethod
+    async def kirim_ujian(token: str, jawaban: dict = None):
+        return await HrRecruitmentRepository.kirim_ujian(token, jawaban)

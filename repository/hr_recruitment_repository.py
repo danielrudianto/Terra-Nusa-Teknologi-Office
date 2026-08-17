@@ -11,6 +11,7 @@ from datetime import datetime as dt, timedelta
 from sqlalchemy import func, insert, select, update
 
 from models.hr_recruitment_model import (
+    hr_answers_table,
     hr_candidates_table,
     hr_questions_table,
     hr_tests_table,
@@ -90,6 +91,252 @@ class HrRecruitmentRepository:
         except Exception as e:
             log_error(f"Error reading candidate by token: {str(e)}")
             return None
+
+    @staticmethod
+    async def mulai_ujian(token: str):
+        """
+        Tandai pesertanya MULAI, lalu kembalikan soalnya.
+
+        Waktu mulai dicatat DI SINI, bukan dikirim layar. Waktu dari layar
+        dapat diubah siapa pun yang membuka DevTools — dan ujian yang
+        timernya dapat diatur peserta tidak mengukur apa pun.
+
+        Bila sudah pernah mulai, `startedAt` TIDAK ditimpa: menutup peramban
+        lalu membukanya kembali tidak memberi tambahan waktu. Itu justru
+        celah yang paling mudah ditemukan sendiri.
+        """
+        try:
+            baris = await database.fetch_one(
+                select(
+                    hr_candidates_table.c.id,
+                    hr_candidates_table.c.testID,
+                    hr_candidates_table.c.startedAt,
+                    hr_candidates_table.c.submittedAt,
+                    hr_tests_table.c.durationMinutes,
+                )
+                .select_from(
+                    hr_candidates_table.join(
+                        hr_tests_table,
+                        hr_candidates_table.c.testID == hr_tests_table.c.id,
+                    )
+                )
+                .where(hr_candidates_table.c.token == token)
+                .where(hr_candidates_table.c.isDelete == False)  # noqa: E712
+                .where(hr_candidates_table.c.expiresAt > dt.now())
+            )
+            if baris is None:
+                return None
+
+            if baris["submittedAt"]:
+                return {"error": "Ujian sudah dikirim.", "status": 409}
+
+            mulai = baris["startedAt"]
+            if not mulai:
+                mulai = dt.now()
+                await database.execute(
+                    update(hr_candidates_table)
+                    .where(hr_candidates_table.c.id == baris["id"])
+                    .values(startedAt=mulai, status="mengerjakan")
+                )
+
+            durasi = int(baris["durationMinutes"] or 90)
+            batas = mulai + timedelta(minutes=durasi)
+            sisa = int((batas - dt.now()).total_seconds())
+
+            soal = await database.fetch_all(
+                select(
+                    hr_questions_table.c.id,
+                    hr_questions_table.c.sortOrder,
+                    hr_questions_table.c.question,
+                    hr_questions_table.c.notes,
+                    hr_questions_table.c.attachment,
+                    hr_questions_table.c.category,
+                    hr_questions_table.c.maxScore,
+                    hr_questions_table.c.allowsUpload,
+                )
+                .where(hr_questions_table.c.testID == baris["testID"])
+                .where(hr_questions_table.c.isDelete == False)  # noqa: E712
+                .order_by(hr_questions_table.c.sortOrder)
+            )
+
+            jawaban = await database.fetch_all(
+                select(
+                    hr_answers_table.c.questionID,
+                    hr_answers_table.c.answer,
+                ).where(hr_answers_table.c.candidateID == baris["id"])
+            )
+
+            return {
+                "startedAt": mulai,
+                # Sisa waktu dalam DETIK, dihitung server.
+                #
+                # Layar menampilkan hitungan mundurnya sendiri, tetapi yang
+                # menentukan tetap angka ini — ia diperiksa ulang setiap kali
+                # jawaban disimpan.
+                "sisaDetik": max(sisa, 0),
+                "durationMinutes": durasi,
+                "questions": [dict(r) for r in soal],
+                "answers": {
+                    str(r["questionID"]): r["answer"] for r in jawaban
+                },
+            }
+        except Exception as e:
+            log_error(f"Error starting exam: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def sisa_waktu(candidate_id: int):
+        """
+        Sisa waktu dalam detik; negatif berarti sudah lewat.
+
+        Dihitung ulang dari basis data setiap kali, bukan disimpan — nilai
+        yang disimpan akan basi begitu ada yang menyentuh jam sistemnya.
+        """
+        baris = await database.fetch_one(
+            select(
+                hr_candidates_table.c.startedAt,
+                hr_tests_table.c.durationMinutes,
+            )
+            .select_from(
+                hr_candidates_table.join(
+                    hr_tests_table,
+                    hr_candidates_table.c.testID == hr_tests_table.c.id,
+                )
+            )
+            .where(hr_candidates_table.c.id == candidate_id)
+        )
+        if baris is None or not baris["startedAt"]:
+            return None
+        batas = baris["startedAt"] + timedelta(
+            minutes=int(baris["durationMinutes"] or 90)
+        )
+        return int((batas - dt.now()).total_seconds())
+
+    @staticmethod
+    async def simpan_jawaban(token: str, jawaban: dict):
+        """
+        Simpan jawaban yang sedang dikerjakan.
+
+        Dipanggil berkala oleh layar, bukan hanya saat mengirim: koneksi di
+        rumah pelamar kerap putus, dan kehilangan satu jam pengerjaan karena
+        satu kali putus adalah kegagalan yang tidak dapat diperbaiki
+        sesudahnya.
+
+        Waktu diperiksa DI SINI juga. Layar boleh saja tetap terbuka setelah
+        timernya habis — yang menentukan adalah jam server.
+        """
+        try:
+            pelamar = await database.fetch_one(
+                select(
+                    hr_candidates_table.c.id,
+                    hr_candidates_table.c.testID,
+                    hr_candidates_table.c.submittedAt,
+                )
+                .where(hr_candidates_table.c.token == token)
+                .where(hr_candidates_table.c.isDelete == False)  # noqa: E712
+                .where(hr_candidates_table.c.expiresAt > dt.now())
+            )
+            if pelamar is None:
+                return None
+            if pelamar["submittedAt"]:
+                return {"error": "Ujian sudah dikirim.", "status": 409}
+
+            sisa = await HrRecruitmentRepository.sisa_waktu(pelamar["id"])
+            if sisa is None:
+                return {"error": "Ujian belum dimulai.", "status": 400}
+            if sisa <= 0:
+                return {"error": "Waktu pengerjaan sudah habis.", "status": 410}
+
+            # Hanya soal MILIK paket ujiannya yang diterima.
+            #
+            # Muatan dapat disusun sendiri oleh siapa pun; tanpa penyaringan
+            # ini, jawaban dapat ditulis ke soal paket lain — dan lembar
+            # jawaban pelamar lain ikut tersentuh.
+            sah = {
+                r["id"]
+                for r in await database.fetch_all(
+                    select(hr_questions_table.c.id)
+                    .where(hr_questions_table.c.testID == pelamar["testID"])
+                    .where(hr_questions_table.c.isDelete == False)  # noqa: E712
+                )
+            }
+
+            sekarang = dt.now()
+            for kunci, isi in (jawaban or {}).items():
+                try:
+                    qid = int(kunci)
+                except (TypeError, ValueError):
+                    continue
+                if qid not in sah:
+                    continue
+
+                ada = await database.fetch_val(
+                    select(hr_answers_table.c.id)
+                    .where(hr_answers_table.c.candidateID == pelamar["id"])
+                    .where(hr_answers_table.c.questionID == qid)
+                )
+                if ada:
+                    await database.execute(
+                        update(hr_answers_table)
+                        .where(hr_answers_table.c.id == ada)
+                        .values(answer=isi, updatedAt=sekarang)
+                    )
+                else:
+                    await database.execute(
+                        insert(hr_answers_table).values(
+                            candidateID=pelamar["id"],
+                            questionID=qid,
+                            answer=isi,
+                            updatedAt=sekarang,
+                        )
+                    )
+
+            return {"tersimpan": True, "sisaDetik": sisa}
+        except Exception as e:
+            log_error(f"Error saving exam answers: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def kirim_ujian(token: str, jawaban: dict = None):
+        """
+        Kirim jawaban akhir; setelah ini tidak dapat disunting lagi.
+
+        Jawaban terakhir ikut disimpan lebih dulu — yang menekan Kirim kerap
+        baru saja mengetik sesuatu, dan menyimpannya terpisah membuat ketikan
+        terakhir hilang.
+        """
+        try:
+            if jawaban:
+                hasil = await HrRecruitmentRepository.simpan_jawaban(
+                    token, jawaban
+                )
+                # Waktu habis tidak menghalangi pengiriman: yang sudah
+                # tersimpan tetap dikirim, dan penilailah yang memutuskan.
+                if isinstance(hasil, dict) and hasil.get("status") == 500:
+                    return hasil
+
+            pelamar = await database.fetch_one(
+                select(
+                    hr_candidates_table.c.id,
+                    hr_candidates_table.c.submittedAt,
+                )
+                .where(hr_candidates_table.c.token == token)
+                .where(hr_candidates_table.c.isDelete == False)  # noqa: E712
+            )
+            if pelamar is None:
+                return None
+            if pelamar["submittedAt"]:
+                return {"error": "Ujian sudah dikirim.", "status": 409}
+
+            await database.execute(
+                update(hr_candidates_table)
+                .where(hr_candidates_table.c.id == pelamar["id"])
+                .values(submittedAt=dt.now(), status="selesai")
+            )
+            return {"terkirim": True}
+        except Exception as e:
+            log_error(f"Error submitting exam: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
 
     # -------------------------------------------------------------- pelamar
 

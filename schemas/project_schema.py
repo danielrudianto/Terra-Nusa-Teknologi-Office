@@ -7,6 +7,11 @@ from decimal import Decimal
 class ProjectBase(BaseModel):
     code: str = Field(min_length=2, max_length=20)
     name: str = Field(min_length=1, max_length=255)
+    # Alamat lokasi proyek; dipakai mengisi alamat pengiriman PO Franco.
+    #
+    # Boleh kosong: proyek lama belum punya alamat, dan mewajibkannya membuat
+    # seluruhnya tidak dapat disunting sampai satu per satu diisi.
+    address: Optional[str] = Field(default=None, max_length=1000)
     clientID: Optional[int] = None
     description: Optional[str] = Field(default=None, max_length=500)
     startDate: Optional[date] = None

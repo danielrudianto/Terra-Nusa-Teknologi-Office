@@ -32,14 +32,20 @@ def test_seluruh_rute_dijaga_modul_rekrutmen():
     rute = re.findall(r'@router\.\w+\("([^"]*)"\)', s)
     penjaga = re.findall(r'require\("(\w+)", "(\w+)"\)', s)
 
-    # `/exam/{token}` SENGAJA terbuka.
+    # Rute `/exam/...` SENGAJA terbuka.
     #
     # Yang menandai pesertanya adalah tokennya sendiri; pelamar bukan karyawan
-    # dan tidak punya akun. Pengecualiannya disebut di sini supaya rute
-    # terbuka BERIKUTNYA tidak lolos diam-diam — yang lupa dijaga akan
-    # menambah selisihnya dan menggagalkan uji ini.
+    # dan tidak punya akun. Daftarnya disebut SATU PER SATU di sini supaya
+    # rute terbuka BERIKUTNYA tidak lolos diam-diam — yang lupa dijaga tidak
+    # akan ada di daftar ini dan menggagalkan uji.
+    TERBUKA = {
+        '/exam/{token}',           # periksa token, tanpa soal
+        '/exam/{token}/mulai',     # mulai mengerjakan, kirim soal
+        '/exam/{token}/jawaban',   # simpan jawaban berkala
+        '/exam/{token}/kirim',     # kirim jawaban akhir
+    }
     terbuka = [r for r in rute if r.startswith('/exam/')]
-    assert len(terbuka) == 1, terbuka
+    assert set(terbuka) == TERBUKA, sorted(set(terbuka) ^ TERBUKA)
     assert len(rute) - len(terbuka) == len(penjaga), (rute, penjaga)
     assert all(m == 'hr_recruitment' for m, _ in penjaga), penjaga
 
