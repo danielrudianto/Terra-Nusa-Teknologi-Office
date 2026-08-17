@@ -164,3 +164,31 @@ def test_nama_pengundang_tidak_menjatuhkan_rute():
     b = _rute('terbitkan_undangan')
     i = b.index('user["name"]')
     assert 'except (KeyError, TypeError)' in b[i:i + 200]
+
+
+def test_rute_publik_terdaftar_sebelum_rute_berparameter():
+    """
+    Urutan pendaftaran MENENTUKAN, dan salahnya tidak terlihat dari kode.
+
+    FastAPI mencocokkan rute berurutan, dan menjalankan dependensi sebuah
+    rute sebelum memeriksa apakah nilai jalurnya sesuai tipe. `/isi/{token}`
+    cocok dengan pola `/{employee_id}/{version_id}` — dua segmen — sehingga
+    bila rute itu terdaftar lebih dulu, penjaga izinnya berjalan dan menolak
+    dengan 401 sebelum sempat diketahui bahwa "isi" bukan angka.
+
+    Gejalanya: yang membuka tautan undangan dialihkan ke halaman masuk,
+    padahal ia memang tidak punya akun. Sudah terjadi.
+    """
+    import re
+
+    s = open(RUTE).read()
+    urut = [m.group(1) for m in re.finditer(r'@router\.\w+\("([^"]*)"', s)]
+
+    i_isi = min(n for n, p in enumerate(urut) if p.startswith('/isi/'))
+    i_dua = min(
+        n for n, p in enumerate(urut)
+        if p.startswith('/{employee_id}/')
+    )
+    assert i_isi < i_dua, (
+        'rute /isi/{token} harus terdaftar sebelum /{employee_id}/...'
+    )
