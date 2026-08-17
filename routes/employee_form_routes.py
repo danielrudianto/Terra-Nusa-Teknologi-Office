@@ -9,6 +9,40 @@ from utils.errors import error_detail
 from utils.logger_utils import log_error
 from utils.permission import require
 
+import os
+
+from services.mail_service import MailService
+
+# Alamat frontend, dipakai menyusun tautan pengisian.
+#
+# Dibaca dari lingkungan, bukan ditulis di kode: server klien lain akan
+# memakai domain yang berbeda, dan tautan yang menunjuk ke domain AKN tidak
+# akan pernah terbuka bagi mereka.
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://terrabot.alphakonstruksi.id")
+
+
+def _badan_undangan(nama: str, pengundang: str, tautan: str) -> str:
+    """
+    Badan surel undangan.
+
+    Menyebut pengundangnya dan masa berlakunya. Tautan tanpa asal yang jelas
+    tampak seperti percobaan penipuan — dan yang berhati-hati justru tidak
+    mengisinya.
+    """
+    return f"""<p>Halo {nama},</p>
+
+<p>{pengundang} meminta Anda memperbarui data karyawan.
+Silakan buka tautan di bawah ini dan isi datanya.</p>
+
+<p><a href="{tautan}">{tautan}</a></p>
+
+<p><b>Tautan ini berlaku 3 hari.</b> Setelah itu Anda perlu meminta tautan
+baru kepada bagian HRD.</p>
+
+<p>Terima kasih.</p>
+"""
+
+
 router = APIRouter()
 
 
@@ -144,6 +178,45 @@ async def terbitkan_undangan(
         raise HTTPException(
             status_code=hasil.get("status", 500), detail=error_detail(hasil)
         )
+
+    # Kirim tautannya ke surel karyawan.
+    #
+    # Kegagalan pengiriman TIDAK menggagalkan penerbitan: tokennya sudah
+    # dibuat dan sah, dan yang menerbitkannya tetap dapat menyalin tautannya
+    # untuk dikirim lewat jalan lain. Menggagalkan seluruh permintaan berarti
+    # menerbitkan token kedua untuk orang yang sama.
+    hasil["emailTerkirim"] = False
+    karyawan = await EmployeeFormRepository.karyawan_ringkas(employee_id)
+    alamat = (karyawan or {}).get("email")
+
+    if alamat:
+        # Nama pengundang dibungkus try.
+        #
+        # Objek dari `require()` adalah Record, bukan dict: ia tidak punya
+        # `.get()`, dan kolom yang tidak ada melempar galat dengan jejak
+        # tumpukan yang tidak menyebut sebabnya. Sudah menjatuhkan satu
+        # endpoint sebelumnya.
+        try:
+            nama_pengundang = user["name"]
+        except (KeyError, TypeError):
+            nama_pengundang = "TerraBot"
+
+        tautan = f"{FRONTEND_URL.rstrip('/')}/isi/{hasil['token']}"
+        try:
+            MailService.send_email(
+                alamat,
+                "Pembaruan data karyawan",
+                _badan_undangan(
+                    (karyawan or {}).get("name") or "",
+                    nama_pengundang,
+                    tautan,
+                ),
+                None,
+            )
+            hasil["emailTerkirim"] = True
+        except Exception as e:
+            log_error(f"Gagal mengirim undangan ke {alamat}: {str(e)}")
+
     return hasil
 
 

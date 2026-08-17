@@ -121,3 +121,46 @@ def test_token_unik_di_basis_data():
     s = open(MODEL).read()
     i = s.index('"token"')
     assert 'unique=True' in s[i:i + 120]
+
+
+def test_undangan_dikirim_lewat_surel():
+    """
+    Tautan yang hanya diterbitkan tetapi tidak dikirim tidak menolong siapa
+    pun: yang menerbitkannya harus menyalinnya sendiri, dan itu persis
+    pekerjaan yang hendak dihilangkan.
+    """
+    b = _rute('terbitkan_undangan')
+    assert 'MailService.send_email(' in b
+
+
+def test_gagal_kirim_tidak_menggagalkan_penerbitan():
+    """
+    Tokennya sudah dibuat dan sah.
+
+    Menggagalkan seluruh permintaan karena surelnya tidak terkirim berarti
+    menerbitkan token kedua untuk orang yang sama — dan yang menerima dua
+    tautan harus menebak mana yang hidup.
+    """
+    b = _rute('terbitkan_undangan')
+    i = b.index('MailService.send_email(')
+    assert 'except Exception' in b[i:]
+    assert 'emailTerkirim' in b
+
+
+def test_alamat_frontend_dari_lingkungan():
+    """
+    Server klien lain memakai domain berbeda; tautan yang menunjuk ke domain
+    AKN tidak akan pernah terbuka bagi mereka.
+    """
+    s = open(RUTE).read()
+    assert 'os.getenv("FRONTEND_URL"' in s
+
+
+def test_nama_pengundang_tidak_menjatuhkan_rute():
+    """
+    Objek dari `require()` adalah Record, bukan dict — kolom yang tidak ada
+    melempar galat dengan jejak tumpukan yang tidak menyebut sebabnya.
+    """
+    b = _rute('terbitkan_undangan')
+    i = b.index('user["name"]')
+    assert 'except (KeyError, TypeError)' in b[i:i + 200]

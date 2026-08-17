@@ -95,6 +95,25 @@ class EmployeeFormRepository:
     # ---------------------------------------------------------------- versi
 
     @staticmethod
+    async def karyawan_ringkas(employee_id: int):
+        """Nama dan surel karyawan, untuk menyusun undangan."""
+        try:
+            baris = await database.fetch_one(
+                select(
+                    employees_table.c.name,
+                    employees_table.c.email,
+                )
+                .where(employees_table.c.id == employee_id)
+                .where(employees_table.c.isDelete == False)
+            )
+            if baris is None:
+                return None
+            return {"name": baris["name"], "email": baris["email"]}
+        except Exception as e:
+            log_error(f"Error reading employee for invite: {str(e)}")
+            return None
+
+    @staticmethod
     async def buat_undangan(employee_id: int, version_id: int, user_id: int):
         """
         Terbitkan tautan pengisian untuk satu karyawan.
