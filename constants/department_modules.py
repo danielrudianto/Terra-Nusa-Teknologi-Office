@@ -85,6 +85,13 @@ DEPARTMENT_MODULES: dict[str, set[str]] = {
         # keluarga, riwayat kesehatan, dan kontak darurat.
         "employee_profile",
         "employee_form",
+        # Ujian rekrutmen: bank soal, pelamar, dan penilaian jawabannya.
+        #
+        # Isinya data pribadi orang yang bahkan belum menjadi karyawan —
+        # alamat, tanggal lahir, dan jawaban yang menentukan diterima atau
+        # tidaknya. Wilayah HRD, bukan wilayah siapa pun yang kebetulan
+        # levelnya tinggi.
+        "hr_recruitment",
     },
     # Divisinya sudah ada, modulnya belum.
     #

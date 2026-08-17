@@ -65,6 +65,19 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     # tetap orang yang sama.
     "employee_profile": (3, 3, 3, 4, 0),
     "employee_form": (3, 3, 3, 4, 0),
+    # Ujian rekrutmen: bank soal, pelamar, dan penilaian jawabannya.
+    #
+    # Ikut `MODUL_WILAYAH_MUTLAK` bersama modul karyawan lain: isinya data
+    # pribadi orang yang bahkan belum menjadi karyawan, dan jawaban yang
+    # menentukan diterima atau tidaknya.
+    #
+    # Membaca disamakan dengan membuat (level 3): yang memeriksa jawaban
+    # adalah orang yang sama dengan yang mengundang pelamarnya, dan membuka
+    # pembacaan lebih lebar tidak menolong siapa pun.
+    #
+    # Menghapus level 5: menghapus pelamar berarti menghapus jawaban dan
+    # penilaiannya sekaligus — keputusan yang tidak dapat ditarik kembali.
+    "hr_recruitment": (3, 3, 3, 5, 0),
     # Posisi keuangan: kas, piutang, utang, pinjaman, dan quick ratio.
     #
     # Baca level 4, dan tidak ada tindakan lain — modul ini hanya membaca,

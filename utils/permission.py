@@ -44,7 +44,19 @@ _CACHE_TTL = 60.0
 #: Modul yang batas divisinya berlaku untuk SEMUA level di bawah 5, termasuk
 #: yang tidak punya departemen. Isinya data paling sensitif di sistem.
 MODUL_WILAYAH_MUTLAK = frozenset(
-    {"salary_slip", "employees", "employee_profile", "employee_form"}
+    {
+        "salary_slip",
+        "employees",
+        "employee_profile",
+        "employee_form",
+        # Ujian rekrutmen.
+        #
+        # Jawabannya menentukan seseorang diterima atau tidak, dan berkas
+        # yang diunggah memuat karya yang belum tentu ingin dilihat orang
+        # lain. Sama seperti gaji: tidak boleh terbuka hanya karena levelnya
+        # tinggi.
+        "hr_recruitment",
+    }
 )
 
 
