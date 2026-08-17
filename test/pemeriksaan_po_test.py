@@ -1,105 +1,113 @@
 """
-Peringatan sebelum purchase order dibuat.
+Tahap pemeriksaan purchase order.
 
-Dua hal diperiksa: harga yang melompat jauh dari terakhir kali, dan dokumen
-serupa yang sudah dibuat pada hari yang sama.
+Dokumen melewati dua tangan: diperiksa dulu, baru disetujui. Pemeriksa
+membaca isinya — harga, volume, spesifikasi; penyetuju memutuskan dokumen itu
+boleh terbit.
 
-Keduanya PERINGATAN, bukan penghalang. Harga memang dapat melompat, dan
-dokumen serupa dalam sehari kadang memang disengaja. Yang diperlukan bukan
-menghentikan orang, melainkan menyodorkan pembandingnya agar dapat diperiksa
-saat itu juga.
+Dipisah karena keduanya menjawab pertanyaan yang berbeda, dan yang
+menggabungkannya berarti satu orang menjawab keduanya sendirian.
 """
 
 import os
 
 AKAR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CTRL = os.path.join(AKAR, 'controllers', 'purchase_order_controller.py')
 REPO = os.path.join(AKAR, 'repository', 'purchase_order_repository.py')
+RUTE = os.path.join(AKAR, 'routes', 'purchase_order_routes.py')
 
 
-def _blok(berkas: str, nama: str) -> str:
-    s = open(berkas).read()
+def _blok(nama: str) -> str:
+    s = open(REPO).read()
     i = s.index(f'async def {nama}(')
     j = s.find('\n    @staticmethod', i)
     return s[i:] if j == -1 else s[i:j]
 
 
-def _peringatan(lama: float, baru: float) -> bool:
-    """Cerminan aturan di controller; ambangnya diuji, bukan dihafal."""
-    rasio = baru / lama
-    return rasio >= 1.5 or rasio <= 0.6
+def test_pemeriksa_level_3_harus_procurement():
+    from utils.permission import boleh_memeriksa
+
+    assert boleh_memeriksa(3, {'procurement'})
+    assert not boleh_memeriksa(3, {'fat'})
+    assert not boleh_memeriksa(3, set())
 
 
-def test_salah_ketik_nol_tertangkap():
-    """Kesalahan paling sering: kelebihan atau kekurangan satu nol."""
-    assert _peringatan(170_000, 1_700_000)
-    assert _peringatan(170_000, 17_000)
-
-
-def test_digit_tertukar_tertangkap():
-    assert _peringatan(170_000, 710_000)
-
-
-def test_kenaikan_wajar_tidak_berbunyi():
+def test_level_4_dan_5_memeriksa_tanpa_divisi():
     """
-    Peringatan yang sering keliru berhenti dibaca.
-
-    Kenaikan besi yang tajam sekalipun jarang melampaui 30%; ambangnya
-    sengaja dijauhkan dari sana.
+    Keduanya berwenang atas seluruh dokumen, dan kerap merekalah satu-satunya
+    yang hadir — memaksa mereka lewat divisi hanya menghentikan pekerjaan.
     """
-    assert not _peringatan(170_000, 187_000)   # +10%
-    assert not _peringatan(170_000, 212_500)   # +25%
-    assert not _peringatan(170_000, 246_500)   # +45%
+    from utils.permission import boleh_memeriksa
+
+    assert boleh_memeriksa(4, set())
+    assert boleh_memeriksa(5, set())
 
 
-def test_penurunan_nego_tidak_berbunyi():
-    assert not _peringatan(170_000, 153_000)   # -10%
-    assert not _peringatan(170_000, 119_000)   # -30%
+def test_di_bawah_level_3_tidak_memeriksa():
+    from utils.permission import boleh_memeriksa
+
+    assert not boleh_memeriksa(2, {'procurement'})
+    assert not boleh_memeriksa(1, {'procurement'})
 
 
-def test_harga_dibandingkan_hanya_ke_yang_disetujui():
+def test_pembuat_tidak_memeriksa_sendiri_termasuk_pemilik():
     """
-    Draf memuat angka yang masih dicoba-coba; membandingkan dengannya berarti
-    membandingkan dengan tebakan orang lain.
+    Pemeriksaan justru ADA untuk menghadirkan mata kedua; membiarkan
+    pembuatnya memeriksa sendiri membuat tahap ini hanya menambah satu klik
+    tanpa menambah apa pun.
     """
-    b = _blok(REPO, 'harga_terakhir')
-    assert 'isApproved == 1' in b
-    assert 'isDelete == 0' in b
+    from utils.permission import boleh_memeriksa_sendiri
+
+    for lv in (3, 4, 5):
+        assert not boleh_memeriksa_sendiri(lv), lv
 
 
-def test_duplikat_menghitung_draf():
+def test_level_4_tidak_menyetujui_dokumen_sendiri():
     """
-    Justru draf yang paling sering menggandakan: dokumen pertama belum
-    disetujui sehingga tidak terlihat, lalu dibuat lagi.
+    Dinaikkan dari 4 ke 5 atas keputusan pemilik: menyetujui dokumen sendiri
+    menghapus satu-satunya pemeriksaan yang tersisa.
     """
-    b = _blok(REPO, 'kemungkinan_duplikat')
+    from utils.permission import boleh_menyetujui_sendiri
 
-    # `isApproved` boleh disebut untuk DILAPORKAN — layar perlu tahu apakah
-    # dokumen kembarnya sudah terbit atau masih draf. Yang tidak boleh:
-    # memakainya sebagai penyaring, karena itu justru membuang draf yang
-    # paling sering menggandakan.
-    assert 'isApproved == 1' not in b
-    assert 'purchase_orders_table.c.isApproved,' in b
+    assert not boleh_menyetujui_sendiri(4)
+    assert boleh_menyetujui_sendiri(5)
 
 
-def test_duplikat_bertoleransi():
+def test_belum_diperiksa_tidak_dapat_disetujui():
     """
-    Pembulatan pajak menghasilkan selisih beberapa rupiah pada dokumen yang
-    sebenarnya identik.
+    Menyetujui yang belum diperiksa berarti memutuskan tanpa seorang pun
+    membaca isinya lebih dulu.
     """
-    b = _blok(REPO, 'kemungkinan_duplikat')
-    assert 'func.abs' in b
+    b = _blok('update_status')
+    assert 'isChecked' in b
+    assert 'belum diperiksa' in b.lower()
 
 
-def test_duplikat_mengecualikan_diri_sendiri():
-    b = _blok(REPO, 'kemungkinan_duplikat')
-    assert 'kecuali_id' in b
-
-
-def test_pemeriksaan_tidak_memblokir():
+def test_mencabut_pemeriksaan_menggugurkan_persetujuan():
     """
-    Mengembalikan keterangan, bukan galat. Rute ini tidak pernah menolak.
+    Dokumen yang sudah disetujui lalu pemeriksaannya dibatalkan tidak boleh
+    tetap tercetak sah — yang menandatanganinya bertumpu pada pemeriksaan
+    yang ternyata ditarik.
     """
-    b = _blok(CTRL, 'pemeriksaan')
-    assert 'app_error' not in b
-    assert 'return hasil' in b
+    b = _blok('set_checked')
+    assert '"isApproved": False' in b
+    assert '"status": "draft"' in b
+
+
+def test_divisi_dibaca_dari_basis_data():
+    """
+    Objek yang dikembalikan `require()` tidak memuat divisi sama sekali —
+    membacanya dari sana selalu menghasilkan kosong, dan setiap procurement
+    level 3 ditolak tanpa sebab yang terlihat.
+    """
+    b = _blok('set_checked')
+    assert '_departments(user_id)' in b
+
+
+def test_memeriksa_dijaga_izin_update_bukan_approve():
+    """
+    Memeriksa bukan menyetujui; menyamakan izinnya berarti setiap pemeriksa
+    otomatis dapat menerbitkan dokumen tanpa seorang pun memutuskannya.
+    """
+    s = open(RUTE).read()
+    i = s.index('/{purchase_order_id}/checked')
+    assert 'require("purchase_order", "update")' in s[i:i + 400]

@@ -800,6 +800,124 @@ class PurchaseOrderRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    async def set_checked(
+        purchase_order_id: int,
+        checked: bool,
+        user_id: int,
+        user_level: int | None = None,
+        departments: set | None = None,
+    ):
+        """
+        Tandai purchase order sudah atau belum diperiksa.
+
+        Tahap sebelum persetujuan. Pemeriksa membaca isinya — harga, volume,
+        spesifikasi; penyetuju memutuskan dokumen itu boleh terbit.
+        """
+        from utils.permission import (
+            _departments,
+            boleh_memeriksa,
+            boleh_memeriksa_sendiri,
+        )
+
+        if checked:
+            # Divisi dibaca DI SINI, bukan diambil dari objek pengguna.
+            #
+            # Objek yang dikembalikan `require()` tidak memuat divisi sama
+            # sekali — membacanya dari sana selalu menghasilkan kosong, dan
+            # setiap procurement level 3 ditolak tanpa sebab yang terlihat.
+            if departments is None:
+                departments = await _departments(user_id)
+
+            if not boleh_memeriksa(user_level, departments):
+                return app_error(
+                    ErrorCode.FORBIDDEN,
+                    "Pemeriksaan hanya dapat dilakukan oleh procurement "
+                    "level 3, atau level 4 ke atas.",
+                    403,
+                )
+
+            # Pembuatnya tidak boleh memeriksa sendiri — TERMASUK pemilik.
+            #
+            # Pemeriksaan justru ada untuk menghadirkan mata kedua;
+            # membiarkan pembuatnya memeriksa sendiri membuat tahap ini hanya
+            # menambah satu klik tanpa menambah apa pun.
+            if not boleh_memeriksa_sendiri(user_level):
+                pembuat = await database.fetch_val(
+                    select(purchase_orders_table.c.createdBy).where(
+                        purchase_orders_table.c.id == purchase_order_id
+                    )
+                )
+                if pembuat is not None and int(pembuat) == int(user_id):
+                    return app_error(
+                        ErrorCode.SELF_APPROVAL_FORBIDDEN,
+                        "Dokumen tidak dapat diperiksa oleh pembuatnya "
+                        "sendiri. Mintakan pemeriksaan kepada pengguna lain.",
+                        403,
+                    )
+
+        try:
+            _sebelum = await database.fetch_one(
+                select(purchase_orders_table).where(
+                    purchase_orders_table.c.id == purchase_order_id
+                )
+            )
+
+            nilai = (
+                {
+                    "isChecked": True,
+                    "checkedBy": user_id,
+                    "checkedAt": dt.now(),
+                }
+                if checked
+                else {
+                    # Pemeriksaan dicabut: jejaknya ikut dicabut, dan
+                    # persetujuan yang terlanjur ikut gugur.
+                    #
+                    # Dokumen yang sudah disetujui lalu pemeriksaannya
+                    # dibatalkan tidak boleh tetap tercetak sah — yang
+                    # menandatanganinya bertumpu pada pemeriksaan yang
+                    # ternyata ditarik.
+                    "isChecked": False,
+                    "checkedBy": None,
+                    "checkedAt": None,
+                    "isApproved": False,
+                    "approvedBy": None,
+                    "approvedAt": None,
+                    "status": "draft",
+                }
+            )
+
+            await database.execute(
+                update(purchase_orders_table)
+                .where(purchase_orders_table.c.id == purchase_order_id)
+                .values(**nilai)
+            )
+
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="purchase_orders",
+                entityID=purchase_order_id,
+                action="set_checked",
+                userID=user_id,
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(purchase_orders_table).where(
+                                purchase_orders_table.c.id == purchase_order_id
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+            return {"message": "Purchase order check state updated"}
+        except Exception as e:
+            log_error(f"Error setting purchase order checked: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def update_status(
         purchase_order_id: int,
         status: str,
@@ -833,16 +951,62 @@ class PurchaseOrderRepository:
                     403,
                 )
 
+        # Dokumen harus SUDAH DIPERIKSA sebelum disetujui.
+        #
+        # Urutannya bukan formalitas: pemeriksa membaca isinya — harga,
+        # volume, spesifikasi — dan penyetuju memutuskan dokumen itu boleh
+        # terbit. Menyetujui yang belum diperiksa berarti memutuskan tanpa
+        # seorang pun membaca isinya lebih dulu.
+        if status == "approved":
+            sudah = await database.fetch_val(
+                select(purchase_orders_table.c.isChecked).where(
+                    purchase_orders_table.c.id == purchase_order_id
+                )
+            )
+            if not sudah:
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "Dokumen belum diperiksa. Mintakan pemeriksaan lebih "
+                    "dulu sebelum disetujui.",
+                    400,
+                )
+
         try:
             # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
             # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
             _sebelum = await database.fetch_one(
                 select(purchase_orders_table).where(purchase_orders_table.c.id == purchase_order_id)
             )
+            nilai = {"status": status}
+
+            # `isApproved`, `approvedBy`, dan `approvedAt` ikut ditulis.
+            #
+            # Sebelumnya hanya `status` yang berubah, sehingga dokumen yang
+            # sudah disetujui di layar tetap punya `isApproved = 0` dan
+            # `approvedBy` kosong. Akibatnya blok tanda tangan tidak menyebut
+            # siapa pun — dokumennya tercetak sah tetapi tanpa nama penyetuju,
+            # dan itu tidak menimbulkan galat apa pun.
+            if status == "approved":
+                nilai.update(
+                    isApproved=True,
+                    approvedBy=user_id,
+                    approvedAt=dt.now(),
+                )
+            else:
+                # Dibatalkan atau dikembalikan ke draf: jejak persetujuannya
+                # ikut dicabut. Menyisakan `approvedBy` pada dokumen yang
+                # tidak lagi sah membuat orang yang namanya tercantum tampak
+                # menyetujui sesuatu yang sudah ditarik.
+                nilai.update(
+                    isApproved=False,
+                    approvedBy=None,
+                    approvedAt=None,
+                )
+
             query = (
                 update(purchase_orders_table)
                 .where(purchase_orders_table.c.id == purchase_order_id)
-                .values(status=status)
+                .values(**nilai)
             )
             await database.execute(query)
             from repository.audit_log_repository import AuditLogRepository

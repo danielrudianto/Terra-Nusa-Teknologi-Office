@@ -205,7 +205,62 @@ def require(module: str, action: str):
 #
 # Pengecualian ini BUKAN berarti tanpa catatan: persetujuan atas dokumen
 # sendiri tetap tercatat pada jejak aktivitas, sehingga dapat ditelusuri.
-LEVEL_BOLEH_SETUJU_SENDIRI = 4
+# Dinaikkan ke 5 atas keputusan pemilik.
+#
+# Level 4 memang berwenang atas seluruh dokumen, tetapi menyetujui yang
+# dibuatnya sendiri menghapus satu-satunya pemeriksaan yang tersisa: tidak ada
+# mata kedua sama sekali pada dokumen itu, dari dibuat sampai terbit.
+#
+# Pemilik dikecualikan karena pada akhirnya ialah yang menanggung akibatnya —
+# dan kerap ialah satu-satunya yang hadir.
+LEVEL_BOLEH_SETUJU_SENDIRI = 5
+
+
+# Pemeriksaan dokumen — tahap sebelum persetujuan.
+#
+# Dokumen melewati dua tangan: diperiksa dulu, baru disetujui. Pemeriksa
+# membaca isinya — harga, volume, spesifikasi; penyetuju memutuskan dokumen
+# itu boleh terbit.
+LEVEL_PEMERIKSA = 3
+DIVISI_PEMERIKSA = frozenset({"procurement"})
+
+# Level yang boleh memeriksa tanpa memandang divisi.
+#
+# Keduanya berwenang atas seluruh dokumen, dan kerap merekalah satu-satunya
+# yang hadir — memaksa mereka lewat divisi hanya menghentikan pekerjaan tanpa
+# menambah satu pun pemeriksaan.
+LEVEL_PEMERIKSA_BEBAS = 4
+
+
+def boleh_memeriksa(level, departments=None) -> bool:
+    """
+    Pengguna ini boleh MEMERIKSA purchase order.
+
+    Level 3 harus berada di divisi procurement — merekalah yang mengetahui
+    harga wajar dan spesifikasi yang dipesan. Level 4 ke atas boleh tanpa
+    memandang divisi.
+    """
+    try:
+        lv = int(level or 1)
+    except (TypeError, ValueError):
+        return False
+
+    if lv >= LEVEL_PEMERIKSA_BEBAS:
+        return True
+    if lv < LEVEL_PEMERIKSA:
+        return False
+    return bool(set(departments or ()) & DIVISI_PEMERIKSA)
+
+
+def boleh_memeriksa_sendiri(level) -> bool:
+    """
+    Pengguna ini boleh memeriksa dokumen yang dibuatnya sendiri.
+
+    Tidak ada seorang pun — termasuk pemilik. Pemeriksaan justru ADA untuk
+    menghadirkan mata kedua; membiarkan pembuatnya memeriksa sendiri membuat
+    tahap ini hanya menambah satu klik tanpa menambah apa pun.
+    """
+    return False
 
 
 def boleh_menyetujui_sendiri(level) -> bool:

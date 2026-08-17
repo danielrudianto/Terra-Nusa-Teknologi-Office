@@ -559,6 +559,19 @@ class PurchaseOrderController:
             return internal_error()
 
     @staticmethod
+    async def set_checked(
+        purchase_order_id: int,
+        checked: bool,
+        user_id: int,
+        user_level: int | None = None,
+        departments: set | None = None,
+    ):
+        """Tandai dokumen sudah atau belum diperiksa."""
+        return await PurchaseOrderRepository.set_checked(
+            purchase_order_id, checked, user_id, user_level, departments
+        )
+
+    @staticmethod
     async def update_purchase_order_status(
         purchase_order_id: int, status: str, user_id: int,
         user_level: int | None = None,

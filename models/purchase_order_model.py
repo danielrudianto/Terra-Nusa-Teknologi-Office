@@ -99,6 +99,18 @@ purchase_orders_table = Table(
     Column("isApproved", Boolean, nullable=False, server_default=text("0"), default=False),
     Column("approvedBy", Integer, ForeignKey("users.id"), nullable=True, default=None),
     Column("approvedAt", DateTime, nullable=True, default=None),
+
+    # --- tahap pemeriksaan, sebelum persetujuan ---
+    #
+    # Dokumen melewati DUA tangan: diperiksa dulu, baru disetujui. Pemeriksa
+    # membaca isinya — harga, volume, spesifikasi; penyetuju memutuskan
+    # dokumen itu boleh terbit.
+    #
+    # Dipisah karena keduanya menjawab pertanyaan yang berbeda, dan yang
+    # menggabungkannya berarti satu orang menjawab keduanya sendirian.
+    Column("isChecked", Boolean(), nullable=False, server_default="0"),
+    Column("checkedBy", Integer, ForeignKey("users.id"), nullable=True),
+    Column("checkedAt", DateTime(), nullable=True),
     Index("idx_supplier_date", "supplierID", "date"),
     Index("idx_type_status", "purchaseType", "status"),
 )

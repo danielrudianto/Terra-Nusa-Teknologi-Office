@@ -210,6 +210,39 @@ async def get_all_purchase_orders(
             detail={"code": ErrorCode.INTERNAL, "message": "Internal server error."},
         )
 
+
+@router.patch("/{purchase_order_id}/checked")
+async def set_purchase_order_checked(
+    purchase_order_id: int,
+    checked: bool,
+    current_user: Annotated[User, Depends(require("purchase_order", "update"))],
+):
+    """
+    Tandai purchase order sudah atau belum diperiksa.
+
+    Tahap SEBELUM persetujuan. Pemeriksa membaca isinya — harga, volume,
+    spesifikasi; penyetuju memutuskan dokumen itu boleh terbit.
+
+    Dijaga izin `update`, bukan `approve`: memeriksa bukan menyetujui, dan
+    menyamakan izinnya berarti setiap pemeriksa otomatis dapat menerbitkan
+    dokumen tanpa seorang pun memutuskannya.
+    """
+    # Divisi TIDAK diambil dari sini.
+    #
+    # Objek yang dikembalikan `require()` tidak memuatnya sama sekali;
+    # repository membacanya sendiri dari basis data.
+    hasil = await PurchaseOrderController.set_checked(
+        purchase_order_id,
+        checked,
+        current_user["id"],
+        int(current_user["authenticationLevel"] or 1),
+    )
+    if "error" in hasil:
+        raise HTTPException(
+            status_code=hasil.get("status", 500), detail=error_detail(hasil)
+        )
+    return hasil
+
 @router.patch("/{purchase_order_id}/status")
 async def update_purchase_order_status(
     purchase_order_id: int,

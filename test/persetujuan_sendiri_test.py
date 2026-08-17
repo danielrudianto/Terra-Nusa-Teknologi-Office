@@ -41,7 +41,13 @@ def test_ambang_pengecualian_level_empat():
     galat — hanya satu modul yang diam-diam lebih longgar.
     """
     s = open(os.path.join(AKAR, "utils", "permission.py")).read()
-    assert "LEVEL_BOLEH_SETUJU_SENDIRI = 4" in s
+    # Ambangnya 5, bukan 4.
+    #
+    # Dinaikkan atas keputusan pemilik: level 4 memang berwenang atas seluruh
+    # dokumen, tetapi menyetujui yang dibuatnya sendiri menghapus satu-satunya
+    # pemeriksaan yang tersisa — tidak ada mata kedua sama sekali pada dokumen
+    # itu, dari dibuat sampai terbit.
+    assert "LEVEL_BOLEH_SETUJU_SENDIRI = 5" in s
     assert "def boleh_menyetujui_sendiri(" in s
 
 
