@@ -83,6 +83,15 @@ class PurchaseOrderResponse(BaseModel):
     isApproved: Optional[bool] = False
     approvedBy: Optional[int] = None
     approvedAt: Optional[datetime] = None
+    # Tahap pemeriksaan, sebelum persetujuan.
+    #
+    # Harus ada di sini: FastAPI menyaring jawaban terhadap model ini, dan
+    # kolom yang tidak tercantum dibuang sebelum sampai ke layar — daftar
+    # kemudian tidak dapat membedakan dokumen yang sudah diperiksa, tanpa
+    # galat apa pun.
+    isChecked: Optional[bool] = False
+    checkedBy: Optional[int] = None
+    checkedAt: Optional[datetime] = None
     createdBy: Optional[int] = None
     createdAt: Optional[datetime] = None
     # Dipakai saat mencetak ulang dokumen: tanpa field ini FastAPI membuang
