@@ -1,4 +1,5 @@
-from datetime import datetime as dt
+import secrets
+from datetime import datetime as dt, timedelta
 
 from sqlalchemy import insert, select, update
 
@@ -6,8 +7,10 @@ from constants.employee_form_default import FORMULIR_BAWAAN, periksa_definisi
 from models.employee_form_model import (
     employee_form_submissions_table,
     employee_form_versions_table,
+    employee_form_invites_table,
 )
 from models.employee_model import employees_table
+from models.user_model import users_table
 from utils.database import database
 from utils.logger_utils import log_error
 
@@ -90,6 +93,115 @@ class EmployeeFormRepository:
     """
 
     # ---------------------------------------------------------------- versi
+
+    @staticmethod
+    async def buat_undangan(employee_id: int, version_id: int, user_id: int):
+        """
+        Terbitkan tautan pengisian untuk satu karyawan.
+
+        Undangan lama yang masih berlaku DIHAPUS lebih dulu. Dua tautan aktif
+        untuk orang yang sama berarti yang menerimanya harus menebak mana yang
+        masih hidup — dan yang salah tebak menyimpulkan tautannya rusak.
+        """
+        try:
+            await database.execute(
+                update(employee_form_invites_table)
+                .where(employee_form_invites_table.c.employeeID == employee_id)
+                .where(employee_form_invites_table.c.isDelete == False)
+                .values(isDelete=True)
+            )
+
+            # 32 byte acak; menebaknya tidak mungkin dalam praktik.
+            token = secrets.token_urlsafe(32)
+            sekarang = dt.now()
+
+            invite_id = await database.execute(
+                insert(employee_form_invites_table).values(
+                    employeeID=employee_id,
+                    versionID=version_id,
+                    token=token,
+                    # Tiga hari: cukup untuk mengisi, tidak cukup untuk
+                    # terlupakan di riwayat pesan.
+                    expiresAt=sekarang + timedelta(days=3),
+                    createdAt=sekarang,
+                    createdBy=user_id,
+                )
+            )
+            return {"id": invite_id, "token": token,
+                    "expiresAt": sekarang + timedelta(days=3)}
+        except Exception as e:
+            log_error(f"Error creating form invite: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def undangan_dari_token(token: str):
+        """
+        Baca undangan dari tokennya.
+
+        Mengembalikan `None` bila tokennya tidak dikenal, sudah dicabut, atau
+        sudah lewat masa berlakunya — ketiganya diperlakukan sama, dan
+        pemanggil menjawab dengan pesan yang sama pula. Membedakannya
+        memberi tahu penebak bahwa tokennya PERNAH ada.
+        """
+        try:
+            baris = await database.fetch_one(
+                select(
+                    employee_form_invites_table.c.id,
+                    employee_form_invites_table.c.employeeID,
+                    employee_form_invites_table.c.versionID,
+                    employee_form_invites_table.c.expiresAt,
+                    employee_form_invites_table.c.createdBy,
+                    employees_table.c.name,
+                    users_table.c.name.label("pengundang"),
+                )
+                .select_from(
+                    employee_form_invites_table.join(
+                        employees_table,
+                        employee_form_invites_table.c.employeeID
+                        == employees_table.c.id,
+                    ).outerjoin(
+                        users_table,
+                        employee_form_invites_table.c.createdBy
+                        == users_table.c.id,
+                    )
+                )
+                .where(employee_form_invites_table.c.token == token)
+                .where(employee_form_invites_table.c.isDelete == False)
+                .where(employee_form_invites_table.c.expiresAt > dt.now())
+                .where(employees_table.c.isDelete == False)
+            )
+            if baris is None:
+                return None
+            return {
+                "id": baris["id"],
+                "employeeID": baris["employeeID"],
+                "versionID": baris["versionID"],
+                "expiresAt": baris["expiresAt"],
+                "createdBy": baris["createdBy"],
+                "employeeName": baris["name"],
+                # Nama yang meminta, ditampilkan pada halaman pengisian.
+                #
+                # Yang menerima tautan lewat surel perlu tahu dari siapa
+                # permintaannya datang — tautan tanpa asal yang jelas
+                # tampak seperti percobaan penipuan, dan yang berhati-hati
+                # justru tidak mengisinya.
+                "pengundang": baris["pengundang"],
+            }
+        except Exception as e:
+            log_error(f"Error reading form invite: {str(e)}")
+            return None
+
+    @staticmethod
+    async def tandai_terpakai(invite_id: int):
+        """Catat waktu pengisian terakhir; tokennya tetap berlaku."""
+        try:
+            await database.execute(
+                update(employee_form_invites_table)
+                .where(employee_form_invites_table.c.id == invite_id)
+                .values(usedAt=dt.now())
+            )
+        except Exception as e:
+            log_error(f"Error marking invite used: {str(e)}")
 
     @staticmethod
     async def list_versions():

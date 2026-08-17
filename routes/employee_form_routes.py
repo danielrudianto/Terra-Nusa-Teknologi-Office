@@ -119,3 +119,120 @@ async def simpan_jawaban(
             employee_id, version_id, payload.answers, user["id"]
         )
     )
+
+
+@router.post("/{employee_id}/undang")
+async def terbitkan_undangan(
+    employee_id: int,
+    user: Annotated[User, Depends(require("employee_form", "update"))],
+):
+    """
+    Terbitkan tautan pengisian dan kirimkan ke surel karyawan.
+
+    Dijaga izin yang sama dengan mengisi formulir atas nama orang lain —
+    menerbitkan tautan berarti memberi seseorang kuasa mengubah datanya
+    sendiri, dan itu setara.
+    """
+    versi = await EmployeeFormRepository.active_version()
+    if not versi or "error" in versi:
+        raise HTTPException(status_code=404, detail="Formulir aktif tidak ada.")
+
+    hasil = await EmployeeFormRepository.buat_undangan(
+        employee_id, versi["id"], user["id"]
+    )
+    if "error" in hasil:
+        raise HTTPException(
+            status_code=hasil.get("status", 500), detail=error_detail(hasil)
+        )
+    return hasil
+
+
+# ---------------------------------------------------------------------------
+# Pengisian mandiri oleh karyawan
+#
+# Rute di bawah ini TIDAK memerlukan masuk. Yang menandai penggunanya adalah
+# tokennya sendiri — dan itu disengaja: karyawan lapangan tidak punya akun,
+# dan membuatkan akun untuk pengisian setahun sekali menambah kata sandi yang
+# akan lupa lebih dulu daripada dipakai.
+#
+# Karena tanpa penjaga izin, setiap rute di sini hanya boleh menyentuh data
+# milik karyawan yang tokennya dibawa — tidak ada parameter yang menyebut
+# karyawan lain.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/isi/{token}")
+async def baca_untuk_pengisian(token: str):
+    """
+    Pertanyaan dan jawaban yang sudah ada, untuk halaman pengisian mandiri.
+    """
+    undangan = await EmployeeFormRepository.undangan_dari_token(token)
+    if undangan is None:
+        # Token tidak dikenal, sudah dicabut, dan sudah kedaluwarsa dijawab
+        # SAMA. Membedakannya memberi tahu penebak bahwa tokennya pernah ada.
+        raise HTTPException(status_code=404, detail="Tautan tidak berlaku.")
+
+    # Versi AKTIF yang dipakai, sama seperti pengisian lewat aplikasi.
+    #
+    # Undangan mencatat versi yang berlaku saat diterbitkan, tetapi masa
+    # berlakunya hanya tiga hari — jauh lebih pendek daripada jarak antar
+    # versi formulir, sehingga keduanya praktis selalu sama. Memakai versi
+    # aktif menjaga satu jalur pengisian, bukan dua yang dapat menyimpang.
+    versi = await EmployeeFormRepository.active_version()
+    if not versi or "error" in versi:
+        raise HTTPException(status_code=404, detail="Formulir tidak ditemukan.")
+
+    jawaban = await EmployeeFormRepository.get_submission(
+        undangan["employeeID"], undangan["versionID"]
+    )
+
+    return {
+        "employeeName": undangan["employeeName"],
+        "expiresAt": undangan["expiresAt"],
+        "pengundang": undangan.get("pengundang"),
+        "version": versi,
+        # Jawaban sebelumnya ikut dikirim.
+        #
+        # Sebagian besar isian tidak berubah dari tahun lalu; meminta
+        # mengetiknya ulang membuat orang mengisi asal supaya cepat selesai.
+        "answers": (jawaban or {}).get("answers") if jawaban else None,
+    }
+
+
+@router.put("/isi/{token}")
+async def simpan_pengisian_mandiri(token: str, payload: Jawaban):
+    """
+    Simpan jawaban dari halaman pengisian mandiri.
+
+    `employeeID` diambil dari TOKEN, bukan dari muatan — muatan dapat disusun
+    sendiri oleh siapa pun, dan menerima employeeID dari sana berarti satu
+    orang dapat menimpa data seluruh karyawan.
+    """
+    undangan = await EmployeeFormRepository.undangan_dari_token(token)
+    if undangan is None:
+        raise HTTPException(status_code=404, detail="Tautan tidak berlaku.")
+
+    # Versi AKTIF, sama dengan yang dibaca halaman pengisian.
+    #
+    # Menyimpan ke versi yang tercatat pada undangan sementara halaman
+    # menampilkan versi aktif membuat jawabannya tersimpan pada formulir yang
+    # BERBEDA dari yang dijawab — dan itu tidak menimbulkan galat apa pun,
+    # hanya riwayat yang menunjuk pertanyaan yang salah.
+    versi_aktif = await EmployeeFormRepository.active_version()
+    version_id = (versi_aktif or {}).get("id") or undangan["versionID"]
+
+    hasil = await EmployeeFormRepository.save_submission(
+        undangan["employeeID"],
+        version_id,
+        payload.answers,
+        # Pelaku dicatat sebagai penerbit undangan; karyawan tidak punya akun,
+        # sehingga jejaknya menunjuk ke yang mengundangnya.
+        undangan.get("createdBy") or 0,
+    )
+    if isinstance(hasil, dict) and "error" in hasil:
+        raise HTTPException(
+            status_code=hasil.get("status", 500), detail=error_detail(hasil)
+        )
+
+    await EmployeeFormRepository.tandai_terpakai(undangan["id"])
+    return hasil

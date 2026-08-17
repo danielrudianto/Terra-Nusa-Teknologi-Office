@@ -71,3 +71,44 @@ employee_form_submissions_table = Table(
     Column("updatedBy", Integer, ForeignKey("users.id"), nullable=True),
     Column("isDelete", Boolean(), nullable=False, server_default="0"),
 )
+
+"""
+Undangan pengisian: satu tautan sekali kirim untuk satu karyawan.
+
+Karyawan mengisi datanya sendiri lewat tautan ini, tanpa akun dan tanpa
+masuk. Tokennya yang menandai siapa dia — bukan nama atau NIK yang diketik
+sendiri, yang satu huruf salah saja membuat jawabannya tidak tertaut ke
+siapa pun.
+"""
+employee_form_invites_table = Table(
+    "employee_form_invites",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("employeeID", Integer, ForeignKey("employees.id"), nullable=False),
+    Column("versionID", Integer, ForeignKey("employee_form_versions.id"),
+           nullable=False),
+
+    # Token acak, bukan urutan.
+    #
+    # Nomor berurutan dapat ditebak: yang menerima tautannya sendiri dapat
+    # mengubah satu angka dan membuka data rekannya. Panjangnya dibuat cukup
+    # sehingga menebaknya tidak mungkin dalam praktik.
+    Column("token", String(64), nullable=False, unique=True),
+
+    # Batas waktu, tiga hari sejak dikirim.
+    #
+    # Tautan yang tidak pernah kedaluwarsa akan tersimpan di riwayat pesan
+    # dan grup — dan siapa pun yang menemukannya kelak dapat membuka data
+    # pribadi orang tersebut.
+    Column("expiresAt", DateTime(), nullable=False),
+
+    # Waktu pengisian TERAKHIR, bukan penanda sekali pakai.
+    #
+    # Orang kerap menyadari ada yang keliru setelah menekan kirim; token yang
+    # langsung mati memaksanya menghubungi HRD untuk satu huruf.
+    Column("usedAt", DateTime(), nullable=True),
+
+    Column("createdAt", DateTime(), nullable=False),
+    Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
+    Column("isDelete", Boolean(), nullable=False, server_default="0"),
+)
