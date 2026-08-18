@@ -131,6 +131,103 @@ _PASANGAN = [
     # "kuku macan" sebutan lapangan yang tidak menyerupai istilah resminya
     # sama sekali — tanpa sinonim, yang mencari tidak akan pernah menemukannya.
     ("wire rope clip", ["kuku macan", "klem seling", "klem sling"]),
+    # `wrench` 175 kali dan `kunci` 175 kali pada katalog yang SAMA. Yang
+    # mengetik salah satunya hanya menemukan separuhnya, lalu menyimpulkan
+    # barangnya belum terdaftar dan membuat entri kembar.
+    ("wrench", ["kunci"]),
+    ("combination wrench", ["kunci ring pas", "kunci kombinasi"]),
+    ("open end wrench", ["kunci pas"]),
+    ("ring wrench", ["kunci ring"]),
+    ("socket wrench", ["kunci sok", "kunci soket"]),
+    ("adjustable wrench", ["kunci inggris"]),
+    ("allen key", ["hex key", "kunci l", "kunci hexagon"]),
+    ("plier", ["tang"]),
+    ("screwdriver", ["obeng"]),
+    ("hammer", ["palu"]),
+    ("saw", ["gergaji"]),
+    ("grinding", ["gerinda"]),
+    ("drill bit", ["mata bor"]),
+    ("measuring tape", ["meteran", "meteran rol"]),
+
+    # ---- salah eja yang terlanjur tersimpan ----
+    #
+    # `stanless` tertulis 191 kali, `stainless` hanya 31 — yang mengeja
+    # dengan BENAR justru menemukan paling sedikit. Membetulkan 191 baris
+    # berarti mengubah nama barang yang sudah tercetak di ratusan purchase
+    # order, sehingga diperlakukan sebagai sinonim, bukan sebagai kekeliruan
+    # yang diperbaiki.
+    ("stainless", ["stanless", "stainles", "stainlees"]),
+    ("screw", ["sekrup", "skrup"]),
+    ("switch", ["saklar", "sakelar"]),
+    ("sling", ["seling"]),
+    ("connector", ["konektor"]),
+
+    # ---- pengikat ----
+    ("bolt", ["baut"]),
+    ("nut", ["mur"]),
+    ("washer", ["ring", "ring plat"]),
+    ("spring washer", ["ring per", "ring pegas"]),
+    ("anchor bolt", ["baut angkur", "angkur"]),
+    ("turnbuckle", ["span sekrup", "spanskrup"]),
+    ("shackle", ["segel", "sekel"]),
+
+    # ---- kelistrikan lanjutan ----
+    # 968 barang; kelompok terbesar pada katalog ini.
+    ("cable", ["kabel"]),
+    ("wire", ["kawat"]),
+    ("lamp", ["lampu"]),
+    ("circuit breaker", ["mcb", "pemutus arus"]),
+    ("contactor", ["kontaktor"]),
+    ("fuse", ["sikring", "sekring"]),
+    ("cable lug", ["sekun", "skun", "sepatu kabel"]),
+    ("cable tie", ["tie rap", "tirap", "pengikat kabel"]),
+    ("insulation tape", ["isolasi", "lakban listrik"]),
+    ("conduit", ["pipa kabel"]),
+    ("terminal block", ["terminal", "blok terminal"]),
+    ("grounding", ["pentanahan", "arde"]),
+
+    # ---- material ----
+    ("rebar", ["besi beton", "besi tulangan", "tulangan"]),
+    ("deformed", ["ulir", "sirip"]),
+    ("plain bar", ["besi polos"]),
+    ("plate", ["plat", "pelat"]),
+    ("angle bar", ["besi siku", "siku"]),
+    ("wire mesh", ["kawat anyam", "wiremesh"]),
+    ("tarpaulin", ["terpal"]),
+    ("concrete", ["beton"]),
+    ("cement", ["semen"]),
+
+    # ---- pengelasan ----
+    ("welding electrode", ["elektroda", "kawat las"]),
+    ("welding mask", ["topeng las", "kedok las"]),
+
+    # ---- pelindung diri ----
+    ("glove", ["sarung tangan"]),
+    ("helmet", ["helm", "helm proyek"]),
+    ("safety shoes", ["sepatu safety", "sepatu proyek"]),
+    ("goggle", ["kacamata safety"]),
+    ("mask", ["masker"]),
+    ("vest", ["rompi"]),
+    ("body harness", ["sabuk pengaman", "full body harness"]),
+    ("ear plug", ["penyumbat telinga", "sumbat telinga"]),
+
+    # ---- cairan & pelumas ----
+    ("oil", ["oli"]),
+    ("grease", ["gemuk"]),
+    ("hydraulic oil", ["oli hidrolik"]),
+    ("coolant", ["air radiator"]),
+    ("diesel", ["solar", "bahan bakar diesel"]),
+
+    # ---- lain ----
+    ("hose", ["selang"]),
+    ("clamp", ["klem"]),
+    ("rope", ["tali", "tambang"]),
+    ("chain", ["rantai"]),
+    ("filter", ["saringan"]),
+    ("bearing", ["laher", "klaher"]),
+    ("seal", ["sil", "perapat"]),
+    ("belt", ["sabuk", "van belt", "vanbelt"]),
+    ("battery", ["baterai", "aki"]),
 ]
 
 
