@@ -55,6 +55,14 @@ class TenderRepository:
                 )
             )
             await TenderRepository._tulis_baris(tender_id, baris)
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="tenders",
+                entityID=int(tender_id),
+                action="create",
+                userID=user_id,
+            )
             return {"id": tender_id, "number": nomor}
         except Exception as e:
             log_error(f"Error creating tender: {str(e)}")
@@ -222,6 +230,14 @@ class TenderRepository:
                 )
             if baris is not None:
                 await TenderRepository._tulis_baris(tender_id, baris)
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="tenders",
+                entityID=int(tender_id),
+                action="update",
+                userID=user_id,
+            )
             return {"id": tender_id}
         except Exception as e:
             log_error(f"Error updating tender: {str(e)}")
@@ -234,6 +250,14 @@ class TenderRepository:
                 update(tenders_table)
                 .where(tenders_table.c.id == tender_id)
                 .values(status=status, updatedAt=dt.now(), updatedBy=user_id)
+            )
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="tenders",
+                entityID=int(tender_id),
+                action="update_status",
+                userID=user_id,
             )
             return {"id": tender_id, "status": status}
         except Exception as e:
@@ -258,6 +282,14 @@ class TenderRepository:
                     updatedBy=user_id,
                 )
             )
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="tenders",
+                entityID=int(tender_id),
+                action="set_winner",
+                userID=user_id,
+            )
             return {"id": tender_id, "winnerQuoteID": quote_id}
         except Exception as e:
             log_error(f"Error setting tender winner: {str(e)}")
@@ -277,6 +309,14 @@ class TenderRepository:
                 update(tenders_table)
                 .where(tenders_table.c.id == tender_id)
                 .values(isDelete=True, deletedAt=dt.now(), deletedBy=user_id)
+            )
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="tenders",
+                entityID=int(tender_id),
+                action="delete",
+                userID=user_id,
             )
             return {"id": tender_id}
         except Exception as e:
@@ -301,6 +341,14 @@ class TenderRepository:
                 )
             )
             await TenderRepository._tulis_baris_penawaran(quote_id, baris)
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="tender_quotes",
+                entityID=int(quote_id),
+                action="create",
+                userID=user_id,
+            )
             return {"id": quote_id}
         except Exception as e:
             log_error(f"Error adding tender quote: {str(e)}")
@@ -348,6 +396,14 @@ class TenderRepository:
                 )
             if baris is not None:
                 await TenderRepository._tulis_baris_penawaran(quote_id, baris)
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="tender_quotes",
+                entityID=int(quote_id),
+                action="update",
+                userID=user_id,
+            )
             return {"id": quote_id}
         except Exception as e:
             log_error(f"Error updating tender quote: {str(e)}")
@@ -360,6 +416,14 @@ class TenderRepository:
                 update(tender_quotes_table)
                 .where(tender_quotes_table.c.id == quote_id)
                 .values(isDelete=True, deletedAt=dt.now(), deletedBy=user_id)
+            )
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="tender_quotes",
+                entityID=int(quote_id),
+                action="delete",
+                userID=user_id,
             )
             return {"id": quote_id}
         except Exception as e:

@@ -149,15 +149,32 @@ class MasterItemRepository:
             )
 
             if keyword:
-                kw = f"%{keyword}%"
-                cond = (
-                    master_item_table.c.sku.ilike(kw)
-                    | master_item_table.c.description.ilike(kw)
-                    | master_item_table.c.brand.ilike(kw)
-                    | master_item_table.c.type.ilike(kw)
-                )
-                data_query = data_query.where(cond)
-                count_query = count_query.where(cond)
+                """
+                Kata kunci diperluas dengan sinonimnya.
+
+                Katalog ini memuat dua bahasa sekaligus — `wrench` dan `kunci`
+                sama-sama 175 kali — dan sebagian salah eja terlanjur
+                tersimpan: `stanless` 191 kali berbanding `stainless` 31.
+                Yang mengeja dengan benar justru menemukan paling sedikit.
+
+                Seluruh bentuk digabung dengan OR: cukup salah satunya cocok.
+                """
+                from constants.sinonim_barang import perluas_kata_kunci
+
+                cond = None
+                for bentuk in perluas_kata_kunci(keyword):
+                    kw = f"%{bentuk}%"
+                    satu = (
+                        master_item_table.c.sku.ilike(kw)
+                        | master_item_table.c.description.ilike(kw)
+                        | master_item_table.c.brand.ilike(kw)
+                        | master_item_table.c.type.ilike(kw)
+                    )
+                    cond = satu if cond is None else (cond | satu)
+
+                if cond is not None:
+                    data_query = data_query.where(cond)
+                    count_query = count_query.where(cond)
 
             if purchase_type:
                 type_cond = master_item_table.c.availablePurchaseType.ilike(f"%{purchase_type}%")

@@ -578,6 +578,16 @@ class HrRecruitmentRepository:
                     createdAt=dt.now(),
                 )
             )
+            # Penggunanya diambil dari konteks permintaan: fungsi ini
+            # tidak menerima `user_id` pada tanda tangannya, dan menambahkannya
+            # berarti mengubah seluruh pemanggilnya.
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="hr_questions",
+                entityID=int(soal_id),
+                action="create",
+            )
             return {"id": soal_id}
         except Exception as e:
             log_error(f"Error creating hr question: {str(e)}")
@@ -598,6 +608,16 @@ class HrRecruitmentRepository:
             )
             nilai = {k: data[k] for k in boleh if k in data}
             if not nilai:
+                # Penggunanya diambil dari konteks permintaan: fungsi ini
+                # tidak menerima `user_id` pada tanda tangannya, dan menambahkannya
+                # berarti mengubah seluruh pemanggilnya.
+                from repository.audit_log_repository import AuditLogRepository
+
+                await AuditLogRepository.record(
+                    entity="hr_questions",
+                    entityID=int(question_id),
+                    action="update",
+                )
                 return {"id": question_id}
 
             await database.execute(
@@ -624,6 +644,16 @@ class HrRecruitmentRepository:
                 update(hr_questions_table)
                 .where(hr_questions_table.c.id == question_id)
                 .values(isDelete=True)
+            )
+            # Penggunanya diambil dari konteks permintaan: fungsi ini
+            # tidak menerima `user_id` pada tanda tangannya, dan menambahkannya
+            # berarti mengubah seluruh pemanggilnya.
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="hr_questions",
+                entityID=int(question_id),
+                action="delete",
             )
             return {"id": question_id}
         except Exception as e:

@@ -21,6 +21,14 @@ class PaymentPlanRepository:
                     createdBy=user_id,
                 )
             )
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="payment_plans",
+                entityID=int(plan_id),
+                action="create",
+                userID=user_id,
+            )
             return {"id": plan_id}
         except Exception as e:
             log_error(f"Error creating payment plan: {str(e)}")
@@ -170,6 +178,14 @@ class PaymentPlanRepository:
                 .where(payment_plans_table.c.id == plan_id)
                 .values(**nilai, updatedAt=dt.now(), updatedBy=user_id)
             )
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="payment_plans",
+                entityID=int(plan_id),
+                action="update",
+                userID=user_id,
+            )
             return {"id": plan_id}
         except Exception as e:
             log_error(f"Error updating payment plan: {str(e)}")
@@ -189,6 +205,14 @@ class PaymentPlanRepository:
                 update(payment_plans_table)
                 .where(payment_plans_table.c.id == plan_id)
                 .values(isDelete=True, deletedAt=dt.now(), deletedBy=user_id)
+            )
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="payment_plans",
+                entityID=int(plan_id),
+                action="delete",
+                userID=user_id,
             )
             return {"id": plan_id}
         except Exception as e:

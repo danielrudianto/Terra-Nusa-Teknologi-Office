@@ -129,6 +129,38 @@ class MasterItemController:
                 # Dipisah supaya yang membaca tahu ia sedang melihat saran,
                 # bukan hasil. Mencampurnya mengembalikan persoalan semula:
                 # barang yang tidak dicari muncul seolah-olah cocok.
+                """
+                Bila kosong, dicoba ulang dengan SINONIMNYA lebih dulu.
+
+                Katalog ini memuat dua bahasa sekaligus — `wrench` dan `kunci`
+                sama-sama 175 kali — dan sebagian salah eja terlanjur
+                tersimpan: `stanless` 191 kali berbanding `stainless` 31.
+
+                Dicoba SETELAH pencarian biasa, bukan menggantikannya: yang
+                mengetik kata yang memang ada di katalog harus mendapat
+                hasilnya sendiri lebih dulu, tanpa dicampur bentuk lain yang
+                mungkin lebih banyak jumlahnya.
+                """
+                if keyword and not hits:
+                    from constants.sinonim_barang import perluas_kata_kunci
+
+                    bentuk = perluas_kata_kunci(keyword)
+                    # Bentuk pertama adalah kata aslinya, yang sudah dicoba.
+                    for lain in bentuk[1:]:
+                        try:
+                            ulang = client.index(INDEX_NAME).search(
+                                lain, search_params
+                            )
+                        except Exception as e:
+                            log_error(f"Gagal mencari sinonim '{lain}': {str(e)}")
+                            continue
+                        if ulang["hits"]:
+                            hits = ulang["hits"]
+                            jumlah = ulang.get(
+                                "estimatedTotalHits", len(ulang["hits"])
+                            )
+                            break
+
                 saran = []
                 if keyword and not hits:
                     longgar = dict(search_params)
