@@ -230,7 +230,16 @@ class EmployeeFormRepository:
                 .where(employee_form_versions_table.c.isDelete == False)
                 .order_by(employee_form_versions_table.c.period.desc())
             )
-            return [dict(r) for r in await database.fetch_all(query)]
+            # `fields` diurai, sama seperti pada `active_version`.
+            #
+            # Kolomnya JSON dan driver mengembalikannya sebagai TEKS. Daftar
+            # versi yang menampilkan jumlah isian karena itu menghitung
+            # panjang string, bukan banyaknya isian: "1.243 isian" untuk
+            # formulir berisi dua belas pertanyaan.
+            return [
+                {**dict(r), "fields": _baca_jawaban(dict(r).get("fields"))}
+                for r in await database.fetch_all(query)
+            ]
         except Exception as e:
             log_error(f"Error listing form versions: {str(e)}")
             return {"error": "Internal server error.", "status": 500}

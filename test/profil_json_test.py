@@ -69,3 +69,40 @@ def test_setiap_pembaca_memakai_rapikan():
     s = open(BERKAS).read()
     assert 'return dict(row)' not in s
     assert 'return [dict(r) for r in rows]' not in s
+
+
+# ---------------------------------------------------------------------------
+# Formulir isi sendiri
+# ---------------------------------------------------------------------------
+
+BERKAS_FORM = os.path.join(AKAR, 'repository', 'employee_form_repository.py')
+
+
+def test_setiap_pembaca_versi_mengurai_fields():
+    """
+    `fields` berkolom JSON dan driver mengembalikannya sebagai TEKS.
+
+    Yang tidak menguraikannya membuat daftar versi menghitung PANJANG STRING
+    alih-alih banyaknya isian — dan layar pengisian yang menerimanya lewat
+    `Array.isArray()` menampilkan formulir kosong tanpa satu pun galat.
+    """
+    s = open(BERKAS_FORM).read()
+
+    # Setiap fungsi yang mengembalikan baris versi harus menguraikannya.
+    import re
+    for nama in ('active_version', 'list_versions'):
+        m = re.search(
+            rf'\n    async def {nama}\([\s\S]*?'
+            r'(?=\n    @staticmethod|\n    async def |\Z)', s)
+        assert m, nama
+        assert '_baca_jawaban' in m.group(0), f'{nama} tidak mengurai fields'
+
+
+def test_baris_versi_tidak_dikembalikan_apa_adanya():
+    s = open(BERKAS_FORM).read()
+    import re
+    m = re.search(
+        r'\n    async def list_versions\([\s\S]*?'
+        r'(?=\n    @staticmethod|\n    async def |\Z)', s)
+    assert 'return [dict(r) for r in await database.fetch_all(query)]' \
+        not in m.group(0)
