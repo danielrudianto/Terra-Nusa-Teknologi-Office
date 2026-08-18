@@ -1,3 +1,4 @@
+import json
 from datetime import datetime as dt
 
 from sqlalchemy import insert, select, update
@@ -6,6 +7,47 @@ from models.employee_model import employees_table
 from models.employee_profile_model import employee_profiles_table
 from utils.database import database
 from utils.logger_utils import log_error
+
+
+
+#: Kolom JSON yang dapat kembali sebagai TEKS dari driver.
+#:
+#: `databases` mengembalikan kolom JSON MySQL apa adanya — sebagai string,
+#: bukan objek Python. Layar memeriksanya dengan `Array.isArray()`, yang
+#: menolak string, sehingga seluruh bagian itu tidak pernah ditampilkan.
+#:
+#: Tidak ada galat di mana pun: datanya tersimpan benar, jawabannya berisi,
+#: dan layarnya menyimpulkan bagian itu memang kosong. Yang membukanya
+#: menanyakan ulang pendidikan dan susunan keluarga kepada orangnya.
+#:
+#: Pola yang sama sudah dipakai `purchase_order_repository`.
+_KOLOM_JSON = (
+    "drivingLicenses",
+    "formalEducation",
+    "workExperience",
+    "languages",
+    "familyMembers",
+)
+
+
+def _rapikan(row):
+    """Baris database menjadi dict biasa, dengan kolom JSON sudah diurai."""
+    if row is None:
+        return None
+    data = dict(row)
+    for kolom in _KOLOM_JSON:
+        nilai = data.get(kolom)
+        if isinstance(nilai, str):
+            try:
+                data[kolom] = json.loads(nilai)
+            except (ValueError, TypeError):
+                # Isi yang tidak dapat diurai DIBIARKAN apa adanya.
+                #
+                # Mengosongkannya menghapus data yang mungkin masih dapat
+                # diselamatkan tangan; membiarkannya membuat masalahnya
+                # terlihat, bukan hilang diam-diam.
+                pass
+    return data
 
 
 class EmployeeProfileRepository:
@@ -30,7 +72,7 @@ class EmployeeProfileRepository:
                 employee_profiles_table.c.employeeID == employee_id
             )
             row = await database.fetch_one(query)
-            return dict(row) if row else None
+            return _rapikan(row)
         except Exception as e:
             log_error(f"Error fetching employee profile: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
@@ -137,7 +179,7 @@ class EmployeeProfileRepository:
                 .order_by(employees_table.c.name.asc())
             )
             rows = await database.fetch_all(query)
-            return [dict(r) for r in rows]
+            return [_rapikan(r) for r in rows]
         except Exception as e:
             log_error(f"Error fetching employees without profile: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
