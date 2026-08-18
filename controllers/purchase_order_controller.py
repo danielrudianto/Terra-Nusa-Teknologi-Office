@@ -145,6 +145,18 @@ class PurchaseOrderController:
     #: membuat pratinjaunya tampil tanpa satu klausul pun.
     VARIAN_JENIS = {"H1": "H", "H2": "H"}
 
+    #: Jenis material PO-F yang berupa JASA PENGUJIAN.
+    #:
+    #: Ketiganya menghasilkan SURAT PERINTAH KERJA, bukan PURCHASE ORDER:
+    #: yang dibeli bukan barang melainkan pekerjaan menguji, dan yang
+    #: diterima kembali adalah laporannya.
+    #:
+    #: Daftar ini SATU-SATUNYA sumbernya. Sebelumnya ditulis langsung pada
+    #: `_awalan_dokumen`, dan ketika "ujitanah" ditambahkan di layar, daftar
+    #: di sini tidak ikut — sehingga SPK uji tanah bernomor `040-PO-...`
+    #: padahal lembarnya berjudul SURAT PERINTAH KERJA.
+    MATERIAL_JASA_UJI = ("ujitekan", "ujibesi", "ujitanah")
+
     @staticmethod
     def _awalan_dokumen(purchase_type: str, custom: dict | None = None) -> str:
         """
@@ -167,7 +179,12 @@ class PurchaseOrderController:
         # Nama kunci penentunya berbeda-beda karena tiap formulir menamainya
         # sendiri; menebak satu nama membuat tiga lainnya salah diam-diam.
         if jenis == "F":
-            return "SPK" if c.get("materialType") in ("ujitekan", "ujibesi") else "PO"
+            return (
+                "SPK"
+                if c.get("materialType")
+                in PurchaseOrderController.MATERIAL_JASA_UJI
+                else "PO"
+            )
         if jenis == "5.1.2":
             return "PO" if c.get("maintenanceMode") == "barang" else "SPK"
         if jenis in ("6.3.1", "6.3.2"):
