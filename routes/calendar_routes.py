@@ -62,6 +62,21 @@ async def get_calendar_data_by_date(date: str, current_user: Annotated[User, Dep
         # Optionally log the error or handle it differently
         raise e # Re-raise to return the HTTPException response
 
+@router.get("/tertunda")
+async def pembayaran_tertunda(
+    current_user: Annotated[User, Depends(require("payment_outgoing", "read"))],
+    bankAccounts: List[int] = Query(None),
+):
+    """
+    Pembayaran yang jatuh temponya sudah lewat tetapi belum disetujui.
+
+    Terpisah dari `GET /calendar` karena jawaban itu sudah DIJUMLAHKAN per
+    tanggal — satu baris per hari, tanpa nama dokumen dan tanpa status.
+    Daftar yang menuntut tindakan tidak dapat disusun darinya.
+    """
+    return await CalendarController.tertunda(bankAccounts)
+
+
 @router.get("/download")
 async def download_calendar(month: int, year: int, current_user: Annotated[User, Depends(require("payment_outgoing", "read"))], bankAccounts: List[int] =  Query(None)):
     """

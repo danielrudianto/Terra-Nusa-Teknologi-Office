@@ -1,7 +1,7 @@
 from typing import List
 from sqlalchemy import String, or_, select, func, and_, case, literal
 from utils.database import database
-from datetime import date as d, datetime as dt, timedelta
+from datetime import date as dt_date, date as d, datetime as dt, timedelta
 from models.payment_outgoing_model import payments_outgoing_table, PaymentOutgoing
 from models.purchase_model import purchases_table
 from models.reimbursement_model import reimbursements_table
@@ -996,6 +996,151 @@ class PaymentOutgoingRepository:
         result = await database.fetch_all(query)
         return result
     @staticmethod
+
+    @staticmethod
+    async def tertunda(
+        sampai: dt_date, bankAccounts: List[int] | None = None
+    ):
+        """
+        Pembayaran yang tanggalnya SUDAH LEWAT tetapi belum disetujui.
+
+        Dibuat terpisah karena `get_calendar_data` sudah menjumlahkan per
+        tanggal — satu baris per hari, tanpa dokumen dan tanpa status.
+        Layar kalender memakai jawaban itu, sehingga daftar yang tertunda
+        tidak dapat disusun darinya: nama dokumennya memang tidak ada di
+        sana, dan `isApprove` yang tidak disertakan terbaca sebagai belum
+        disetujui untuk SEMUANYA.
+
+        Yang DIHAPUS dan yang DITOLAK dikecualikan: keduanya sudah selesai
+        urusannya, dan menuntut tindakan atas hal yang justru sudah
+        diputuskan hanya membuat daftarnya diabaikan.
+        """
+        try:
+            kolom = [
+                payments_outgoing_table.c.id,
+                payments_outgoing_table.c.date,
+                payments_outgoing_table.c.amount,
+                payments_outgoing_table.c.bankAccountID,
+                purchases_table.c.purchaseOrderName.label("purchase_po_name"),
+                purchases_table.c.invoiceName.label("purchase_invoice"),
+                purchases_table.c.projectName.label("purchase_project"),
+                suppliers_table.c.name.label("supplier_name"),
+                reimbursements_table.c.name.label("reimbursement_name"),
+                reimbursements_table.c.projectName.label("reimbursement_project"),
+                expenses_table.c.invoiceName.label("expense_invoice"),
+                expenses_table.c.description.label("expense_description"),
+                expense_opponents_table.c.name.label("opponent_name"),
+                salary_slips_table.c.month.label("slip_month"),
+                salary_slips_table.c.year.label("slip_year"),
+                employees_table.c.name.label("slip_employee"),
+                loans_table.c.creditorName.label("loan_creditor"),
+                loans_table.c.description.label("loan_description"),
+            ]
+
+            query = (
+                select(*kolom)
+                .select_from(payments_outgoing_table)
+                .outerjoin(
+                    purchases_table,
+                    payments_outgoing_table.c.purchaseID == purchases_table.c.id,
+                )
+                .outerjoin(
+                    suppliers_table,
+                    purchases_table.c.supplierID == suppliers_table.c.id,
+                )
+                .outerjoin(
+                    reimbursements_table,
+                    payments_outgoing_table.c.reimbursementID
+                    == reimbursements_table.c.id,
+                )
+                .outerjoin(
+                    expenses_table,
+                    payments_outgoing_table.c.expenseID == expenses_table.c.id,
+                )
+                .outerjoin(
+                    expense_opponents_table,
+                    expenses_table.c.opponentID == expense_opponents_table.c.id,
+                )
+                .outerjoin(
+                    salary_slips_table,
+                    payments_outgoing_table.c.salarySlipID
+                    == salary_slips_table.c.id,
+                )
+                .outerjoin(
+                    employees_table,
+                    salary_slips_table.c.userID == employees_table.c.id,
+                )
+                .outerjoin(
+                    loans_table,
+                    payments_outgoing_table.c.loanID == loans_table.c.id,
+                )
+                .where(
+                    payments_outgoing_table.c.date < sampai,
+                    payments_outgoing_table.c.isDelete == False,  # noqa: E712
+                    payments_outgoing_table.c.isApprove == False,  # noqa: E712
+                )
+                .order_by(payments_outgoing_table.c.date.asc())
+            )
+
+            # `status` bernilai NULL selama belum diputuskan; `!=` pada NULL
+            # menghasilkan NULL di SQL — dan baris yang belum diputuskan
+            # justru ikut tersaring keluar. Karena itu NULL disebut terpisah.
+            query = query.where(
+                or_(
+                    payments_outgoing_table.c.status.is_(None),
+                    payments_outgoing_table.c.status != "reject",
+                )
+            )
+
+            if bankAccounts:
+                query = query.where(
+                    payments_outgoing_table.c.bankAccountID.in_(bankAccounts)
+                )
+
+            rows = await database.fetch_all(query)
+
+            hasil = []
+            for r in rows:
+                if r["purchase_po_name"] or r["purchase_invoice"]:
+                    ket = r["purchase_po_name"] or r["purchase_invoice"]
+                    lawan = r["supplier_name"] or ""
+                    proyek = r["purchase_project"] or ""
+                elif r["reimbursement_name"]:
+                    ket = r["reimbursement_name"]
+                    lawan = ""
+                    proyek = r["reimbursement_project"] or ""
+                elif r["expense_invoice"] or r["expense_description"]:
+                    ket = r["expense_invoice"] or r["expense_description"]
+                    lawan = r["opponent_name"] or ""
+                    proyek = ""
+                elif r["slip_employee"]:
+                    ket = f"Slip gaji {r['slip_month']}/{r['slip_year']}"
+                    lawan = r["slip_employee"]
+                    proyek = ""
+                elif r["loan_creditor"]:
+                    ket = r["loan_description"] or "Pembayaran pinjaman"
+                    lawan = r["loan_creditor"]
+                    proyek = ""
+                else:
+                    ket = ""
+                    lawan = ""
+                    proyek = ""
+
+                hasil.append(
+                    {
+                        "id": r["id"],
+                        "date": r["date"],
+                        "amount": r["amount"],
+                        "bankAccountID": r["bankAccountID"],
+                        "keterangan": ket,
+                        "lawan": lawan,
+                        "projectName": proyek,
+                    }
+                )
+            return hasil
+        except Exception as e:
+            log_error(f"Error retrieving overdue payments: {str(e)}")
+            return []
     async def get_calendar_data_by_date(date: int, month: int, year: int, bankAccounts: List[int]):
         try:
             if month < 1 or month > 12:

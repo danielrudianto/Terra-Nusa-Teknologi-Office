@@ -12,6 +12,24 @@ from typing import List
 from utils.errors import internal_error
 
 class CalendarController:
+
+    @staticmethod
+    async def tertunda(bankAccounts):
+        """
+        Pembayaran yang jatuh temponya sudah lewat tetapi belum disetujui.
+
+        Batasnya HARI INI di sisi server, bukan dikirim layar: jam peramban
+        dapat meleset atau disetel sendiri, dan daftar yang menuntut tindakan
+        tidak boleh bergantung padanya.
+        """
+        from datetime import date as _d
+
+        data = await PaymentOutgoingRepository.tertunda(_d.today(), bankAccounts)
+        return {
+            "data": data,
+            "count": len(data),
+            "total": sum(float(x["amount"] or 0) for x in data),
+        }
     @staticmethod
     async def get_calendar_data(month: int, year: int, bankAccounts: List[int]):
         """
