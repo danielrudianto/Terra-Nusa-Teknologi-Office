@@ -8,7 +8,7 @@ from utils.audit_context import (
     get_current_user_id,
     get_current_user_name,
 )
-from datetime import datetime as dt
+from datetime import date as tanggal, datetime as dt
 
 
 class AuditLogRepository:
@@ -55,8 +55,24 @@ class AuditLogRepository:
 
     @staticmethod
     def _sederhanakan(nilai):
-        """Tanggal dan Decimal tidak bisa langsung disimpan sebagai JSON."""
-        if isinstance(nilai, dt):
+        """
+        Ubah nilai yang tidak dikenal JSON menjadi bentuk yang dapat disimpan.
+
+        `date` DIPERIKSA, bukan hanya `datetime`.
+
+        Keduanya bukan hal yang sama: `datetime` adalah turunan `date`, tetapi
+        TIDAK sebaliknya. Memeriksa `datetime` saja meloloskan `date` apa
+        adanya, dan penyandiannya gagal dengan "Object of type date is not
+        JSON serializable".
+
+        Kegagalan itu ditelan `record()` — operasi utamanya tetap berhasil,
+        hanya jejaknya yang hilang. Sudah terjadi pada `endDate` karyawan:
+        yang menonaktifkan karyawan tidak meninggalkan jejak sama sekali di
+        halaman Aktivitas, dan tidak ada yang tampak salah dari layar.
+
+        Memeriksa `date` menangkap KEDUANYA, karena `datetime` turunannya.
+        """
+        if isinstance(nilai, tanggal):
             return nilai.isoformat()
         if hasattr(nilai, "quantize"):  # Decimal
             return float(nilai)
@@ -105,7 +121,15 @@ class AuditLogRepository:
             await database.execute(query)
             return True
         except Exception as e:
-            log_error(f"Gagal mencatat jejak audit: {str(e)}")
+            # Sebab dan ENTITASNYA ikut dicatat.
+            #
+            # Pesan tanpa entitas membuat penelusuran harus menebak modul mana
+            # yang bermasalah — dan "Object of type date is not JSON
+            # serializable" muncul sama persis dari lima modul berbeda.
+            log_error(
+                f"Gagal mencatat jejak audit [{entity}#{entityID} {action}]: "
+                f"{str(e)}"
+            )
             return False
 
     @staticmethod
