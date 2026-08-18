@@ -12,7 +12,6 @@ master_equipment_table = Table(
     Column("category", String(45), nullable=False),
     Column("capacity", String(45), nullable=True),
     Column("brand", String(45), nullable=True),
-    Column("description", Text, nullable=True),
     Column("unit", String(45), nullable=False, server_default="hari"),
     Column("isDelete", Boolean, nullable=False, server_default=text("0"), default=False),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
