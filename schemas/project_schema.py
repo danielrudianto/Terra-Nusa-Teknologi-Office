@@ -46,6 +46,13 @@ class ProjectUpdate(BaseModel):
     # karena hanya di sana jumlah dokumennya dapat dihitung.
     code: Optional[str] = Field(default=None, min_length=2, max_length=20)
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    # Alamat lokasi proyek; dipakai mengisi pengiriman PO Franco.
+    #
+    # PENTING: kelas ini TIDAK mewarisi `ProjectBase`. Setiap kolom baru harus
+    # disebut di SINI juga — Pydantic membuang bidang yang tidak dikenalnya
+    # tanpa galat apa pun, sehingga muatan yang benar tersimpan sebagai NULL
+    # dan jawabannya tetap "updated successfully".
+    address: Optional[str] = Field(default=None, max_length=1000)
     clientID: Optional[int] = None
     description: Optional[str] = Field(default=None, max_length=500)
     startDate: Optional[date] = None
