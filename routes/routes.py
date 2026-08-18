@@ -33,6 +33,7 @@ from routes.user_routes import router as user_router
 from routes.agenda_routes import router as agenda_router
 from routes.project_routes import router as project_router
 from routes.tender_routes import router as tender_router
+from routes.payment_plan_routes import router as payment_plan_router
 from routes.finance_status_routes import router as finance_status_router
 from routes.user_avatar_routes import router as user_avatar_router
 from routes.audit_log_routes import router as audit_log_router
@@ -47,6 +48,7 @@ router.include_router(permission_router, prefix="/permissions", tags=["Permissio
 router.include_router(user_access_router, prefix="/user-access", tags=["User access"])
 router.include_router(supplier_router, prefix="/suppliers", tags=["Suppliers"])
 router.include_router(tender_router, prefix="/tenders", tags=["Tenders"])
+router.include_router(payment_plan_router, prefix="/payment-plans", tags=["Payment plans"])
 router.include_router(purchase_router, prefix="/purchases", tags=["Purchases"])
 router.include_router(reimbursement_router, prefix="/reimbursements", tags=["Reimbursements"])
 router.include_router(bank_router, prefix="/banks", tags=["Banks"])

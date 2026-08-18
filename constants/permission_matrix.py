@@ -150,6 +150,14 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     # tidak dapat dihapus sama sekali; yang terhapus hanya yang belum
     # menghasilkan keputusan.
     "tender": (1, 1, 1, 2, 3),
+    # Rencana pengeluaran.
+    #
+    # Dibaca luas — posisi kas menyangkut seluruh divisi — tetapi hanya FAT
+    # yang mencatatnya; wilayahnya dijaga `department_modules`, bukan level.
+    #
+    # `approve` tidak berlaku: rencana bukan keputusan yang perlu disetujui,
+    # melainkan taksiran yang diperbaiki terus-menerus.
+    "payment_plan": (1, 1, 1, 2, 0),
     "purchase_order": (1, 1, 1, 2, 3),
     "reimbursement": (1, 1, 1, 2, 3),
     # Slip gaji mengikuti tangga level seperti modul lain.

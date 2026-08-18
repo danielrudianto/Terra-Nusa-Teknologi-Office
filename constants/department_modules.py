@@ -62,6 +62,8 @@ DEPARTMENT_MODULES: dict[str, set[str]] = {
         "supplier",
         "purchase_order",
         # keuangan
+        # Rencana pengeluaran: perencanaan kas adalah pekerjaan FAT.
+        "payment_plan",
         "bank",
         "payment_incoming",
         "payment_outgoing",
