@@ -840,11 +840,24 @@ class PaymentOutgoingController:
                 log_error(f"Error fetching payment with ID {id}: {payment['error']}")
                 return {"error": payment["error"], "status": payment.get("status", 500)}
             
-            # Fungsi ini SEBELUMNYA hanya membaca lalu melaporkan sukses.
+            # Pembayaran yang SUDAH DISETUJUI tidak dapat dihapus.
             #
-            # Tidak ada rute yang memanggilnya, sehingga tidak berakibat apa
-            # pun — tetapi laporan sukses tanpa perbuatan adalah jebakan bagi
-            # siapa pun yang kelak menyambungkannya.
+            # Persetujuan adalah titik ketika uangnya dinyatakan boleh keluar;
+            # menghapusnya sesudah itu menghilangkan jejak keputusan yang
+            # sudah diambil seseorang, dan saldo bank tidak ikut kembali.
+            # Yang keliru dibatalkan lewat pembalikan, bukan penghapusan.
+            #
+            # Belum ada rute yang memanggil fungsi ini. Penjagaannya dipasang
+            # sekarang justru karena itu: yang kelak menyambungkannya belum
+            # tentu tahu batasan ini, dan komentar saja tidak menahan apa pun.
+            if payment.get("isApprove"):
+                return {
+                    "error": (
+                        "Pembayaran yang sudah disetujui tidak dapat dihapus."
+                    ),
+                    "status": 409,
+                }
+
             hasil = await PaymentOutgoingRepository.soft_delete_payment(id, userID)
             if isinstance(hasil, dict) and "error" in hasil:
                 log_error(f"Error deleting payment with ID {id}: {hasil['error']}")

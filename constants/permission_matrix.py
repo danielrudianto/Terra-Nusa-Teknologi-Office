@@ -140,6 +140,16 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     # sudah ada adalah level 4 ke atas.
     "purchase": (1, 1, 1, 3, 3),
     "purchase_draft": (1, 1, 1, 2, 3),
+    # Tender pengadaan.
+    #
+    # `approve` di level 3, terpisah dari `update` di level 1: yang mencatat
+    # penawaran belum tentu yang berhak memutuskan pemenangnya — pemisahan
+    # yang sama seperti pada pembayaran keluar.
+    #
+    # `delete` di level 2 karena tender yang pemenangnya sudah ditetapkan
+    # tidak dapat dihapus sama sekali; yang terhapus hanya yang belum
+    # menghasilkan keputusan.
+    "tender": (1, 1, 1, 2, 3),
     "purchase_order": (1, 1, 1, 2, 3),
     "reimbursement": (1, 1, 1, 2, 3),
     # Slip gaji mengikuti tangga level seperti modul lain.

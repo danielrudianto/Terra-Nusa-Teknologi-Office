@@ -74,6 +74,26 @@ class PurchaseDraftController:
     
     @staticmethod
     async def delete_purchase_draft(purchase_draft_id: int, userID: int):
+        """
+        Hapus draf pembelian.
+
+        Draf yang SUDAH DIKONVERSI tidak dapat dihapus: pembeliannya menunjuk
+        balik ke draf ini lewat `purchaseID`, dan menghapusnya membuat
+        pembelian yang sudah berjalan kehilangan asal-usulnya — tidak ada
+        lagi yang menerangkan dari mana angkanya berasal.
+
+        Yang keliru dibatalkan pada pembeliannya, bukan pada drafnya.
+        """
+        draf = await PurchaseDraft.get_purchase_draft_by_id(purchase_draft_id)
+        if isinstance(draf, dict) and draf.get("convertedAt"):
+            return {
+                "error": (
+                    "Draf ini sudah dikonversi menjadi pembelian dan tidak "
+                    "dapat dihapus."
+                ),
+                "status": 409,
+            }
+
         await PurchaseDraft.delete_purcase_draft(purchase_draft_id, userID)
 
         from repository.audit_log_repository import AuditLogRepository
@@ -85,9 +105,16 @@ class PurchaseDraftController:
             userID=userID,
         )
 
-        log_info(f"Purchase draft converted successfully with ID: {purchase_draft_id}")
-        
-        return {"message": "Purchase draft converted successfully", "purchase_id": purchase_draft_id}
+        # Pesan sebelumnya menyebut "converted" pada fungsi yang MENGHAPUS.
+        #
+        # Yang membaca lognya menyimpulkan drafnya berhasil dikonversi,
+        # padahal ia dihapus — dua peristiwa yang berlawanan artinya.
+        log_info(f"Purchase draft deleted successfully with ID: {purchase_draft_id}")
+
+        return {
+            "message": "Purchase draft deleted successfully",
+            "purchase_draft_id": purchase_draft_id,
+        }
     
     @staticmethod
     async def convert_purchase_draft(purchase_data: dict, userID: int):

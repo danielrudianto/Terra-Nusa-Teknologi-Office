@@ -52,6 +52,7 @@ import models.user_avatar_model  # avatar pengguna
 import models.user_department_model  # divisi pengguna
 import models.user_permission_model  # izin khusus per pengguna
 import models.hr_recruitment_model  # ujian rekrutmen HR
+import models.tender_model  # Tender pengadaan
 
 if __name__ == "__main__":
     metadata.create_all(engine, checkfirst=True)

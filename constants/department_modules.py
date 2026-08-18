@@ -110,6 +110,12 @@ DEPARTMENT_MODULES: dict[str, set[str]] = {
     | {
         "purchase_order",
         "purchase_draft",
+        # Tender pengadaan; wilayah procurement sepenuhnya.
+        #
+        # FAT sengaja TIDAK diberi: tender adalah proses memilih pemasok,
+        # bukan pencatatan keuangan. Yang perlu dilihat keuangan adalah
+        # purchase order yang terbit sesudahnya.
+        "tender",
         "supplier",
         "master_item",
         "master_equipment",
