@@ -108,6 +108,37 @@ tender_quotes_table = Table(
     # Syarat yang DITAWARKAN pemasok; kerap berbeda dari yang diminta.
     Column("paymentTerm", String(20), nullable=True),
     Column("creditTerm", Integer, nullable=True),
+    # Apakah pemasok memungut PPN.
+    #
+    # Menentukan BIAYA SEBENARNYA, bukan sekadar keterangan. PPN yang dipungut
+    # PKP dapat dikreditkan sebagai pajak masukan, sehingga yang benar-benar
+    # menjadi beban hanya DPP-nya. Pemasok non-PKP tidak memungut apa pun —
+    # dan seluruh harganya menjadi biaya.
+    #
+    # Akibatnya penawaran yang tampak lebih murah dapat justru lebih mahal:
+    # Rp 105 tanpa PPN lebih mahal daripada Rp 100 + PPN, karena yang kedua
+    # menyisakan beban Rp 100 saja.
+    Column("includePpn", Boolean, nullable=False, server_default="0"),
+    # Tarif PPN yang berlaku saat penawaran dicatat.
+    #
+    # Disimpan, tidak dihitung dari tetapan: tarifnya pernah berubah dan dapat
+    # berubah lagi, dan penawaran lama harus tetap terbaca dengan tarif yang
+    # berlaku ketika ia dibuat.
+    Column("ppnPercentage", DECIMAL(5, 2), nullable=True),
+    # `franco` (diantar pemasok) atau `loco` (diambil sendiri).
+    #
+    # Menentukan siapa menanggung angkutnya, dan karena itu ikut menentukan
+    # biaya sebenarnya. Penawaran Loco yang tampak lebih murah dapat justru
+    # lebih mahal setelah ongkos angkutnya dihitung — dan ongkos itu tidak
+    # pernah muncul di surat penawaran mana pun.
+    Column("deliveryMethod", String(20), nullable=True),
+    # Biaya lain yang DITANGGUNG AKN, di luar harga barangnya.
+    #
+    # Ongkos angkut pada Loco, biaya bongkar, biaya uji, atau apa pun yang
+    # tidak ditagihkan pemasok tetapi tetap keluar. Dicatat terpisah supaya
+    # perbandingannya jujur tanpa mengotori harga satuannya.
+    Column("otherCost", DECIMAL(15, 2), nullable=True),
+    Column("otherCostNote", Text, nullable=True),
     # Garansi, waktu kirim, dan ketentuan lain dari pemasok.
     Column("notes", Text, nullable=True),
     # Kapan balasannya masuk; dicatat manual karena datangnya lewat WhatsApp.

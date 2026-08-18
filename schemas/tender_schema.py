@@ -115,13 +115,39 @@ class TenderQuoteBase(BaseModel):
     supplierID: int
     paymentTerm: Optional[str] = Field(default=None, max_length=20)
     creditTerm: Optional[int] = None
+    # Apakah pemasok memungut PPN; menentukan biaya sebenarnya.
+    #
+    # PPN yang dipungut PKP dapat dikreditkan, sehingga yang menjadi beban
+    # hanya DPP. Pemasok non-PKP tidak memungut apa pun — dan seluruh
+    # harganya menjadi biaya.
+    includePpn: bool = False
+    ppnPercentage: Optional[Decimal] = None
+    # `franco` (diantar pemasok) atau `loco` (diambil sendiri).
+    #
+    # Loco berarti AKN menanggung angkutnya, dan ongkos itu tidak pernah
+    # muncul di surat penawaran mana pun.
+    deliveryMethod: Optional[str] = None
+    # Biaya lain yang ditanggung AKN di luar harga barangnya.
+    otherCost: Optional[Decimal] = None
+    otherCostNote: Optional[str] = None
     notes: Optional[str] = None
     quotedAt: Optional[date] = None
     items: List[TenderQuoteItemBase] = []
 
 
+#: Cara pengiriman yang dikenal.
+METODE_KIRIM = {"franco", "loco"}
+
+
 class TenderQuoteCreate(TenderQuoteBase):
-    pass
+    @field_validator("deliveryMethod")
+    @classmethod
+    def metode_dikenal(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in METODE_KIRIM:
+            raise ValueError(
+                f"deliveryMethod harus salah satu dari {sorted(METODE_KIRIM)}"
+            )
+        return v
 
 
 class TenderQuoteUpdate(BaseModel):
@@ -129,6 +155,11 @@ class TenderQuoteUpdate(BaseModel):
     supplierID: Optional[int] = None
     paymentTerm: Optional[str] = Field(default=None, max_length=20)
     creditTerm: Optional[int] = None
+    includePpn: Optional[bool] = None
+    ppnPercentage: Optional[Decimal] = None
+    deliveryMethod: Optional[str] = None
+    otherCost: Optional[Decimal] = None
+    otherCostNote: Optional[str] = None
     notes: Optional[str] = None
     quotedAt: Optional[date] = None
     items: Optional[List[TenderQuoteItemBase]] = None
