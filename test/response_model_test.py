@@ -65,6 +65,14 @@ def test_kolom_ber_label_tidak_terbuang_response_model():
         # Dirakit menjadi objek `supplier` sebelum dikirim (baris ~150
         # `purchase_repository.py`), sehingga tidak dikirim sendiri-sendiri.
         "supplier_name", "supplier_prefix",
+        # Milik `belum_dibayar()`, yang rutenya TIDAK memakai `response_model`
+        # — jawabannya dikirim apa adanya sebagai dict.
+        #
+        # Diperiksa saat menambahkannya: `GET /purchases/belum-dibayar`
+        # dideklarasikan tanpa `response_model`, sehingga bidangnya tidak
+        # akan terbuang. Bila kelak rutenya diberi skema, bidang-bidang ini
+        # harus ikut disebut di sana.
+        "supplierName", "nilai", "dibayar", "sisa",
     }
 
     pelanggaran = []

@@ -1,6 +1,6 @@
 from typing import Annotated
 from utils.errors import ErrorCode, error_detail
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from utils.auth_utils import get_current_user
 from utils.permission import require
 from schemas.user_schema import UserLogin
@@ -43,6 +43,20 @@ async def check_purchase(
         raise HTTPException(status_code=500, detail="Internal server error")
     
     return result
+
+@router.get("/belum-dibayar")
+async def purchase_belum_dibayar(
+    current_user: Annotated[dict, Depends(require("purchase", "read"))],
+    projectName: str = Query(""),
+):
+    """
+    Tagihan pembelian yang belum lunas.
+
+    Didaftarkan SEBELUM rute berparameter: `/{purchase_id}` menangkap apa pun,
+    termasuk kata `belum-dibayar`, dan yang lebih spesifik harus lebih dulu.
+    """
+    return await PurchaseController.belum_dibayar(projectName)
+
 
 @router.get("/purchase-order/{purchase_order_name}")
 async def get_purchases_by_purchase_order_name(

@@ -10,6 +10,26 @@ from fastapi import HTTPException
 from datetime import datetime
 
 class PurchaseController:
+
+    @staticmethod
+    async def belum_dibayar(project_name: str = ""):
+        """
+        Tagihan pembelian yang belum lunas, beserta ringkasannya.
+
+        Ringkasan disusun di sini, bukan di layar: yang sudah lewat tempo
+        menentukan seberapa mendesak, dan menghitungnya di peramban membuat
+        angkanya bergantung pada jam mesin yang membukanya.
+        """
+        data = await PurchaseRepository.belum_dibayar(project_name)
+        return {
+            "data": data,
+            "count": len(data),
+            "total": sum(float(x["sisa"] or 0) for x in data),
+            "lewatTempo": sum(1 for x in data if x["lewatTempo"]),
+            "totalLewatTempo": sum(
+                float(x["sisa"] or 0) for x in data if x["lewatTempo"]
+            ),
+        }
     @staticmethod
     async def create_purchase(purchase_data: dict, userID: int):
         """
