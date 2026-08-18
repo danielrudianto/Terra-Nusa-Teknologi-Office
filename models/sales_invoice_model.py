@@ -1,4 +1,4 @@
-from sqlalchemy import Table, Column, Integer, ForeignKey, Float, Date, String, Boolean, DateTime
+from sqlalchemy import UniqueConstraint, Table, Column, Integer, ForeignKey, Float, Date, String, Boolean, DateTime
 from utils.database import metadata
 from datetime import datetime as dt
 
@@ -33,5 +33,7 @@ sales_invoice_tables = Table(
     Column("isApprove", Boolean, nullable=False, default=False),
     Column("isDelete", Boolean, nullable=False, default=False),
     Column("updatedBy", Integer, ForeignKey("users.id"), nullable=True),
-    Column("updatedAt", DateTime, nullable=True, default=None)
+    Column("updatedAt", DateTime, nullable=True, default=None),
+    # Nomor faktur; dipakai pelanggan merujuk tagihan.
+    UniqueConstraint("name", name="uq_sales_invoice_name"),
 )

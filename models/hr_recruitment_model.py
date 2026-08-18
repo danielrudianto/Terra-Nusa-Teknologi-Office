@@ -9,7 +9,7 @@ Dipindahkan dari sistem HR lama yang menyimpan soalnya sebagai berkas JSON di
 dalam kode: menambah satu soal di sana menuntut deploy ulang seluruh aplikasi.
 """
 
-from sqlalchemy import (
+from sqlalchemy import (UniqueConstraint, 
     Table,
     Column,
     Integer,
@@ -123,6 +123,8 @@ hr_candidates_table = Table(
     Column("isDelete", Boolean(), nullable=False, server_default="0"),
     Column("createdAt", DateTime(), nullable=False),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
+    # Token tautan ujian; tabrakan berarti pelamar membuka lembar pelamar lain.
+    UniqueConstraint("token", name="uq_hr_candidate_token"),
 )
 
 

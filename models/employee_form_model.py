@@ -1,4 +1,4 @@
-from sqlalchemy import (
+from sqlalchemy import (UniqueConstraint, 
     Table,
     Column,
     Integer,
@@ -111,4 +111,10 @@ employee_form_invites_table = Table(
     Column("createdAt", DateTime(), nullable=False),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
     Column("isDelete", Boolean(), nullable=False, server_default="0"),
+    # Token tautan pengisian.
+    #
+    # Tabrakan berarti satu orang membuka data orang lain. Tokennya 256 bit
+    # sehingga kemungkinannya kecil sekali — tetapi batasan basis data murah,
+    # dan bila sampai terjadi tidak akan ada yang tahu.
+    UniqueConstraint("token", name="uq_form_invite_token"),
 )

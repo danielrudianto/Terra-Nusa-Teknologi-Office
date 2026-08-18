@@ -1,4 +1,4 @@
-from sqlalchemy import (
+from sqlalchemy import (UniqueConstraint, 
     Float,
     text,
     func,
@@ -113,4 +113,10 @@ purchase_orders_table = Table(
     Column("checkedAt", DateTime(), nullable=True),
     Index("idx_supplier_date", "supplierID", "date"),
     Index("idx_type_status", "purchaseType", "status"),
+    # Nomor PO yang sudah beredar.
+    #
+    # Nomornya disusun aplikasi dari MAX, dan dua orang yang menerbitkan
+    # BERSAMAAN dapat memperoleh angka yang sama sebelum salah satunya
+    # tersimpan. Dua dokumen bernomor sama tidak dapat dibedakan vendor.
+    UniqueConstraint("name", name="uq_purchase_order_name"),
 )
