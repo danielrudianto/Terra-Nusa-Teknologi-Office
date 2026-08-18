@@ -96,7 +96,21 @@ class EmployeeFormRepository:
 
     @staticmethod
     async def karyawan_ringkas(employee_id: int):
-        """Nama dan surel karyawan, untuk menyusun undangan."""
+        """
+        Nama dan surel karyawan, untuk menyusun undangan.
+
+        HANYA karyawan yang masih bekerja. Yang sudah keluar tidak pernah
+        dihapus — jejaknya diperlukan slip gaji dan dokumen lama — sehingga
+        tanpa penyaringan ini ia tetap muncul sebagai calon penerima
+        undangan pembaruan data.
+
+        Mengirimkannya bukan sekadar janggal: tautannya sah selama tiga hari
+        dan dapat dipakai memperbarui data orang yang tidak lagi terikat
+        apa pun dengan perusahaan.
+
+        `endDate IS NULL` adalah penanda yang dipakai seluruh aplikasi untuk
+        "masih bekerja"; sama seperti pada daftar profil dan pengingat.
+        """
         try:
             baris = await database.fetch_one(
                 select(
@@ -105,6 +119,7 @@ class EmployeeFormRepository:
                 )
                 .where(employees_table.c.id == employee_id)
                 .where(employees_table.c.isDelete == False)
+                .where(employees_table.c.endDate.is_(None))
             )
             if baris is None:
                 return None
@@ -188,6 +203,13 @@ class EmployeeFormRepository:
                 .where(employee_form_invites_table.c.isDelete == False)
                 .where(employee_form_invites_table.c.expiresAt > dt.now())
                 .where(employees_table.c.isDelete == False)
+                # Karyawan yang KELUAR setelah undangannya terbit.
+                #
+                # Tautannya sah tiga hari; orang dapat mengundurkan diri di
+                # tengah rentang itu, dan tautan yang sudah terkirim tetap
+                # dapat dibuka. Diperiksa saat DIPAKAI, bukan hanya saat
+                # diterbitkan.
+                .where(employees_table.c.endDate.is_(None))
             )
             if baris is None:
                 return None
