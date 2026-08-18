@@ -17,7 +17,21 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 #:
 #: Dipakai pada ringkasan bulanan; tanpa itu daftarnya hanya deretan angka
 #: yang tidak menjelaskan ke mana kasnya pergi.
-KATEGORI_KELUAR = {"material", "subkon", "gaji", "operasional", "pajak", "lain"}
+KATEGORI_KELUAR = {
+    "material",
+    "subkon",
+    "gaji",
+    "operasional",
+    "pajak",
+    # Angsuran dan pelunasan utang.
+    #
+    # Tandingan dari `pinjaman` di sisi pemasukan: uang yang masuk sebagai
+    # pencairan keluar lagi sebagai angsuran, dan tanpa kategorinya sendiri
+    # ia tertimbun di "lain-lain" — padahal justru itu yang perlu terlihat
+    # saat menilai apakah kasnya cukup.
+    "utang",
+    "lain",
+}
 
 #: Pengelompokan pemasukan.
 #:
@@ -25,7 +39,11 @@ KATEGORI_KELUAR = {"material", "subkon", "gaji", "operasional", "pajak", "lain"}
 #: material atau gaji, ia DATANG dari tagihan proyek, uang muka, atau
 #: pengembalian pajak. Memakai satu daftar untuk keduanya membuat layar
 #: menawarkan "gaji" sebagai sumber pemasukan.
-KATEGORI_MASUK = {"tagihan", "uangmuka", "retensi", "restitusi", "pinjaman", "lain"}
+#: `restitusi` sengaja TIDAK ada.
+#:
+#: Restitusi pajak praktis tidak pernah terjadi di sini; menawarkannya hanya
+#: memanjangkan daftar dengan pilihan yang tidak pernah ditekan.
+KATEGORI_MASUK = {"tagihan", "uangmuka", "retensi", "pinjaman", "lain"}
 
 #: Gabungan keduanya; dipakai validator yang belum tahu arahnya.
 KATEGORI = KATEGORI_KELUAR | KATEGORI_MASUK
