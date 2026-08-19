@@ -38,9 +38,29 @@ async def get_asset(
 async def update_asset(
     asset_id: int, 
     update_data: AssetUpdate, 
-    user_id: int = Depends(require("asset", "update"))
+    # `require()` mengembalikan PENGGUNANYA, bukan id-nya.
+    #
+    # Sebelumnya parameter ini dianotasi sebagai bilangan bulat. Anotasi itu
+    # tidak menjadikannya bilangan: FastAPI tidak memeriksa — apalagi
+    # mengubah — nilai yang dikembalikan sebuah dependency, sehingga
+    # anotasinya hanya keterangan yang tidak pernah ditagih. Yang sampai ke
+    # controller adalah `Record` utuh, dipasang sebagai `updatedBy`, lalu
+    # ditolak pydantic:
+    #
+    #   updatedBy Input should be a valid integer [type=int_type,
+    #   input_value=<databases.backends...Record object>]
+    #
+    # Galatnya menyebut `updatedBy` — kolom yang tidak pernah diisi siapa pun
+    # dari layar — sehingga yang membacanya mencari-cari pada isian yang baru
+    # saja ia ubah.
+    #
+    # Seluruh rute lain di berkas ini sudah memakai bentuk di bawah; hanya
+    # yang ini tertinggal.
+    current_user: Annotated[User, Depends(require("asset", "update"))],
 ):
-    return await AssetController.update_asset(asset_id, update_data.model_dump(), user_id)
+    return await AssetController.update_asset(
+        asset_id, update_data.model_dump(), current_user["id"]
+    )
 
 @router.delete("/{asset_id}")
 async def delete_asset(

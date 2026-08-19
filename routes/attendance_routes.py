@@ -53,9 +53,11 @@ async def get_asset(
 async def update_asset(
     asset_id: int, 
     update_data: AssetUpdate, 
-    user_id: int = Depends(require("attendance", "update"))
+    current_user: Annotated[User, Depends(require("attendance", "update"))],
 ):
-    return await AssetController.update_asset(asset_id, update_data.model_dump(), user_id)
+    return await AssetController.update_asset(
+        asset_id, update_data.model_dump(), current_user["id"]
+    )
 
 @router.delete("/{asset_id}")
 async def delete_asset(

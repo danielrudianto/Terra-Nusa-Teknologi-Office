@@ -639,11 +639,24 @@ class PurchaseOrderRepository:
                 conditions.append(purchase_orders_table.c.date <= date_to)
 
             # sebelumnya kolom itu tidak ikut diambil sehingga tampil "?".
+            #
+            # Label memakai camelCase, SAMA dengan nama bidang pada
+            # `PurchaseOrderResponse`.
+            #
+            # Rute ini menyaring jawabannya lewat `response_model`, dan FastAPI
+            # membuang kunci yang tidak tercantum di sana — tanpa galat, tanpa
+            # peringatan. `supplier_name` karena itu tidak pernah sampai ke
+            # layar, sementara `supplierName` yang memang ada di skema tidak
+            # pernah terisi. Akibatnya kolom pemasok pada daftar purchase order
+            # terbaca "—" pada SETIAP baris, seolah datanya yang hilang.
+            #
+            # `get_by_id` sudah memakai camelCase sejak awal; kueri inilah yang
+            # tertinggal, dan bedanya tidak terlihat dari sini.
             query = (
                 select(
                     purchase_orders_table,
-                    suppliers_table.c.name.label("supplier_name"),
-                    suppliers_table.c.prefix.label("supplier_prefix"),
+                    suppliers_table.c.name.label("supplierName"),
+                    suppliers_table.c.prefix.label("supplierPrefix"),
                 )
                 .select_from(
                     purchase_orders_table.outerjoin(
