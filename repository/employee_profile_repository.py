@@ -54,6 +54,38 @@ def _rapikan(row):
     return data
 
 
+def _beda(lama, baru, kolom: str) -> bool:
+    """
+    Apakah satu kolom BENAR-BENAR berubah.
+
+    Perbandingan langsung tidak cukup, dan kekeliruannya hanya menyentuh lima
+    kolom berulang — pendidikan, pengalaman, bahasa, susunan keluarga, dan
+    SIM. Keadaan lamanya sudah DIURAI oleh `_rapikan` menjadi list, sedangkan
+    muatan barunya masih berupa TEKS JSON: rutenya menyandikannya lebih dulu
+    supaya dapat disimpan MySQL.
+
+    List dan teks tidak pernah sama, sehingga kelima kolom itu tercatat
+    berubah pada SETIAP penyimpanan — termasuk saat yang disunting hanya nomor
+    telepon. Riwayat yang menyebut lima hal berubah padahal satu, sama tidak
+    dapat dipercayanya dengan riwayat yang tidak menyebut apa pun.
+
+    Kolom lain jatuh ke perbandingan biasa.
+    """
+    if kolom in _KOLOM_JSON:
+        return _sebagai_data(lama) != _sebagai_data(baru)
+    return lama != baru
+
+
+def _sebagai_data(nilai):
+    """Bentuk terurai sebuah kolom JSON; teks yang gagal diurai dibiarkan."""
+    if isinstance(nilai, str):
+        try:
+            return json.loads(nilai)
+        except (ValueError, TypeError):
+            return nilai
+    return nilai
+
+
 class EmployeeProfileRepository:
     """
     Profil pribadi karyawan — satu baris per orang.
@@ -101,7 +133,23 @@ class EmployeeProfileRepository:
             if not karyawan:
                 return {"error": "Employee not found", "status": 404}
 
-            bersih = {k: v for k, v in data.items() if v is not None}
+            """
+            Nilai `None` DIPERTAHANKAN, tidak disaring.
+
+            Rutenya memakai `model_dump(exclude_unset=True)`, sehingga kolom
+            yang tidak dikirim memang tidak pernah sampai ke sini. Yang
+            tersisa bernilai `None` hanya kolom yang SENGAJA dikosongkan.
+
+            Menyaringnya membuat pengosongan tidak pernah tersimpan: nilai
+            lama bertahan, riwayat tidak mencatat apa-apa, dan layar
+            menyatakan berhasil. Justru pada profil karyawan hal itu paling
+            merugikan — nomor BPJS atau tanggal berlaku KTP yang keliru tidak
+            dapat dihapus, hanya dapat ditimpa nilai lain yang juga keliru.
+
+            `updatedAt`/`updatedBy` tetap ditambahkan di bawah, jadi
+            penyimpanan yang isinya seluruhnya kosong pun tetap sah.
+            """
+            bersih = dict(data)
             lama = await database.fetch_one(
                 select(employee_profiles_table.c.id).where(
                     employee_profiles_table.c.employeeID == employee_id
@@ -159,7 +207,7 @@ class EmployeeProfileRepository:
                             k
                             for k, v in bersih.items()
                             if k not in ("updatedAt", "updatedBy")
-                            and keadaan.get(k) != v
+                            and _beda(keadaan.get(k), v, k)
                         )
 
                         await database.execute(

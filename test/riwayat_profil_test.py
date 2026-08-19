@@ -172,3 +172,88 @@ def test_hanya_kolom_yang_berubah_dicatat(fake_db):
     )
     berubah = json.loads(sisip.compile().params["changedFields"])
     assert berubah == ["birthPlace"], berubah
+
+
+def test_kolom_berulang_yang_tidak_disunting_tidak_tercatat(fake_db):
+    """
+    Kolom JSON dibandingkan dalam bentuk TERURAI, bukan sebagai teks.
+
+    Keadaan lamanya sudah diurai `_rapikan` menjadi list; muatan barunya masih
+    teks JSON karena rutenya menyandikannya lebih dulu agar dapat disimpan
+    MySQL. List dan teks tidak pernah sama, sehingga kelima kolom berulang —
+    pendidikan, pengalaman, bahasa, susunan keluarga, SIM — tercatat berubah
+    pada SETIAP penyimpanan, termasuk ketika yang disunting hanya satu kata di
+    kolom lain.
+
+    Riwayat yang menyebut lima hal berubah padahal satu, sama tidak dapat
+    dipercayanya dengan riwayat yang tidak menyebut apa pun.
+    """
+    db = _pasang(fake_db)
+    asyncio.run(
+        EmployeeProfileRepository.upsert(
+            3,
+            {
+                "birthPlace": "Bandung",
+                # Isi yang SAMA dengan `PROFIL_LAMA`, dalam bentuk yang
+                # benar-benar dikirim rutenya: teks JSON.
+                "formalEducation": '[{"jenjang": "S1"}]',
+            },
+            9,
+        )
+    )
+
+    sisip = next(
+        q for m, q in db.calls
+        if m == "execute" and "employee_profile_history" in _sql(q)
+    )
+    berubah = json.loads(sisip.compile().params["changedFields"])
+    assert berubah == ["birthPlace"], berubah
+
+
+def test_kolom_berulang_yang_disunting_tetap_tercatat(fake_db):
+    """Kebalikannya: perubahan sungguhan pada kolom berulang harus terbaca."""
+    db = _pasang(fake_db)
+    asyncio.run(
+        EmployeeProfileRepository.upsert(
+            3, {"formalEducation": '[{"jenjang": "S2"}]'}, 9
+        )
+    )
+
+    sisip = next(
+        q for m, q in db.calls
+        if m == "execute" and "employee_profile_history" in _sql(q)
+    )
+    berubah = json.loads(sisip.compile().params["changedFields"])
+    assert berubah == ["formalEducation"], berubah
+
+
+def test_pengosongan_benar_benar_tersimpan(fake_db):
+    """
+    Nilai `None` bukan "tidak dikirim", melainkan "sengaja dikosongkan".
+
+    Rutenya memakai `model_dump(exclude_unset=True)`, jadi kolom yang tidak
+    dikirim tidak pernah sampai ke repositori. Menyaring `None` di sini
+    membuat pengosongan tidak pernah tersimpan: nilai lama bertahan, riwayat
+    tidak mencatat apa-apa, dan layar tetap menyatakan berhasil.
+
+    Justru di profil karyawan itu yang paling merugikan — nomor BPJS atau
+    tempat lahir yang keliru tidak dapat dihapus, hanya dapat ditimpa nilai
+    lain yang juga keliru.
+    """
+    db = _pasang(fake_db)
+    asyncio.run(EmployeeProfileRepository.upsert(3, {"birthPlace": None}, 9))
+
+    timpa = next(
+        q for m, q in db.calls
+        if m == "execute" and _sql(q).startswith("UPDATE employee_profiles")
+    )
+    nilai = timpa.compile().params
+    assert "birthPlace" in nilai, nilai
+    assert nilai["birthPlace"] is None, nilai
+
+    sisip = next(
+        q for m, q in db.calls
+        if m == "execute" and "employee_profile_history" in _sql(q)
+    )
+    berubah = json.loads(sisip.compile().params["changedFields"])
+    assert berubah == ["birthPlace"], berubah
