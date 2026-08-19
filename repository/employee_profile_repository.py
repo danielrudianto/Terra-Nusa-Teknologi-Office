@@ -4,7 +4,11 @@ from datetime import datetime as dt
 from sqlalchemy import insert, select, update
 
 from models.employee_model import employees_table
-from models.employee_profile_model import employee_profiles_table
+from models.employee_profile_model import (
+    employee_profile_history_table,
+    employee_profiles_table,
+)
+from models.user_model import users_table
 from utils.database import database
 from utils.logger_utils import log_error
 
@@ -107,6 +111,41 @@ class EmployeeProfileRepository:
             if lama:
                 bersih["updatedAt"] = dt.now()
                 bersih["updatedBy"] = user_id
+
+                # Keadaan SEBELUM ditimpa disalin lebih dulu.
+                #
+                # Profil hanya punya satu baris per karyawan; tanpa salinan
+                # ini, satu koreksi yang keliru menghapus nilai sebelumnya
+                # untuk selamanya. Jejak audit umum tidak menggantikannya —
+                # ia sengaja hanya mencatat NAMA kolom, bukan isinya.
+                #
+                # Disalin SEBELUM `update` dijalankan, bukan sesudah: sesudah
+                # itu yang terbaca sudah nilai barunya.
+                sebelum = await database.fetch_one(
+                    select(employee_profiles_table).where(
+                        employee_profiles_table.c.id == lama["id"]
+                    )
+                )
+                if sebelum is not None:
+                    await database.execute(
+                        insert(employee_profile_history_table).values(
+                            profileID=lama["id"],
+                            employeeID=employee_id,
+                            # `default=str` diperlukan: profil memuat tanggal,
+                            # dan tanggal tidak dapat diserialkan JSON sendiri.
+                            snapshot=json.dumps(dict(sebelum), default=str),
+                            changedFields=json.dumps(
+                                sorted(
+                                    k
+                                    for k in bersih
+                                    if k not in ("updatedAt", "updatedBy")
+                                )
+                            ),
+                            changedAt=dt.now(),
+                            changedBy=user_id,
+                        )
+                    )
+
                 await database.execute(
                     update(employee_profiles_table)
                     .where(employee_profiles_table.c.id == lama["id"])
@@ -182,4 +221,62 @@ class EmployeeProfileRepository:
             return [_rapikan(r) for r in rows]
         except Exception as e:
             log_error(f"Error fetching employees without profile: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def history(employee_id: int):
+        """
+        Riwayat perubahan profil seorang karyawan, terbaru lebih dulu.
+
+        Yang dikembalikan adalah keadaan SEBELUM tiap perubahan, beserta siapa
+        yang mengubah dan kapan. Dengan itu koreksi yang keliru dapat
+        dikembalikan — dan yang lebih sering diperlukan: dapat dibuktikan
+        bahwa nilainya memang pernah begitu.
+
+        Dibaca dengan izin yang sama dengan profilnya sendiri; isinya data
+        yang sama.
+        """
+        try:
+            pengubah = users_table.alias("pengubah")
+            query = (
+                select(
+                    employee_profile_history_table.c.id,
+                    employee_profile_history_table.c.employeeID,
+                    employee_profile_history_table.c.snapshot,
+                    employee_profile_history_table.c.changedFields,
+                    employee_profile_history_table.c.changedAt,
+                    employee_profile_history_table.c.changedBy,
+                    pengubah.c.name.label("changedByName"),
+                )
+                .select_from(
+                    employee_profile_history_table.outerjoin(
+                        pengubah,
+                        employee_profile_history_table.c.changedBy
+                        == pengubah.c.id,
+                    )
+                )
+                .where(
+                    employee_profile_history_table.c.employeeID == employee_id
+                )
+                .order_by(employee_profile_history_table.c.changedAt.desc())
+            )
+            rows = await database.fetch_all(query)
+
+            hasil = []
+            for r in rows:
+                data = dict(r)
+                # Sama seperti kolom JSON lain: `databases` mengembalikannya
+                # sebagai teks, dan layar yang memeriksanya dengan
+                # `Array.isArray()` akan menyimpulkan riwayatnya kosong.
+                for kunci in ("snapshot", "changedFields"):
+                    nilai = data.get(kunci)
+                    if isinstance(nilai, str):
+                        try:
+                            data[kunci] = json.loads(nilai)
+                        except (ValueError, TypeError):
+                            pass
+                hasil.append(data)
+            return hasil
+        except Exception as e:
+            log_error(f"Error fetching employee profile history: {str(e)}")
             return {"error": "Internal server error.", "status": 500}

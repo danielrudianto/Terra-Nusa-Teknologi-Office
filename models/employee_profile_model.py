@@ -129,3 +129,48 @@ employee_profiles_table = Table(
     Column("updatedAt", DateTime(), nullable=True),
     Column("updatedBy", Integer, ForeignKey("users.id"), nullable=True),
 )
+
+
+"""
+Riwayat perubahan profil.
+
+Profil hanya punya SATU baris per karyawan, dan penyimpanan berikutnya
+menimpanya. Tanpa tabel ini, satu koreksi yang keliru menghapus nilai
+sebelumnya untuk selamanya — dan yang menyadarinya sebulan kemudian tidak
+punya apa pun untuk dikembalikan.
+
+Jejak audit umum tidak dapat menggantikannya: ia sengaja hanya mencatat NAMA
+kolom yang tersentuh, bukan isinya, karena jejak audit dibaca level 5 secara
+menyeluruh sedangkan profil dibatasi divisi HRD. Menyalin isi profil ke sana
+membuat pembatasan wilayahnya tidak ada artinya.
+
+Karena itu riwayatnya berdiri sendiri, dan dibaca dengan izin yang sama
+dengan profilnya — `employee_profile:read`.
+
+Yang disimpan adalah keadaan SEBELUM perubahan, bukan sesudahnya. Keadaan
+sesudah selalu dapat dibaca dari profilnya sendiri; yang hilang saat ditimpa
+adalah yang sebelumnya.
+"""
+employee_profile_history_table = Table(
+    "employee_profile_history",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "profileID",
+        Integer,
+        ForeignKey("employee_profiles.id"),
+        nullable=False,
+    ),
+    # `employeeID` ikut disalin, tidak hanya lewat `profileID`.
+    #
+    # Riwayat dibaca per karyawan, dan tanpa kolom ini setiap pembacaan
+    # memerlukan join ke profil yang mungkin sudah berubah isinya.
+    Column("employeeID", Integer, ForeignKey("employees.id"), nullable=False),
+    # Seluruh isi profil sebagaimana adanya sebelum ditimpa.
+    Column("snapshot", JSON, nullable=False),
+    # Kolom yang tersentuh pada penyimpanan itu; dipakai layar untuk
+    # menampilkan "apa yang berubah" tanpa membandingkan seluruh isi.
+    Column("changedFields", JSON, nullable=False),
+    Column("changedAt", DateTime(), nullable=False),
+    Column("changedBy", Integer, ForeignKey("users.id"), nullable=False),
+)

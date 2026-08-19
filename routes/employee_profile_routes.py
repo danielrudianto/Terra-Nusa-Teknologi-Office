@@ -30,6 +30,31 @@ async def daftar_belum_isi(
     return hasil
 
 
+@router.get("/{employee_id}/riwayat")
+async def riwayat_profil(
+    employee_id: int,
+    user: Annotated[User, Depends(require("employee_profile", "read"))],
+):
+    """
+    Riwayat perubahan profil: keadaan SEBELUM tiap penyimpanan.
+
+    Izinnya sama dengan profilnya sendiri — isinya data yang sama, dan izin
+    tersendiri hanya menambah satu hal yang dapat disalahatur tanpa menutup
+    apa pun yang belum tertutup.
+
+    Ditaruh SEBELUM `/{employee_id}` mengikuti kebiasaan berkas ini; bentuk
+    jalurnya memang sudah berbeda, tetapi yang membacanya tidak perlu
+    memastikan itu lebih dulu.
+    """
+    hasil = await EmployeeProfileRepository.history(employee_id)
+    if isinstance(hasil, dict) and "error" in hasil:
+        log_error(f"Error fetching employee profile history: {hasil['error']}")
+        raise HTTPException(
+            status_code=hasil["status"], detail=error_detail(hasil)
+        )
+    return hasil
+
+
 @router.get("/{employee_id}")
 async def ambil_profil(
     employee_id: int,
