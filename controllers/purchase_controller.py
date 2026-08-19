@@ -9,6 +9,40 @@ from utils.logger_utils import log_error, log_info
 from fastapi import HTTPException
 from datetime import datetime
 
+
+def _daftar_atau_kosong(hasil, sebutan: str):
+    """
+    Hasil satu sumber laporan: daftar apa adanya, atau daftar KOSONG.
+
+    Repositori laporan ini mengembalikan galat 404 ketika tidak menemukan
+    baris — bentuk yang masuk akal bagi rute "ambil satu dokumen", tetapi
+    keliru bagi laporan: proyek yang belum berbelanja bukan proyek yang tidak
+    ditemukan.
+
+    Yang dibedakan STATUSNYA:
+
+        404  tidak ada barisnya       -> daftar kosong, laporan tetap terbit
+        400  permintaannya tidak sah  -> dilemparkan
+        500  kuerinya gagal           -> dilemparkan
+
+    Galat sungguhan TIDAK boleh menjadi nol. Kueri yang gagal lalu ditampilkan
+    sebagai "tidak ada biaya" membuat laporan menyatakan margin penuh atas
+    proyek yang justru datanya tidak terbaca — dan tidak ada satu pun tanda
+    di layar yang membedakannya dari proyek yang memang belum berbelanja.
+    """
+    if not isinstance(hasil, dict):
+        return hasil or []
+
+    if "error" not in hasil:
+        return hasil or []
+
+    if int(hasil.get("status") or 0) == 404:
+        return []
+
+    log_error(f"Laporan proyek: {sebutan} gagal dibaca: {hasil['error']}")
+    raise HTTPException(status_code=hasil["status"], detail=hasil["error"])
+
+
 class PurchaseController:
 
     @staticmethod
@@ -212,20 +246,36 @@ class PurchaseController:
         Get purchase report by project.
         """
         try:
-            purchases = await PurchaseRepository.get_by_project(projectName)
-            if "error" in purchases:
-                log_error(f"Error fetching purchase report by project: {purchases['error']}")
-                raise HTTPException(status_code=purchases["status"], detail=purchases["error"])
-            
-            reimbursements = await ReimbursementRepository.get_by_project(projectName)
-            if "error" in reimbursements:
-                log_error(f"Error fetching purchase report by project: {reimbursements['error']}")
-                raise HTTPException(status_code=reimbursements["status"], detail=reimbursements["error"])
-            
-            purchase_drafts = await PurchaseDraft.get_by_project(projectName)
-            if "error" in purchase_drafts:
-                log_error(f"Error fetching purchase report by project: {purchase_drafts['error']}")
-                raise HTTPException(status_code=purchase_drafts["status"], detail=purchase_drafts["error"])
+            """
+            SUMBER YANG KOSONG BUKAN GALAT.
+
+            Sebelumnya tiap sumber diperiksa `if "error" in ...` lalu
+            dilemparkan sebagai HTTPException — termasuk ketika galatnya
+            sekadar "No purchases found for this project" berstatus 404.
+
+            Akibatnya seluruh laporan gugur hanya karena SATU sumber kosong.
+            Proyek KBPDP punya penjualan Rp 240 juta dan belum punya
+            pembelian sama sekali; yang tampil di layar hanya spanduk merah
+            "No purchases found", dan penjualannya — satu-satunya angka yang
+            ada — ikut hilang.
+
+            Keadaan itu justru biasa, dan ada di kedua arah: pekerjaan yang
+            sudah ditagihkan tetapi belum berbelanja, dan pembelian yang
+            berjalan sebelum SPK-nya terbit.
+
+            Karena itu tiap sumber yang kosong dijadikan DAFTAR KOSONG, bukan
+            galat. Yang benar-benar galat — sambungan putus, kueri gagal,
+            status 500 — tetap dilemparkan, sebab menampilkannya sebagai nol
+            berarti melaporkan biaya yang lebih kecil daripada sebenarnya.
+            """
+            purchases = _daftar_atau_kosong(
+                await PurchaseRepository.get_by_project(projectName),
+                "pembelian",
+            )
+            reimbursements = _daftar_atau_kosong(
+                await ReimbursementRepository.get_by_project(projectName),
+                "reimbursement",
+            )
             
             # Draft pembelian IKUT dihitung sebagai biaya.
             #
@@ -239,18 +289,37 @@ class PurchaseController:
                 log_error(f"Error fetching drafts by project: {drafts['error']}")
                 drafts = []
 
-            sales_invoices = await SalesInvoiceRepository.get_by_project(projectName)
-            if "error" in sales_invoices:
-                log_error(f"Error fetching purchase report by project: {sales_invoices['error']}")
-                raise HTTPException(status_code=sales_invoices["status"], detail=sales_invoices["error"])
+            sales_invoices = _daftar_atau_kosong(
+                await SalesInvoiceRepository.get_by_project(projectName),
+                "faktur penjualan",
+            )
 
             
+            """
+            `purchase_drafts` sempat DISEBUT DUA KALI di sini.
+
+            Python memakai yang terakhir, sehingga `drafts` — hasil
+            `get_drafts_by_project`, yang sengaja MENGECUALIKAN draft yang
+            sudah dikonversi — dibuang diam-diam, dan yang terkirim justru
+            `PurchaseDraft.get_by_project` yang menyertakan semuanya.
+
+            Akibatnya draft yang sudah menjadi pembelian terhitung DUA KALI
+            sebagai biaya: sekali sebagai pembelian, sekali lagi sebagai
+            draftnya. Laporan proyek karena itu menunjukkan biaya lebih besar
+            daripada yang sebenarnya, sementara ikhtisar margin seluruh proyek
+            — yang memakai aturan benar — menunjukkan angka lain untuk proyek
+            yang sama.
+
+            Tidak ada galat: kunci ganda pada dict bukan kesalahan sintaks,
+            dan keduanya berbentuk daftar yang sama-sama masuk akal di layar.
+            """
             return {
                 "purchases": purchases,
+                # Draft yang BELUM dikonversi; yang sudah menjadi pembelian
+                # tidak ikut, karena biayanya sudah terhitung di sana.
                 "purchase_drafts": drafts,
                 "reimbursements": reimbursements,
-                "purchase_drafts": purchase_drafts,
-                "sales_invoices": sales_invoices
+                "sales_invoices": sales_invoices,
             }
         except HTTPException:
             raise
