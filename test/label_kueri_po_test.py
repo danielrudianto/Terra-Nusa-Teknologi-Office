@@ -54,13 +54,6 @@ def test_nama_pemasok_ikut_terkirim():
     """
     Yang paling sering hilang, dan yang paling terasa: daftar purchase order
     menampilkan nama pemasok pada setiap barisnya.
-
-    Nama labelnya BERBEDA antara kedua metode, dan itu memang begitu:
-    `get_all` memakai snake_case karena skemanya menyebut `supplier_name`
-    tersendiri untuk hasil join daftar, sedangkan `get_by_id` memakai
-    camelCase. Yang dijaga di sini bukan keseragaman namanya, melainkan bahwa
-    nama pemasok memang ikut diambil — dengan nama apa pun yang dikenali
-    skemanya.
     """
     bidang = set(PurchaseOrderResponse.model_fields)
     for metode in METODE_DISARING:
@@ -68,3 +61,43 @@ def test_nama_pemasok_ikut_terkirim():
         pemasok = {x for x in label if "supplier" in x.lower()}
         assert pemasok, metode
         assert pemasok <= bidang, f"{metode}: {sorted(pemasok - bidang)}"
+
+
+#: Nama yang DIBACA layar untuk nama dan awalan pemasok.
+#:
+#: Ditulis di sini sebagai satu-satunya bentuk yang sah, bukan disimpulkan
+#: dari skemanya. `PurchaseOrderResponse` sengaja menerima kedua bentuk —
+#: camelCase dan snake_case — supaya jawaban lama tidak patah, sehingga
+#: memeriksa terhadap skema saja SELALU lulus dan tidak menjaga apa pun.
+NAMA_PEMASOK_SAH = {"supplierName", "supplierPrefix", "supplierAddress",
+                    "supplierNpwp", "supplierCity"}
+
+
+def test_nama_pemasok_seragam_camel_case():
+    """
+    Penamaannya harus SAMA di setiap metode, dan harus camelCase.
+
+    Ini pernah dilanggar dengan alasan yang terdengar benar: skemanya memang
+    mencantumkan `supplier_name` tersendiri, jadi `response_model` meloloskan
+    labelnya. Yang terlewat, templat daftarnya membaca `po.supplierName` —
+    sehingga seluruh kolom pemasok berubah menjadi "—" berikut lencana "?",
+    tanpa satu pun galat di layar maupun di log.
+
+    Lolos penyaring TIDAK sama dengan sampai ke layar. Penjaga sebelumnya
+    hanya memeriksa yang pertama, dan justru menuliskan bahwa perbedaan nama
+    antar-metode itu disengaja — sehingga ia meluluskan keadaan yang rusak.
+    """
+    for metode in METODE_DISARING:
+        pemasok = {x for x in _label(metode) if "supplier" in x.lower()}
+        salah = pemasok - NAMA_PEMASOK_SAH
+        assert not salah, (
+            f"{metode}: {sorted(salah)} — layar membaca camelCase; "
+            f"bentuk lain lolos response_model tetapi tidak pernah terbaca"
+        )
+
+
+def test_daftar_mengambil_nama_dan_awalan_pemasok():
+    """Baris daftar mencetak nama BESERTA awalan badan usahanya (PT, CV)."""
+    label = _label("get_all")
+    assert "supplierName" in label, sorted(label)
+    assert "supplierPrefix" in label, sorted(label)

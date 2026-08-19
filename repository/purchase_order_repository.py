@@ -640,18 +640,20 @@ class PurchaseOrderRepository:
 
             # sebelumnya kolom itu tidak ikut diambil sehingga tampil "?".
             #
-            # Label memakai snake_case, dan itu DISENGAJA.
+            # Label memakai camelCase, SAMA seperti `get_by_id`.
             #
-            # `PurchaseOrderResponse` mencantumkan `supplier_name` dan
-            # `supplier_prefix` secara tersendiri — persis agar hasil join
-            # pada daftar ini lolos penyaring `response_model`. Menggantinya
-            # menjadi camelCase memutus kontrak dengan layar yang membacanya,
-            # dan karena backend dan frontend disebar terpisah, kolom pemasok
-            # akan kosong di antara kedua penyebaran itu.
+            # `PurchaseOrderResponse` menerima kedua bentuk — camelCase dan
+            # snake_case sama-sama tercantum di sana — sehingga skemanya tidak
+            # menentukan pilihan ini. Yang menentukan layarnya: daftar purchase
+            # order membaca `po.supplierName` dan `po.supplierPrefix`, dan
+            # setiap jalur lain di aplikasi ini memakai bentuk yang sama.
             #
-            # `get_by_id` memakai camelCase karena skemanya juga menyebutnya
-            # begitu; keduanya memang berbeda, dan keduanya sama-sama benar
-            # terhadap skema yang menyaringnya.
+            # Pernah dicoba snake_case di sini, dengan alasan skemanya memuat
+            # nama itu. Alasannya benar, kesimpulannya keliru: skemanya memang
+            # meloloskan, tetapi templat daftarnya tidak pernah membacanya —
+            # dan seluruh kolom pemasok berubah menjadi "—" berikut lencana
+            # "?" tanpa satu pun galat. Satu bentuk untuk satu hal; itu saja
+            # yang mencegahnya berulang.
             #
             # Alamat ikut diambil: pemilih purchase order pada formulir
             # pembelian menyalinnya ke dokumen, dan tanpa kolom ini pembelian
@@ -659,8 +661,8 @@ class PurchaseOrderRepository:
             query = (
                 select(
                     purchase_orders_table,
-                    suppliers_table.c.name.label("supplier_name"),
-                    suppliers_table.c.prefix.label("supplier_prefix"),
+                    suppliers_table.c.name.label("supplierName"),
+                    suppliers_table.c.prefix.label("supplierPrefix"),
                     suppliers_table.c.address.label("supplierAddress"),
                 )
                 .select_from(
