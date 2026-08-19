@@ -549,7 +549,7 @@ class PurchaseOrderController:
             ) or int(user_level or 1) >= 4
             if not boleh:
                 return app_error(
-                    ErrorCode.FORBIDDEN,
+                    ErrorCode.PO_EDIT_FORBIDDEN,
                     "Hanya pembuat dokumen atau level 4 ke atas yang dapat "
                     "mengubah purchase order ini.",
                     403,

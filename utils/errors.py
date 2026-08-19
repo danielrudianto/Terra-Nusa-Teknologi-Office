@@ -66,6 +66,17 @@ class ErrorCode:
     REMINDER_NOT_OWNER = "REMINDER_NOT_OWNER"
     REMINDER_SHARED_FORBIDDEN = "REMINDER_SHARED_FORBIDDEN"
 
+    # ---- purchase order ----
+    #
+    # Kode TERSENDIRI, bukan `FORBIDDEN` biasa.
+    #
+    # `FORBIDDEN` diterjemahkan menjadi "Anda tidak memiliki akses untuk
+    # tindakan ini" — kalimat yang benar tetapi tidak menyebut apa pun yang
+    # dapat ditindaklanjuti. Yang membacanya perlu tahu bahwa dokumen ini
+    # hanya dapat diubah PEMBUATNYA, sehingga ia tahu harus menghubungi siapa
+    # alih-alih meminta izinnya dinaikkan.
+    PO_EDIT_FORBIDDEN = "PO_EDIT_FORBIDDEN"
+
     # ---- data induk ----
     BANK_ACCOUNT_EXISTS = "BANK_ACCOUNT_EXISTS"
     EMPLOYEE_DELETED = "EMPLOYEE_DELETED"

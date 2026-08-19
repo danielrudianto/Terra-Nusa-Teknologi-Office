@@ -54,7 +54,14 @@ def test_hanya_pembuat_atau_level_empat():
     b = _blok("controllers/purchase_order_controller.py", "update_purchase_order")
     assert "createdBy" in b
     assert ">= 4" in b
-    assert "ErrorCode.FORBIDDEN" in b
+    # Kode TERSENDIRI, bukan `FORBIDDEN` biasa.
+    #
+    # `FORBIDDEN` diterjemahkan layar menjadi "Anda tidak memiliki akses untuk
+    # tindakan ini" — benar, tetapi tidak menyebut apa pun yang dapat
+    # ditindaklanjuti. Yang membacanya perlu tahu bahwa dokumen ini hanya
+    # dapat diubah PEMBUATNYA, sehingga ia menghubungi orangnya alih-alih
+    # meminta izinnya dinaikkan.
+    assert "ErrorCode.PO_EDIT_FORBIDDEN" in b
 
 
 def test_revisi_dinaikkan():
