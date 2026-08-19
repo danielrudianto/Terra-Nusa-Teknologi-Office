@@ -66,3 +66,26 @@ class FakeDatabase:
 
     async def execute(self, query: Any):
         return await self._take("execute", query, 1)
+
+    def transaction(self):
+        """
+        Transaksi tiruan.
+
+        `databases` menyediakannya sebagai pengelola konteks asinkron, dan
+        repository memakainya untuk menjaga beberapa pernyataan jadi-atau-batal
+        bersama. Yang ditiru di sini hanya BENTUKNYA — tidak ada yang
+        digulung balik, karena tidak ada basis data yang menyimpan apa pun.
+
+        Pemanggilannya tetap dicatat, sehingga pengujian dapat memastikan
+        sebuah repository memang membungkus pekerjaannya dalam transaksi.
+        """
+        self.calls.append(("transaction", None))
+
+        class _Transaksi:
+            async def __aenter__(_self):
+                return _self
+
+            async def __aexit__(_self, *_):
+                return False
+
+        return _Transaksi()

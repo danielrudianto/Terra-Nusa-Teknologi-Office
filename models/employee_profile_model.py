@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    Index,
     Table,
     Column,
     Integer,
@@ -173,4 +174,14 @@ employee_profile_history_table = Table(
     Column("changedFields", JSON, nullable=False),
     Column("changedAt", DateTime(), nullable=False),
     Column("changedBy", Integer, ForeignKey("users.id"), nullable=False),
+    # Indeks DITULIS DI SINI juga, bukan hanya di berkas SQL-nya.
+    #
+    # Pada basis data yang baru disiapkan, `create_all` membentuk tabelnya
+    # lebih dulu; SQL yang dijalankan sesudahnya ber-`IF NOT EXISTS` sehingga
+    # tidak melakukan apa pun, dan indeksnya tidak pernah terpasang. Tidak ada
+    # pemeriksa yang menyebutnya — `cek_skema` hanya membandingkan indeks
+    # UNIK.
+    Index("idx_eph_employee", "employeeID", "changedAt"),
+    Index("idx_eph_profile", "profileID"),
+    Index("idx_eph_changed_by", "changedBy"),
 )

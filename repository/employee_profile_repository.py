@@ -112,45 +112,76 @@ class EmployeeProfileRepository:
                 bersih["updatedAt"] = dt.now()
                 bersih["updatedBy"] = user_id
 
-                # Keadaan SEBELUM ditimpa disalin lebih dulu.
-                #
-                # Profil hanya punya satu baris per karyawan; tanpa salinan
-                # ini, satu koreksi yang keliru menghapus nilai sebelumnya
-                # untuk selamanya. Jejak audit umum tidak menggantikannya —
-                # ia sengaja hanya mencatat NAMA kolom, bukan isinya.
-                #
-                # Disalin SEBELUM `update` dijalankan, bukan sesudah: sesudah
-                # itu yang terbaca sudah nilai barunya.
-                sebelum = await database.fetch_one(
-                    select(employee_profiles_table).where(
-                        employee_profiles_table.c.id == lama["id"]
-                    )
-                )
-                if sebelum is not None:
-                    await database.execute(
-                        insert(employee_profile_history_table).values(
-                            profileID=lama["id"],
-                            employeeID=employee_id,
-                            # `default=str` diperlukan: profil memuat tanggal,
-                            # dan tanggal tidak dapat diserialkan JSON sendiri.
-                            snapshot=json.dumps(dict(sebelum), default=str),
-                            changedFields=json.dumps(
-                                sorted(
-                                    k
-                                    for k in bersih
-                                    if k not in ("updatedAt", "updatedBy")
-                                )
-                            ),
-                            changedAt=dt.now(),
-                            changedBy=user_id,
+                """
+                Keadaan SEBELUM ditimpa disalin lebih dulu, dalam SATU
+                transaksi dengan penimpaannya.
+
+                Profil hanya punya satu baris per karyawan; tanpa salinan ini,
+                satu koreksi yang keliru menghapus nilai sebelumnya untuk
+                selamanya. Jejak audit umum tidak menggantikannya — ia sengaja
+                hanya mencatat NAMA kolom, bukan isinya.
+
+                Disalin SEBELUM `update`, bukan sesudah: sesudah itu yang
+                terbaca sudah nilai barunya.
+
+                Satu transaksi karena keduanya harus jadi atau batal bersama.
+                Terpisah, penimpaan yang gagal meninggalkan baris riwayat atas
+                perubahan yang tidak pernah terjadi — dan "keadaan sebelum"
+                yang ia catat justru sama persis dengan keadaan sekarang.
+                """
+                async with database.transaction():
+                    sebelum = await database.fetch_one(
+                        select(employee_profiles_table).where(
+                            employee_profiles_table.c.id == lama["id"]
                         )
                     )
 
-                await database.execute(
-                    update(employee_profiles_table)
-                    .where(employee_profiles_table.c.id == lama["id"])
-                    .values(**bersih)
-                )
+                    if sebelum is not None:
+                        # `_rapikan`, bukan `dict()` mentah.
+                        #
+                        # Kolom JSON kembali dari `databases` sebagai TEKS.
+                        # Membungkusnya lagi dengan `json.dumps` menghasilkan
+                        # sandi ganda: saat riwayatnya dibaca,
+                        # `formalEducation` tetap berupa teks, dan layar yang
+                        # memeriksanya dengan `Array.isArray()` mencetak JSON
+                        # mentah alih-alih "3 baris".
+                        keadaan = _rapikan(sebelum) or {}
+
+                        # Kolom yang BENAR-BENAR berubah, bukan yang dikirim.
+                        #
+                        # Layar mengirim seluruh isian setiap kali menyimpan,
+                        # sehingga membandingkan dengan muatannya membuat
+                        # setiap koreksi satu huruf tercatat sebagai dua puluh
+                        # kolom berubah — dan riwayat yang menyenaraikan
+                        # segalanya sama tidak berguna dengan riwayat yang
+                        # tidak menyebut apa pun.
+                        berubah = sorted(
+                            k
+                            for k, v in bersih.items()
+                            if k not in ("updatedAt", "updatedBy")
+                            and keadaan.get(k) != v
+                        )
+
+                        await database.execute(
+                            insert(employee_profile_history_table).values(
+                                profileID=lama["id"],
+                                employeeID=employee_id,
+                                # `default=str` diperlukan: profil memuat
+                                # tanggal, dan tanggal tidak dapat diserialkan
+                                # JSON sendiri.
+                                snapshot=json.dumps(keadaan, default=str),
+                                changedFields=json.dumps(berubah),
+                                changedAt=dt.now(),
+                                changedBy=user_id,
+                            )
+                        )
+
+                    await database.execute(
+                        update(employee_profiles_table)
+                        .where(employee_profiles_table.c.id == lama["id"])
+                        .values(**bersih)
+                    )
+
                 profile_id = lama["id"]
                 aksi = "update"
             else:
@@ -258,7 +289,16 @@ class EmployeeProfileRepository:
                 .where(
                     employee_profile_history_table.c.employeeID == employee_id
                 )
-                .order_by(employee_profile_history_table.c.changedAt.desc())
+                .order_by(
+                    employee_profile_history_table.c.changedAt.desc(),
+                    # Pemecah imbang.
+                    #
+                    # `changedAt` bertipe DATETIME tanpa pecahan detik, dan
+                    # dua penyimpanan dalam detik yang sama kembali dalam
+                    # urutan yang ditentukan basis data. Layar mengambil yang
+                    # teratas sebagai yang terbaru.
+                    employee_profile_history_table.c.id.desc(),
+                )
             )
             rows = await database.fetch_all(query)
 

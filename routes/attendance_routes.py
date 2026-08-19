@@ -2,8 +2,13 @@
 BERKAS TIDAK TERPAKAI — jangan didaftarkan sebelum diperbaiki.
 
 Isinya salinan persis `asset_routes.py` dengan nama modul izin diganti
-menjadi "attendance". Modul itu tidak ada di `constants/permission_matrix.py`,
-sehingga setiap permintaannya akan selalu ditolak.
+menjadi "attendance", dan seluruh isinya masih memanggil `AssetController`.
+
+Modul "attendance" tidak ada di `constants/permission_matrix.py`.
+`required_level()` mengembalikan 5 untuk modul yang tidak dikenal — jadi
+BUKAN "selalu ditolak" seperti tertulis sebelumnya: pengguna level 5 tanpa
+divisi akan lolos seluruh rutenya, lalu mengubah data ASET lewat jalur yang
+tidak seorang pun kira ada.
 
 Berkas ini tidak terdaftar di `routes/routes.py`, jadi tidak berpengaruh
 apa-apa sekarang. Tetapi bila suatu saat didaftarkan tanpa diperiksa,

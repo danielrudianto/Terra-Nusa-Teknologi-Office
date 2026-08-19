@@ -54,6 +54,17 @@ def test_nama_pemasok_ikut_terkirim():
     """
     Yang paling sering hilang, dan yang paling terasa: daftar purchase order
     menampilkan nama pemasok pada setiap barisnya.
+
+    Nama labelnya BERBEDA antara kedua metode, dan itu memang begitu:
+    `get_all` memakai snake_case karena skemanya menyebut `supplier_name`
+    tersendiri untuk hasil join daftar, sedangkan `get_by_id` memakai
+    camelCase. Yang dijaga di sini bukan keseragaman namanya, melainkan bahwa
+    nama pemasok memang ikut diambil — dengan nama apa pun yang dikenali
+    skemanya.
     """
+    bidang = set(PurchaseOrderResponse.model_fields)
     for metode in METODE_DISARING:
-        assert "supplierName" in _label(metode), metode
+        label = _label(metode)
+        pemasok = {x for x in label if "supplier" in x.lower()}
+        assert pemasok, metode
+        assert pemasok <= bidang, f"{metode}: {sorted(pemasok - bidang)}"

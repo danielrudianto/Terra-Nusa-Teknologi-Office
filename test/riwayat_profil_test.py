@@ -26,6 +26,9 @@ PROFIL_LAMA = {
     "birthPlace": "Bandnug",
     "motherName": "Siti",
     "bloodType": "O",
+    # Kolom JSON kembali sebagai TEKS dari `databases`; bentuk itulah yang
+    # harus ditangani, bukan bentuk yang sudah terurai.
+    "formalEducation": '[{"jenjang": "S1"}]',
 }
 
 
@@ -127,3 +130,45 @@ def test_riwayat_dibaca_terbaru_dulu(fake_db):
 
     assert "ORDER BY" in _sql(db.last_query("fetch_all"))
     assert "DESC" in _sql(db.last_query("fetch_all"))
+
+
+def test_snapshot_tidak_tersandi_ganda(fake_db):
+    """
+    Kolom JSON kembali sebagai teks; membungkusnya lagi membuat riwayatnya
+    memuat teks di dalam teks. Yang membacanya melihat JSON mentah, bukan
+    daftar — dan layar yang memeriksanya dengan `Array.isArray()` menyerah.
+    """
+    db = _pasang(fake_db)
+    asyncio.run(EmployeeProfileRepository.upsert(3, {"birthPlace": "Bandung"}, 9))
+
+    sisip = next(
+        q for m, q in db.calls
+        if m == "execute" and "employee_profile_history" in _sql(q)
+    )
+    nilai = sisip.compile().params
+    isi = json.loads(nilai["snapshot"])
+    assert isinstance(isi["formalEducation"], list), isi["formalEducation"]
+
+
+def test_hanya_kolom_yang_berubah_dicatat(fake_db):
+    """
+    Layar mengirim SELURUH isian setiap kali menyimpan. Mencatat apa yang
+    dikirim berarti satu koreksi satu huruf tercatat sebagai dua puluh kolom
+    berubah.
+    """
+    db = _pasang(fake_db)
+    asyncio.run(
+        EmployeeProfileRepository.upsert(
+            3,
+            # `motherName` dikirim ulang dengan nilai yang SAMA.
+            {"birthPlace": "Bandung", "motherName": "Siti"},
+            9,
+        )
+    )
+
+    sisip = next(
+        q for m, q in db.calls
+        if m == "execute" and "employee_profile_history" in _sql(q)
+    )
+    berubah = json.loads(sisip.compile().params["changedFields"])
+    assert berubah == ["birthPlace"], berubah
