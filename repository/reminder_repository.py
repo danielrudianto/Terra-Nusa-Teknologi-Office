@@ -1,14 +1,157 @@
+import json
+import re
 from datetime import date as d, timedelta
 from typing import List
 
-from sqlalchemy import and_, delete, insert, or_, select, update
+from sqlalchemy import and_, delete, func, insert, or_, select, update
 
+from models.employee_form_model import employee_form_submissions_table
 from models.employee_model import employees_table
 from models.reminder_model import reminder_targets_table, reminders_table
 from models.user_model import users_table
 from utils.database import database
 from utils.logger_utils import log_error
 from utils.errors import internal_error
+
+#: Kunci isian daftar keluarga di dalam `answers`.
+#:
+#: Formulir berkala menyimpan jawabannya berkunci `key` tiap isian; daftar
+#: keluarganya berkunci `family`, ditetapkan di `constants/employee_form_default`.
+#:
+#: Pertanyaannya BERVERSI: bila kelak kuncinya diganti, jawaban lama tetap
+#: memakai kunci lama dan yang baru tidak terbaca di sini. Itu memang risiko
+#: yang melekat pada formulir berversi — dan yang hilang hanya ulang tahun
+#: pasangan, bukan jawabannya sendiri.
+KUNCI_KELUARGA = "family"
+
+#: Nilai `relation` yang berarti pasangan, dalam huruf kecil.
+#:
+#: Dua ejaan beredar dan keduanya harus terbaca: formulir berkala menyimpan
+#: "Pasangan" (huruf besar, dari `options` pada definisi isiannya), sedangkan
+#: layar profil memakai "pasangan". Pencocokannya karena itu tidak boleh peka
+#: besar-kecil huruf.
+RELASI_PASANGAN = "pasangan"
+
+#: `YYYY-MM-DD` di awal sebuah teks tanggal.
+_AWALAN_TANGGAL = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
+
+
+def _tanggal_keluarga(nilai) -> d | None:
+    """
+    Tanggal lahir anggota keluarga, dari nilai yang tersimpan di `customData`.
+
+    Dua bentuk beredar di basis data, dan keduanya harus terbaca.
+
+    `YYYY-MM-DD`
+        Bentuk sekarang. Layar profil menyandikannya lewat `tanggalLokal()`,
+        yang membaca komponen tanggalnya apa adanya tanpa konversi zona
+        waktu.
+
+    `YYYY-MM-DDTHH:MM:SS.sssZ`
+        Bentuk LAMA, dari sebelum `tanggalLokal()` dipakai. Dulu objek Date
+        dari datepicker langsung diserialkan, dan `toISOString()` mengubahnya
+        ke UTC lebih dulu. Tengah malam tanggal 12 di Jakarta adalah pukul
+        17.00 tanggal 11 menurut UTC — sehingga membaca bagian tanggalnya
+        begitu saja MEMUNDURKAN ulang tahunnya sehari.
+
+        Karena itu bentuk berjam dikembalikan dulu ke waktu Jakarta sebelum
+        tanggalnya diambil. Kantornya satu zona waktu; anggapan +7 di sini
+        benar untuk seluruh data yang ada.
+
+    Yang tidak dapat dibaca dikembalikan sebagai `None` dan dilewati — satu
+    isian yang aneh tidak boleh menjatuhkan seluruh agenda.
+    """
+    if not nilai:
+        return None
+
+    if isinstance(nilai, d):
+        return nilai
+
+    teks = str(nilai).strip()
+    if not teks:
+        return None
+
+    # Bentuk lama: ada jamnya, dan jamnya UTC.
+    if "T" in teks:
+        try:
+            utuh = teks.replace("Z", "+00:00")
+            from datetime import datetime, timezone
+
+            waktu = datetime.fromisoformat(utuh)
+            if waktu.tzinfo is not None:
+                # +7, bukan zona waktu server: yang menyimpannya peramban di
+                # Jakarta, dan server dapat berjalan di mana saja.
+                waktu = waktu.astimezone(timezone(timedelta(hours=7)))
+            return waktu.date()
+        except (ValueError, TypeError):
+            return None
+
+    cocok = _AWALAN_TANGGAL.match(teks)
+    if not cocok:
+        return None
+    try:
+        return d(int(cocok.group(1)), int(cocok.group(2)), int(cocok.group(3)))
+    except ValueError:
+        return None
+
+
+def _urai_json(nilai):
+    """
+    Uraikan nilai JSON, termasuk yang TERSANDI DUA KALI.
+
+    Sandi ganda benar-benar ada di basis data ini. `employee_profiles.
+    familyMembers` sebagian bertipe ARRAY dan sebagian lagi STRING berisi
+    teks JSON — satu kolom, dua bentuk, tergantung kapan barisnya ditulis.
+
+    Sebabnya: pemanggilnya menyandikan sendiri dengan `json.dumps`, lalu tipe
+    kolom JSON pada SQLAlchemy menyandikannya SEKALI LAGI saat mengikat
+    nilainya. Yang sampai ke MySQL bukan larik, melainkan teks yang kebetulan
+    berisi larik.
+
+    Dibatasi dua lapis. Tanpa batas, teks yang memang berisi tanda kutip dapat
+    terurai terus sampai berubah menjadi sesuatu yang tidak dimaksudkan.
+    """
+    for _ in range(2):
+        if not isinstance(nilai, str):
+            break
+        try:
+            nilai = json.loads(nilai)
+        except (ValueError, TypeError):
+            return None
+    return nilai
+
+
+def _pasangan(jawaban) -> list[dict]:
+    """
+    Anggota keluarga berstatus PASANGAN pada satu berkas jawaban.
+
+    Hanya pasangan. Anak sengaja tidak ikut: satu karyawan dapat menyumbang
+    empat tanggal sekaligus, dan agenda yang terlalu ramai berhenti dibaca —
+    persis yang hendak dihindari dengan menampilkannya.
+    """
+    isi = _urai_json(jawaban)
+    if not isinstance(isi, dict):
+        return []
+
+    daftar = _urai_json(isi.get(KUNCI_KELUARGA))
+    if not isinstance(daftar, list):
+        return []
+
+    hasil = []
+    for anggota in daftar:
+        if not isinstance(anggota, dict):
+            continue
+        if str(anggota.get("relation") or "").strip().lower() != RELASI_PASANGAN:
+            continue
+        lahir = _tanggal_keluarga(anggota.get("birthday"))
+        if lahir is None:
+            continue
+        nama = str(anggota.get("name") or "").strip()
+        if not nama:
+            # Tanggal tanpa nama tidak dapat diucapkan kepada siapa pun.
+            continue
+        hasil.append({"nama": nama, "lahir": lahir})
+    return hasil
 
 
 class ReminderRepository:
@@ -211,7 +354,69 @@ class BirthdayRepository:
     untuk memastikan identitas seseorang, dan mengumumkan usia seluruh
     karyawan bukan hal yang setiap orang nyaman. Untuk mengucapkan selamat,
     tanggal dan bulan sudah cukup.
+
+    Ulang tahun PASANGAN karyawan ikut, diambil dari `familyMembers` pada
+    profil. Anak dan saudara tidak — satu karyawan dapat menyumbang empat
+    tanggal sekaligus, dan agenda yang terlalu ramai berhenti dibaca.
+
+    Tiap entri menyebut `kind`: `employee` atau `spouse`. Tanpa penanda itu
+    layar tidak dapat membedakan "Budi ulang tahun" dari "istri Budi ulang
+    tahun", dan keduanya butuh kalimat yang berbeda.
     """
+
+    @staticmethod
+    async def _jawaban_keluarga():
+        """
+        Jawaban formulir berkala TERAKHIR dari tiap karyawan aktif.
+
+        Susunan keluarga memang tinggal di sini, bukan di `employee_profiles`:
+        profil memuat yang menempel pada orangnya, sedangkan yang BERUBAH —
+        susunan keluarga, alamat, kontak — ditanyakan berkala. Begitu pula
+        yang terjadi di lapangan: kolom keluarga pada profil hampir seluruhnya
+        kosong, sementara jawaban formulirnya terisi.
+
+        Hanya yang TERAKHIR. Satu karyawan mengisi berulang kali tiap periode,
+        dan membaca semuanya memunculkan pasangan yang sudah bercerai atau
+        nama yang sudah dibetulkan — dua kali, berdampingan, tanpa penjelasan
+        apa pun bagi yang membacanya.
+
+        Keaktifannya diuji sama seperti ulang tahun karyawan sendiri:
+        `endDate` terisi berarti orangnya sudah tidak bekerja, dan mengumumkan
+        ulang tahun istri mantan karyawan lebih canggung lagi daripada
+        mengumumkan ulang tahunnya sendiri.
+        """
+        # Id TERBESAR, bukan `submittedAt` terbaru: dua pengisian pada detik
+        # yang sama menghasilkan cap waktu yang sama persis, dan `max()` atas
+        # itu tidak menentukan satu baris.
+        terakhir = (
+            select(
+                employee_form_submissions_table.c.employeeID,
+                func.max(employee_form_submissions_table.c.id).label("idTerakhir"),
+            )
+            .where(employee_form_submissions_table.c.isDelete == False)  # noqa: E712
+            .group_by(employee_form_submissions_table.c.employeeID)
+            .subquery()
+        )
+
+        return await database.fetch_all(
+            select(
+                employees_table.c.id,
+                employees_table.c.name,
+                employee_form_submissions_table.c.answers,
+            )
+            .select_from(
+                employees_table.join(
+                    terakhir, terakhir.c.employeeID == employees_table.c.id
+                ).join(
+                    employee_form_submissions_table,
+                    employee_form_submissions_table.c.id == terakhir.c.idTerakhir,
+                )
+            )
+            .where(
+                employees_table.c.isDelete == False,  # noqa: E712
+                employees_table.c.endDate.is_(None),
+            )
+        )
 
     @staticmethod
     async def upcoming(hari_ini: d, jangkauan: int = 7):
@@ -254,7 +459,41 @@ class BirthdayRepository:
                         "day": lahir.day,
                         "month": lahir.month,
                         "daysUntil": selisih,
+                        "kind": "employee",
                     }
+                )
+
+            # ---- pasangan ----
+            #
+            # Kegagalan membaca profil TIDAK menjatuhkan ulang tahun karyawan
+            # yang sudah terkumpul. Satu profil dengan `familyMembers` yang
+            # rusak tidak boleh mengosongkan seluruh agenda.
+            try:
+                for p in await BirthdayRepository._jawaban_keluarga():
+                    for pasangan in _pasangan(p["answers"]):
+                        lahir = pasangan["lahir"]
+                        selisih = BirthdayRepository.days_until(
+                            lahir.month, lahir.day, hari_ini
+                        )
+                        if selisih is None or selisih > jangkauan:
+                            continue
+                        hasil.append(
+                            {
+                                # Id KARYAWANNYA, bukan id pasangan — pasangan
+                                # tidak punya baris sendiri, dan yang dituju
+                                # saat barisnya ditekan memang karyawannya.
+                                "id": p["id"],
+                                "name": pasangan["nama"],
+                                "day": lahir.day,
+                                "month": lahir.month,
+                                "daysUntil": selisih,
+                                "kind": "spouse",
+                                "employeeName": p["name"],
+                            }
+                        )
+            except Exception as e:
+                log_error(
+                    f"Ulang tahun pasangan gagal dibaca: {type(e).__name__}: {e}"
                 )
 
             hasil.sort(key=lambda x: (x["daysUntil"], x["name"]))
@@ -328,8 +567,45 @@ class BirthdayRepository:
                         "birthday": lahir,
                         "date": tanggal,
                         "age": tanggal.year - lahir.year,
+                        "kind": "employee",
                     }
                 )
+
+            # ---- pasangan ----
+            #
+            # Dibungkus tersendiri dengan alasan yang sama seperti pada
+            # `upcoming`: kalender yang kehilangan ulang tahun pasangan masih
+            # berguna, kalender yang kosong sama sekali tidak.
+            try:
+                for p in await BirthdayRepository._jawaban_keluarga():
+                    for pasangan in _pasangan(p["answers"]):
+                        lahir = pasangan["lahir"]
+                        kunci = (lahir.month, lahir.day)
+                        if kunci == (2, 29) and kunci not in peta:
+                            kunci = (3, 1)
+                        if kunci not in peta:
+                            continue
+                        hasil.append(
+                            {
+                                "id": p["id"],
+                                "name": pasangan["nama"],
+                                "date": peta[kunci],
+                                "kind": "spouse",
+                                "employeeName": p["name"],
+                                # `birthday` dan `age` sengaja TIDAK ikut.
+                                #
+                                # Untuk mengucapkan selamat, tanggal dan bulan
+                                # sudah cukup — alasan yang sama seperti pada
+                                # karyawan. Bedanya di sini orangnya bukan
+                                # karyawan perusahaan ini, sehingga tidak ada
+                                # keperluan lain yang menuntut tahun lahirnya.
+                            }
+                        )
+            except Exception as e:
+                log_error(
+                    f"Ulang tahun pasangan gagal dibaca: {type(e).__name__}: {e}"
+                )
+
             hasil.sort(key=lambda x: (x["date"], x["name"]))
             return hasil
         except Exception as e:

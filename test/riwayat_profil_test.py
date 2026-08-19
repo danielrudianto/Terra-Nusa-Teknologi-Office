@@ -132,11 +132,20 @@ def test_riwayat_dibaca_terbaru_dulu(fake_db):
     assert "DESC" in _sql(db.last_query("fetch_all"))
 
 
-def test_snapshot_tidak_tersandi_ganda(fake_db):
+def test_snapshot_diserahkan_sebagai_objek_bukan_teks(fake_db):
     """
-    Kolom JSON kembali sebagai teks; membungkusnya lagi membuat riwayatnya
-    memuat teks di dalam teks. Yang membacanya melihat JSON mentah, bukan
-    daftar — dan layar yang memeriksanya dengan `Array.isArray()` menyerah.
+    Kolom `snapshot` bertipe JSON, dan tipe itu menyandikan nilainya SENDIRI
+    saat mengikat. Menyandikannya lebih dulu di sini membuatnya tersandi dua
+    kali: yang tersimpan bukan objek melainkan teks yang kebetulan berisi
+    objek.
+
+    Dari aplikasi hal itu tidak terlihat — pembacanya mengurai sekali, dan
+    satu penguraian atas nilai tersandi ganda kebetulan menghasilkan bentuk
+    yang benar. Yang patah SQL-nya: `JSON_EXTRACT` dan `JSON_TABLE` atas
+    riwayatnya berhenti menemukan apa pun, sebab bagi MySQL isinya satu teks.
+
+    Persis itu yang sudah terjadi pada `employee_profiles.familyMembers`:
+    `JSON_TYPE` melaporkan STRING, bukan ARRAY, dan kuerinya kembali kosong.
     """
     db = _pasang(fake_db)
     asyncio.run(EmployeeProfileRepository.upsert(3, {"birthPlace": "Bandung"}, 9))
@@ -146,8 +155,38 @@ def test_snapshot_tidak_tersandi_ganda(fake_db):
         if m == "execute" and "employee_profile_history" in _sql(q)
     )
     nilai = sisip.compile().params
-    isi = json.loads(nilai["snapshot"])
-    assert isinstance(isi["formalEducation"], list), isi["formalEducation"]
+
+    # Objek, bukan teks — inilah yang membedakan sandi tunggal dari ganda.
+    assert isinstance(nilai["snapshot"], dict), type(nilai["snapshot"])
+    assert isinstance(nilai["changedFields"], list), type(nilai["changedFields"])
+
+    # Kolom JSON di dalamnya tetap berupa daftar, bukan teks: layar
+    # memeriksanya dengan `Array.isArray()`, yang menolak string.
+    assert isinstance(nilai["snapshot"]["formalEducation"], list)
+
+
+def test_snapshot_menerima_tanggal(fake_db):
+    """
+    `date` tidak dapat diserialkan JSON sendiri.
+
+    Itu sebabnya `default=str` dulu dipakai — tetapi `json.dumps` menghasilkan
+    teks, dan teks itulah yang menimbulkan sandi ganda. `_jsonkan` menangani
+    keduanya: tanggalnya menjadi teks, wadahnya tetap objek.
+    """
+    from datetime import date
+
+    db = fake_db(MODUL)
+    db.queue("fetch_one", {"id": 3}, {"id": 7},
+             {**PROFIL_LAMA, "ktpValidUntil": date(2030, 1, 31)})
+
+    asyncio.run(EmployeeProfileRepository.upsert(3, {"birthPlace": "Bandung"}, 9))
+
+    sisip = next(
+        q for m, q in db.calls
+        if m == "execute" and "employee_profile_history" in _sql(q)
+    )
+    nilai = sisip.compile().params
+    assert nilai["snapshot"]["ktpValidUntil"] == "2030-01-31"
 
 
 def test_hanya_kolom_yang_berubah_dicatat(fake_db):
@@ -170,7 +209,7 @@ def test_hanya_kolom_yang_berubah_dicatat(fake_db):
         q for m, q in db.calls
         if m == "execute" and "employee_profile_history" in _sql(q)
     )
-    berubah = json.loads(sisip.compile().params["changedFields"])
+    berubah = sisip.compile().params["changedFields"]
     assert berubah == ["birthPlace"], berubah
 
 
@@ -206,7 +245,7 @@ def test_kolom_berulang_yang_tidak_disunting_tidak_tercatat(fake_db):
         q for m, q in db.calls
         if m == "execute" and "employee_profile_history" in _sql(q)
     )
-    berubah = json.loads(sisip.compile().params["changedFields"])
+    berubah = sisip.compile().params["changedFields"]
     assert berubah == ["birthPlace"], berubah
 
 
@@ -223,7 +262,7 @@ def test_kolom_berulang_yang_disunting_tetap_tercatat(fake_db):
         q for m, q in db.calls
         if m == "execute" and "employee_profile_history" in _sql(q)
     )
-    berubah = json.loads(sisip.compile().params["changedFields"])
+    berubah = sisip.compile().params["changedFields"]
     assert berubah == ["formalEducation"], berubah
 
 
@@ -255,5 +294,5 @@ def test_pengosongan_benar_benar_tersimpan(fake_db):
         q for m, q in db.calls
         if m == "execute" and "employee_profile_history" in _sql(q)
     )
-    berubah = json.loads(sisip.compile().params["changedFields"])
+    berubah = sisip.compile().params["changedFields"]
     assert berubah == ["birthPlace"], berubah

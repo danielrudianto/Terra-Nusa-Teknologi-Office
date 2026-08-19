@@ -54,6 +54,21 @@ def _rapikan(row):
     return data
 
 
+def _jsonkan(nilai):
+    """
+    Bentuk yang PASTI dapat diserialkan JSON, tanpa menyandikannya.
+
+    Profil memuat tanggal, dan `date` tidak dapat diserialkan JSON sendiri —
+    itu sebabnya `default=str` dulu dipakai. Tetapi `json.dumps` mengembalikan
+    TEKS, dan menyerahkan teks kepada kolom bertipe JSON membuatnya tersandi
+    dua kali.
+
+    Melewatkannya bolak-balik menyelesaikan keduanya: `default=str` tetap
+    menangani tanggalnya, dan yang keluar tetap berupa objek.
+    """
+    return json.loads(json.dumps(nilai, default=str))
+
+
 def _beda(lama, baru, kolom: str) -> bool:
     """
     Apakah satu kolom BENAR-BENAR berubah.
@@ -214,11 +229,21 @@ class EmployeeProfileRepository:
                             insert(employee_profile_history_table).values(
                                 profileID=lama["id"],
                                 employeeID=employee_id,
-                                # `default=str` diperlukan: profil memuat
-                                # tanggal, dan tanggal tidak dapat diserialkan
-                                # JSON sendiri.
-                                snapshot=json.dumps(keadaan, default=str),
-                                changedFields=json.dumps(berubah),
+                                # Diserahkan sebagai OBJEK, bukan teks.
+                                #
+                                # Kedua kolom bertipe JSON, dan tipe itu
+                                # menyandikan nilainya sendiri saat mengikat.
+                                # Menyandikannya lebih dulu di sini membuatnya
+                                # tersandi dua kali: yang tersimpan bukan
+                                # objek melainkan TEKS yang kebetulan berisi
+                                # objek, dan `JSON_EXTRACT` atas riwayatnya
+                                # tidak menemukan apa pun.
+                                #
+                                # `_jsonkan` tetap diperlukan untuk hal lain:
+                                # profil memuat tanggal, dan tanggal tidak
+                                # dapat diserialkan JSON sendiri.
+                                snapshot=_jsonkan(keadaan),
+                                changedFields=berubah,
                                 changedAt=dt.now(),
                                 changedBy=user_id,
                             )

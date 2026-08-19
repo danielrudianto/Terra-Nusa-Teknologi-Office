@@ -88,15 +88,28 @@ async def simpan_profil(
     sama, bukan dua baris.
     """
     data = payload.model_dump(exclude_unset=True)
-    # Tanggal dan daftar berulang perlu bentuk yang dapat disimpan MySQL.
-    if data.get("ktpValidUntil") is not None:
-        data["ktpValidUntil"] = data["ktpValidUntil"]
-    for kunci in ("formalEducation", "workExperience", "languages",
-                  "familyMembers", "drivingLicenses"):
-        if data.get(kunci) is not None:
-            import json
+    """
+    Daftar berulang diteruskan sebagai LARIK, tidak disandikan di sini.
 
-            data[kunci] = json.dumps(data[kunci], default=str)
+    Sebelumnya kelimanya dilewatkan `json.dumps` lebih dulu. Kolomnya bertipe
+    JSON, dan tipe itu menyandikan nilainya SEKALI LAGI saat mengikat — yang
+    sampai ke MySQL bukan larik, melainkan teks yang kebetulan berisi larik.
+
+    Akibatnya tidak terlihat dari aplikasi: pembacanya mengurai sekali, dan
+    satu penguraian atas nilai tersandi ganda kebetulan menghasilkan bentuk
+    yang benar. Yang patah hal lain — `JSON_TABLE`, `JSON_EXTRACT`, dan setiap
+    kueri SQL atas isinya berhenti menemukan apa pun, karena bagi MySQL
+    isinya satu teks, bukan larik:
+
+        JSON_TYPE(familyMembers) -> STRING, bukan ARRAY
+
+    `default=str` yang dulu menyertainya tidak diperlukan: seluruh isian pada
+    kelima daftar itu bertipe teks pada skemanya — tidak ada satu pun tanggal
+    di dalamnya. Satu-satunya tanggal, `ktpValidUntil`, berada di tingkat atas
+    dan memang harus tetap berupa `date` untuk kolom DATE-nya.
+
+    Baris LAMA tetap tersandi ganda; pembacanya sengaja menerima keduanya.
+    """
 
     hasil = await EmployeeProfileRepository.upsert(employee_id, data, user["id"])
     if "error" in hasil:
