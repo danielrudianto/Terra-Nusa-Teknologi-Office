@@ -43,7 +43,7 @@ purchase_orders_table = Table(
     Column("purchaseType", String(50), nullable=False),
     Column("templateVersion", String(50), nullable=False),
     Column("projectName", String(255), nullable=False),
-    Column("dpp", DECIMAL(15, 2), nullable=False),
+    Column("dpp", DECIMAL(17, 4), nullable=False),
     Column(
         "status",
         Enum(

@@ -50,6 +50,12 @@ payments_outgoing_table = Table(
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("date", Date(), nullable=False),
+    # DECIMAL(17,4) di basis data, BUKAN Integer.
+    #
+    # `Integer` di sini keliru dan sudah lama begitu; tabelnya DECIMAL sejak
+    # awal. Tipe yang tertulis dibiarkan agar perilaku pembacaannya tidak
+    # berubah dalam satu perubahan yang sama, tetapi jangan menyimpulkan dari
+    # baris ini bahwa nilainya bilangan bulat — ia tidak pernah bulat.
     Column("amount", Integer, nullable=False),
     Column("purchaseID", Integer, ForeignKey("purchases.id"), nullable=True),
     Column("expenseID", Integer, ForeignKey('expenses.id'), nullable=True),

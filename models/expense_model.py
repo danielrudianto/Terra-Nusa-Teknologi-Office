@@ -17,6 +17,7 @@ expenses_table = Table(
     Column("date", Date(), nullable=False),
     Column("dueDate", Date(), nullable=True),
     Column("purchaseType", String(100), nullable=False),
+    # DECIMAL(17,4) di basis data; lihat keterangan di purchase_model.
     Column("dpp", Float(), nullable=False),
     # PERSEN, bukan rupiah — sama seperti `purchases.ppn`.
     #
@@ -25,7 +26,10 @@ expenses_table = Table(
     # pasti salah di salah satunya, dan salahnya tidak kelihatan.
     #
     # Boleh nol: sebagian pemasok bukan PKP dan tidak memungut PPN.
+    # DECIMAL(5,2). Dulu FLOAT sungguhan, dan 1,1% tersimpan sebagai
+    # 1,1000000238 — selisih Rp 0,12 pada nominal Rp 500 juta.
     Column("ppn", Float(), nullable=False, server_default="0"),
+    # DECIMAL(17,4).
     Column("pbbkb", Float(), nullable=False),
     Column("pphCode", String(100), nullable=True),
     Column("pphTaxObject", String(500), nullable=True),

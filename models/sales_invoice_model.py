@@ -10,10 +10,12 @@ sales_invoice_tables = Table(
     Column("date", Date, nullable=False),
     Column("projectName", String(10), nullable=False),
     Column("clientID", Integer, ForeignKey("clients.id"), nullable=False),
+    # DECIMAL(17,4) di basis data; lihat keterangan di purchase_model.
     Column("dpp", Float, nullable=False, default=0.0),
     Column("pphCode", String(100), nullable=True),
     Column("pphTaxObject", String(500), nullable=True),
     Column("pphPercentage", Float, nullable=False, default=0.0),
+    # DECIMAL(5,2). Dulu FLOAT sungguhan; lihat expense_model.
     Column("ppn", Float, nullable=False, default=0.0),
     Column("bpjs", Float, nullable=False, default=0.0),
     Column("spkNumber", String(100), nullable=False),
