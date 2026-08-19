@@ -9,7 +9,7 @@ from constants.permission_matrix import (
     SPECIAL_ONLY,
     required_level,
 )
-from constants.department_modules import modules_for
+from constants.department_modules import modules_for, read_only_for
 from models.user_department_model import user_departments_table
 from models.user_permission_model import user_permissions_table
 from utils.auth_utils import get_current_user
@@ -147,6 +147,31 @@ async def is_allowed(user, module: str, action: str) -> bool:
     """
     departments = await _departments(user_id)
     if level < 4 and departments and module not in modules_for(departments):
+        return False
+
+    """
+    Modul yang bagi divisinya hanya boleh DIBACA.
+
+    Satu modul dapat menjadi urusan dua divisi dengan kedalaman berbeda. Aset
+    demikian: procurement perlu mengetahui perusahaan punya alat apa saja
+    sebelum memutuskan menyewa atau membeli, sedangkan yang mencatat
+    perolehan, menghitung penyusutan, dan menyesuaikan nilainya saat dilepas
+    adalah accounting — dan angka itu masuk ke pembukuan.
+
+    Peta wilayah tidak dapat menyatakan perbedaan ini; ia hanya mengenal
+    "urusannya" atau "bukan urusannya". Daftarnya karena itu ada di
+    `DEPARTMENT_READ_ONLY`.
+
+    Diperiksa SESUDAH izin khusus, sehingga satu orang procurement yang memang
+    perlu mencatat tetap dapat diberi haknya tanpa mengubah kebijakan bagi
+    seluruh divisinya.
+    """
+    if (
+        level < 4
+        and departments
+        and action != "read"
+        and module in read_only_for(departments)
+    ):
         return False
 
     """

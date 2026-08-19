@@ -78,6 +78,15 @@ DEPARTMENT_MODULES: dict[str, set[str]] = {
         # angkanya akan diminta lewat jalur lain — yang justru tidak
         # meninggalkan jejak sama sekali.
         "salary_slip",
+        # Aset perusahaan.
+        #
+        # Accounting yang mencatat perolehannya, menghitung penyusutannya, dan
+        # menyesuaikan nilainya ketika dilepas — sehingga merekalah yang perlu
+        # mencatat dan mengubah, bukan sekadar melihat.
+        #
+        # Procurement tetap memilikinya, tetapi hanya untuk dibaca; lihat
+        # `DEPARTMENT_READ_ONLY` di bawah.
+        "asset",
     },
     "hrd": UMUM
     | {
@@ -125,6 +134,50 @@ DEPARTMENT_MODULES: dict[str, set[str]] = {
         "client",
     },
 }
+
+#: Modul yang bagi divisi tertentu hanya boleh DIBACA.
+#
+# Peta wilayah di atas menjawab "modul ini urusan siapa", dan matriks level
+# menjawab "sejauh apa boleh bertindak". Keduanya tidak dapat menyatakan hal
+# ketiga: satu modul yang menjadi urusan DUA divisi dengan kedalaman yang
+# berbeda.
+#
+# Aset persis begitu. Procurement perlu melihat perusahaan punya alat apa saja
+# sebelum memutuskan menyewa atau membeli; yang mencatat perolehan, menghitung
+# penyusutan, dan menyesuaikan nilainya saat dilepas adalah accounting. Tanpa
+# pembedaan ini, membuka aset untuk accounting sekaligus memberi procurement
+# hak mengubah angka yang bukan urusannya — dan angka itu masuk ke pembukuan.
+#
+# Berlaku bagi level di bawah 4, sama seperti batas wilayah: general manager
+# dan pemilik memang berwenang atas seluruh perusahaan. Izin khusus per
+# pengguna tetap menang atas aturan ini, sehingga satu orang procurement yang
+# memang perlu mencatat dapat diberi haknya tanpa mengubah kebijakan.
+DEPARTMENT_READ_ONLY: dict[str, set[str]] = {
+    "procurement": {"asset"},
+}
+
+
+def read_only_for(departments: set[str]) -> set[str]:
+    """
+    Modul yang, bagi orang ini, hanya boleh dibaca.
+
+    Yang dibatasi oleh SATU divisi tidak berlaku bila divisi lain yang
+    dipegangnya memberikan modul itu secara penuh: orang yang menangani dua
+    wilayah memperoleh yang paling luas di antara keduanya — sama seperti
+    `modules_for` yang menggabungkan, bukan mengiris.
+    """
+    kunci = [(d or "").strip().lower() for d in departments or ()]
+
+    terbatas: set[str] = set()
+    penuh: set[str] = set()
+    for k in kunci:
+        modul = DEPARTMENT_MODULES.get(k, set())
+        hanya_baca = DEPARTMENT_READ_ONLY.get(k, set())
+        terbatas |= modul & hanya_baca
+        penuh |= modul - hanya_baca
+
+    return terbatas - penuh
+
 
 # Nama yang ditampilkan di layar.
 DEPARTMENT_LABELS: dict[str, str] = {
