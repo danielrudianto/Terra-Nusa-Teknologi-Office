@@ -26,6 +26,15 @@ def _selaraskan_keadaan(data: dict) -> dict:
         data["isActive"] = False
     elif data.get("isActive") is True:
         data["isCancelled"] = False
+
+    # Retensi hanya berlaku pada proyek yang masih berjalan.
+    #
+    # "Selesai sekaligus menunggu retensi" dan "batal sekaligus menunggu
+    # retensi" tidak punya arti: yang pertama sudah melewati BAST 2, yang
+    # kedua tidak pernah sampai ke sana. Dibiarkan, keduanya membuat proyek
+    # yang sama terhitung pada dua penyaring sekaligus.
+    if data.get("isCancelled") is True or data.get("isActive") is False:
+        data["isRetention"] = False
     return data
 
 
@@ -65,9 +74,17 @@ class ProjectController:
         pageSize: int,
         sortBy: Optional[str],
         sortByDirection: str,
+        isRetention: Optional[bool] = None,
     ) -> Dict[str, Any]:
         return await ProjectRepository.get_all(
-            keyword, isActive, isCancelled, page, pageSize, sortBy, sortByDirection
+            keyword,
+            isActive,
+            isCancelled,
+            page,
+            pageSize,
+            sortBy,
+            sortByDirection,
+            isRetention,
         )
 
     @staticmethod

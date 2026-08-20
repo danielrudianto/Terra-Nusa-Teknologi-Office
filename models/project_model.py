@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     UniqueConstraint,
     Text,
+    text,
 )
 from utils.database import metadata
 from datetime import datetime as dt
@@ -76,6 +77,31 @@ projects_table = Table(
     # kekeliruan input, bukan untuk pekerjaan yang benar-benar dibatalkan.
     Column("isActive", Boolean, nullable=False, default=True),
     Column("isCancelled", Boolean, nullable=False, default=False),
+    # Masa retensi — antara BAST 1 dan BAST 2.
+    #
+    # Pekerjaannya sudah diserahkan, tetapi proyeknya BELUM selesai: masa
+    # pemeliharaan masih berjalan, sebagian nilai kontrak masih ditahan, dan
+    # perbaikan yang timbul masih dibebankan ke proyek ini.
+    #
+    # Karena itu ia tetap `isActive=1`. Menandainya tidak aktif akan
+    # mengeluarkannya dari setiap pemilih proyek dan setiap laporan yang
+    # membaca `isActive` — sehingga biaya perbaikan pada masa pemeliharaan
+    # tidak punya proyek untuk dibebankan. Keempat keadaannya menjadi:
+    #
+    #     isActive=1, isCancelled=0, isRetention=0  -> berjalan
+    #     isActive=1, isCancelled=0, isRetention=1  -> tunggu retensi
+    #     isActive=0, isCancelled=0                 -> selesai (BAST 2)
+    #     isActive=0, isCancelled=1                 -> batal
+    #
+    # Gabungan yang tidak punya arti — selesai atau batal sekaligus retensi —
+    # dijaga di controller, bukan dipercayakan kepada layar.
+    Column(
+        "isRetention",
+        Boolean,
+        nullable=False,
+        server_default=text("0"),
+        default=False,
+    ),
     Column("createdAt", DateTime(), nullable=False, default=dt.now),
     Column("createdBy", Integer, nullable=False),
     Column("updatedAt", DateTime(), nullable=True, default=None),

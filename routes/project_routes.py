@@ -53,6 +53,7 @@ async def get_projects(
     sortByDirection: str = Query("asc"),
     isActive: bool | None = Query(None),
     isCancelled: bool | None = Query(None),
+    isRetention: bool | None = Query(None),
 ):
     return _bereskan(
         await ProjectController.get_projects(
@@ -63,6 +64,7 @@ async def get_projects(
             int(request.query_params.get("pageSize", 10)),
             sortBy,
             sortByDirection,
+            isRetention,
         )
     )
 

@@ -6,6 +6,7 @@ from repository.purchase_order_repository import PurchaseOrderRepository
 from repository.purchase_order_item_repository import PurchaseOrderItemRepository
 from repository.supplier_repository import SupplierRepository
 from utils.errors import internal_error
+from utils.permission import boleh_mengubah_purchase_order
 
 
 class PurchaseOrderController:
@@ -530,12 +531,19 @@ class PurchaseOrderController:
         """
         Ubah purchase order yang belum disetujui.
 
-        Yang boleh: PEMBUATNYA sendiri, atau level 4 ke atas.
+        Yang boleh: PEMBUATNYA sendiri, level 4 ke atas, atau level 3 selama
+        dokumennya BELUM DIPERIKSA.
 
-        Pembuatnya diikutkan dengan sengaja — yang salah ketik biasanya yang
-        mengisi, dan memaksanya meminta tolong orang lain membuat orang
-        menghindari koreksi. Yang dijaga bukan siapa yang mengetik, melainkan
-        bahwa dokumennya belum disetujui.
+        Yang terakhir itu tambahan, dan sebelumnya justru yang paling sering
+        dibutuhkan: pemeriksa menemukan harga yang keliru, memberi tahu
+        manajernya, dan manajer itu tidak dapat membetulkannya sama sekali
+        karena dokumennya bukan buatannya. Yang tersisa hanya menunggu
+        pembuatnya hadir — dan selama menunggu, dokumen yang salah tetap
+        berada di antrean pemeriksaan.
+
+        Batasnya PEMERIKSAAN, bukan persetujuan: begitu ada yang membaca
+        harga dan volumenya lalu menyatakan benar, menyuntingnya mencabut
+        pemeriksaan itu diam-diam. Untuk itu diperlukan level 4.
         """
         try:
             dokumen = await PurchaseOrderRepository.get_by_id(purchase_order_id)
@@ -550,14 +558,35 @@ class PurchaseOrderController:
             except (KeyError, TypeError):
                 pembuat = getattr(dokumen, "createdBy", None)
 
-            boleh = (
-                pembuat is not None and int(pembuat) == int(user_id)
-            ) or int(user_level or 1) >= 4
-            if not boleh:
+            sudah_diperiksa = False
+            try:
+                sudah_diperiksa = bool(dokumen["isChecked"])
+            except (KeyError, TypeError):
+                sudah_diperiksa = bool(getattr(dokumen, "isChecked", 0))
+
+            adalah_pembuat = pembuat is not None and int(pembuat) == int(user_id)
+
+            if not boleh_mengubah_purchase_order(
+                user_level, adalah_pembuat, sudah_diperiksa
+            ):
+                # Sebabnya disebut, bukan hanya penolakannya.
+                #
+                # "Tidak boleh" pada dokumen yang tadi pagi masih dapat
+                # diubah terbaca sebagai kerusakan. Yang berubah bukan
+                # haknya, melainkan keadaan dokumennya — dan kalimat di
+                # bawah menyebutkan jalan keluarnya sekalian.
+                if sudah_diperiksa:
+                    return app_error(
+                        ErrorCode.PO_EDIT_FORBIDDEN,
+                        "Purchase order ini sudah diperiksa. Cabut dahulu "
+                        "pemeriksaannya, atau mintakan perubahan kepada "
+                        "level 4 ke atas.",
+                        403,
+                    )
                 return app_error(
                     ErrorCode.PO_EDIT_FORBIDDEN,
-                    "Hanya pembuat dokumen atau level 4 ke atas yang dapat "
-                    "mengubah purchase order ini.",
+                    "Hanya pembuat dokumen, manajer, atau level 4 ke atas "
+                    "yang dapat mengubah purchase order ini.",
                     403,
                 )
 

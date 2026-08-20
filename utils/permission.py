@@ -277,6 +277,58 @@ def boleh_memeriksa(level, departments=None) -> bool:
     return bool(set(departments or ()) & DIVISI_PEMERIKSA)
 
 
+# Mengubah purchase order.
+#
+# Level 4 ke atas boleh selalu (selama dokumennya belum disetujui). Pembuatnya
+# juga boleh: yang salah ketik biasanya yang mengisi, dan memaksanya meminta
+# tolong orang lain membuat orang menghindari koreksi.
+#
+# Level 3 — manajer — ada di antaranya, dan di situlah masalahnya selama ini.
+# Pemeriksa menemukan harga yang keliru, memberi tahu manajernya, dan manajer
+# itu tidak dapat membetulkannya sama sekali: dokumennya bukan buatannya.
+# Yang tersisa hanya menunggu pembuatnya hadir.
+LEVEL_UBAH_SEBELUM_DIPERIKSA = 3
+
+# Level yang boleh mengubah tanpa memandang sudah diperiksa atau belum.
+LEVEL_UBAH_BEBAS = 4
+
+
+def boleh_mengubah_purchase_order(
+    level, adalah_pembuat: bool = False, sudah_diperiksa: bool = False
+) -> bool:
+    """
+    Pengguna ini boleh MENGUBAH isi purchase order.
+
+    Berlaku hanya untuk dokumen yang belum disetujui; yang sudah disetujui
+    ditolak lebih dulu di repository, apa pun levelnya, dan jalurnya adendum.
+
+    Batas level 3 bergantung pada PEMERIKSAAN, bukan pada persetujuan:
+
+      - Belum diperiksa — belum ada yang menjaminkan namanya atas isinya,
+        sehingga membetulkannya tidak menyalahi apa pun. Manajer boleh.
+
+      - Sudah diperiksa — seseorang sudah membaca harga dan volumenya lalu
+        menyatakan benar. Menyuntingnya MENCABUT pemeriksaan itu diam-diam
+        (lihat `PurchaseOrderRepository.update`), dan pencabutan yang tidak
+        disadari membuat dokumen kembali ke antrean tanpa ada yang tahu
+        mengapa. Untuk itu diperlukan level 4, atau pemeriksaannya dicabut
+        lebih dulu secara terang-terangan.
+
+    Pembuatnya sendiri tetap boleh pada keduanya — haknya tidak dikurangi
+    aturan ini.
+    """
+    try:
+        lv = int(level or 1)
+    except (TypeError, ValueError):
+        return False
+
+    if lv >= LEVEL_UBAH_BEBAS:
+        return True
+    if adalah_pembuat:
+        return True
+    return lv >= LEVEL_UBAH_SEBELUM_DIPERIKSA and not sudah_diperiksa
+
+
 def boleh_memeriksa_sendiri(level) -> bool:
     """
     Pengguna ini boleh memeriksa dokumen yang dibuatnya sendiri.

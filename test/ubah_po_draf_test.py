@@ -51,9 +51,18 @@ def test_kolom_identitas_terkunci():
 
 
 def test_hanya_pembuat_atau_level_empat():
+    """
+    Aturannya DIPANGGIL, bukan ditulis ulang di sini.
+
+    Percobaan pertama memeriksa apakah teks ">= 4" muncul di badan fungsinya.
+    Itu lulus selama angkanya kebetulan tertulis — dan gagal begitu aturannya
+    dipindahkan ke `utils/permission.py`, meskipun perilakunya tidak berubah
+    sedikit pun. Perilakunya sendiri diuji di `ubah_po_pemeriksa_test.py`.
+    """
     b = _blok("controllers/purchase_order_controller.py", "update_purchase_order")
     assert "createdBy" in b
-    assert ">= 4" in b
+    assert "boleh_mengubah_purchase_order" in b
+    assert "isChecked" in b
     # Kode TERSENDIRI, bukan `FORBIDDEN` biasa.
     #
     # `FORBIDDEN` diterjemahkan layar menjadi "Anda tidak memiliki akses untuk

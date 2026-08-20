@@ -109,6 +109,7 @@ class ProjectRepository:
         pageSize: int = 10,
         sortBy: Optional[str] = None,
         sortByDirection: str = "asc",
+        isRetention: Optional[bool] = None,
     ) -> Dict[str, Any]:
         try:
             agg = _nilai_kontrak_subquery()
@@ -128,6 +129,8 @@ class ProjectRepository:
                 syarat.append(projects_table.c.isActive == isActive)
             if isCancelled is not None:
                 syarat.append(projects_table.c.isCancelled == isCancelled)
+            if isRetention is not None:
+                syarat.append(projects_table.c.isRetention == isRetention)
 
             kolom = {
                 "code": projects_table.c.code,

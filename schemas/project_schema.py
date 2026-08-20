@@ -18,6 +18,8 @@ class ProjectBase(BaseModel):
     endDate: Optional[date] = None
     isActive: Optional[bool] = True
     isCancelled: Optional[bool] = False
+    # Masa retensi — antara BAST 1 dan BAST 2. Proyeknya masih berjalan.
+    isRetention: Optional[bool] = False
 
     @field_validator("code")
     @classmethod
@@ -59,6 +61,7 @@ class ProjectUpdate(BaseModel):
     endDate: Optional[date] = None
     isActive: Optional[bool] = None
     isCancelled: Optional[bool] = None
+    isRetention: Optional[bool] = None
 
 
 class ContractBase(BaseModel):
