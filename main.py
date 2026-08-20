@@ -172,6 +172,7 @@ def _asal_diizinkan() -> list[str]:
     produksi = [
         "https://terrabot.alphakonstruksi.id",
         "http://terrabot.alphakonstruksi.id",
+        "http://m.terrabot.alphakonstruksi.id",
     ]
     lingkungan = (os.getenv("APP_ENV") or "development").strip().lower()
     if lingkungan in ("production", "produksi", "prod"):
