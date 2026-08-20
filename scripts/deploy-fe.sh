@@ -133,11 +133,21 @@ mkdir -p "$TUJUAN"
 
 # `--delete` membuang berkas lama yang sudah tidak dihasilkan lagi. Tanpa
 # itu, potongan build lama menumpuk dan suatu saat ada yang termuat.
+#
+# `frontend-mobile` DIKECUALIKAN. Folder itu deploy terpisah
+# (`deploy-fe-mobile.sh`) yang kebetulan berada di dalam tujuan ini; tanpa
+# pengecualian, `--delete` membuangnya setiap kali desktop dideploy, dan
+# aplikasi mobile lenyap tanpa ada yang menyentuhnya. Cabang cp di bawah
+# menyalin ke dalam folder tanpa mengosongkan seluruhnya, agar folder mobile
+# ikut selamat di sana.
 if command -v rsync > /dev/null; then
-  rsync -a --delete "$HASIL/" "$TUJUAN/"
+  rsync -a --delete --exclude=frontend-mobile "$HASIL/" "$TUJUAN/"
 else
-  rm -rf "${TUJUAN:?}/"*
-  cp -r "$HASIL/." "$TUJUAN/"
+  # Membuang isi SATU per satu, melewati frontend-mobile — bukan
+  # `rm -rf "$TUJUAN"/*`, yang ikut menghapusnya.
+  find "$TUJUAN" -mindepth 1 -maxdepth 1 ! -name frontend-mobile \
+    -exec rm -rf {} +
+  cp -a "$HASIL/." "$TUJUAN/"
 fi
 
 [[ -f "$TUJUAN/index.html" ]] || gagal "penyalinan tidak menghasilkan index.html"
