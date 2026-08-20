@@ -921,7 +921,41 @@ class PurchaseOrderRepository:
             _departments,
             boleh_memeriksa,
             boleh_memeriksa_sendiri,
+            boleh_mencabut_pemeriksaan,
         )
+
+        if not checked:
+            # MENCABUT pemeriksaan bukan kebalikan sederhana dari memberinya.
+            #
+            # Pencabutan menggugurkan PERSETUJUAN yang terlanjur terbit —
+            # lihat nilai yang disusun di bawah. Tanpa penjagaan ini, siapa
+            # pun yang berizin `purchase_order:update` dapat membatalkan
+            # tanda tangan seorang direktur dengan satu klik, tanpa dokumen
+            # itu berubah satu huruf pun.
+            #
+            # Keadaan pemeriksaannya dibaca DULU: dokumen yang memang belum
+            # diperiksa tidak punya apa pun untuk dicabut, dan menolaknya
+            # hanya menghasilkan galat pada tombol yang tidak melakukan
+            # apa-apa.
+            _keadaan = await database.fetch_one(
+                select(
+                    purchase_orders_table.c.isChecked,
+                    purchase_orders_table.c.checkedBy,
+                ).where(purchase_orders_table.c.id == purchase_order_id)
+            )
+            if _keadaan is not None and bool(_keadaan["isChecked"]):
+                _pemeriksa = _keadaan["checkedBy"]
+                _adalah_pemeriksa = (
+                    _pemeriksa is not None and int(_pemeriksa) == int(user_id)
+                )
+                if not boleh_mencabut_pemeriksaan(user_level, _adalah_pemeriksa):
+                    return app_error(
+                        ErrorCode.FORBIDDEN,
+                        "Pemeriksaan hanya dapat dicabut oleh pemeriksanya "
+                        "sendiri, atau oleh level 4 ke atas. Pencabutan "
+                        "sekaligus menggugurkan persetujuan dokumen ini.",
+                        403,
+                    )
 
         if checked:
             # Divisi dibaca DI SINI, bukan diambil dari objek pengguna.

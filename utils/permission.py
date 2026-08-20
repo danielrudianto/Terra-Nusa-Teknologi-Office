@@ -329,6 +329,57 @@ def boleh_mengubah_purchase_order(
     return lv >= LEVEL_UBAH_SEBELUM_DIPERIKSA and not sudah_diperiksa
 
 
+# Mencabut pemeriksaan.
+#
+# Level yang boleh mencabut pemeriksaan SIAPA PUN. Di bawahnya, hanya
+# pemeriksanya sendiri yang boleh menarik kembali pernyataannya.
+LEVEL_CABUT_BEBAS = 4
+
+
+def boleh_mencabut_pemeriksaan(level, adalah_pemeriksa: bool = False) -> bool:
+    """
+    Pengguna ini boleh MENCABUT pemeriksaan sebuah purchase order.
+
+    Aturannya sengaja TIDAK sama dengan aturan memeriksa, dan itu bukan
+    kelalaian.
+
+    Memberi centang adalah menyatakan "saya sudah membaca isinya dan isinya
+    benar" — pernyataan atas nama sendiri, dan setiap pemeriksa berhak
+    membuatnya. MENCABUT centang orang lain adalah hal yang berbeda: ia
+    menghapus pernyataan orang lain, dan di sistem ini ia sekaligus
+    MENGGUGURKAN PERSETUJUAN yang terlanjur terbit — dokumennya kembali
+    menjadi draft (lihat `PurchaseOrderRepository.set_checked`).
+
+    Artinya satu klik dari siapa pun yang berizin `purchase_order:update`
+    dapat membatalkan tanda tangan seorang direktur, tanpa dokumen itu
+    berubah satu huruf pun. Yang menandatanganinya tidak diberi tahu, dan
+    dari layar mana pun tidak tampak apa yang terjadi — yang tersisa hanya
+    dokumen yang tiba-tiba kembali ke antrean.
+
+    Karena itu:
+
+      - Pemeriksanya sendiri boleh. Ia menarik pernyataannya sendiri, dan
+        orang yang menemukan kekeliruan sesudah mencentang harus punya jalan
+        untuk membetulkannya — kalau tidak, ia akan diam saja.
+
+      - Level 4 ke atas boleh atas siapa pun. Merekalah yang menanggung
+        akibat dokumen yang beredar, dan kerap merekalah satu-satunya yang
+        hadir ketika pemeriksanya cuti.
+
+      - Selain keduanya, tidak.
+
+    Dokumen yang MEMANG BELUM diperiksa tidak melewati aturan ini sama
+    sekali: mencabut sesuatu yang tidak ada bukan pencabutan, dan menolaknya
+    hanya menghasilkan galat pada tombol yang tidak melakukan apa-apa.
+    """
+    if adalah_pemeriksa:
+        return True
+    try:
+        return int(level or 1) >= LEVEL_CABUT_BEBAS
+    except (TypeError, ValueError):
+        return False
+
+
 def boleh_memeriksa_sendiri(level) -> bool:
     """
     Pengguna ini boleh memeriksa dokumen yang dibuatnya sendiri.
