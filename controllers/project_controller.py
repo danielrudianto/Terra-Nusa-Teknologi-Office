@@ -158,6 +158,14 @@ class ProjectController:
         return {"project": dict(row), "contracts": [dict(k) for k in kontrak]}
 
     @staticmethod
+    async def keluarga(project_id: int) -> Dict[str, Any]:
+        """Induk dan anak-anak proyek ini."""
+        row = await ProjectRepository.get_by_id(project_id)
+        if row is None:
+            return {"error": "Project not found", "status": 404}
+        return await ProjectRepository.keluarga(project_id)
+
+    @staticmethod
     async def update_project(
         project_id: int, data: dict, user_id: int
     ) -> Dict[str, Any]:

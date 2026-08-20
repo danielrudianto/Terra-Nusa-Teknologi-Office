@@ -91,6 +91,23 @@ async def get_project(
     return _bereskan(await ProjectController.get_project(project_id))
 
 
+@router.get("/{project_id}/keluarga")
+async def get_keluarga(
+    project_id: int,
+    current_user: Annotated[dict, Depends(require("project", "read"))],
+):
+    """
+    Induk dan anak-anak proyek ini.
+
+    Terpisah dari rincian proyeknya, bukan disatukan: layar proyek memuat
+    rinciannya lebih dulu dan menampilkan isinya seketika, sementara
+    keterangan keluarga hanya melengkapi. Menyatukannya membuat seluruh layar
+    menunggu dua kueri, dan yang kedua tidak dibutuhkan sebagian besar
+    proyek — hampir seluruhnya berdiri sendiri.
+    """
+    return _bereskan(await ProjectController.keluarga(project_id))
+
+
 @router.put("/{project_id}")
 async def update_project(
     project_id: int,

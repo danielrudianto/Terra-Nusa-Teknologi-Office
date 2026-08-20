@@ -230,6 +230,54 @@ class ProjectRepository:
         ) or 0
 
     @staticmethod
+    async def keluarga(project_id: int):
+        """
+        Induk dan anak-anak sebuah proyek, dalam SEKALI baca masing-masing.
+
+        Dipakai layar proyek untuk memberi tahu bahwa proyek yang sedang
+        dibuka bukan berdiri sendiri. Tanpa keterangan itu, yang membukanya
+        melihat proyek berpembelian tanpa penjualan — atau sebaliknya — dan
+        menyimpulkan datanya rusak, padahal pasangannya ada di proyek lain.
+
+        Yang dikembalikan secukupnya untuk ditampilkan dan ditautkan: id,
+        kode, nama, dan keadaannya. Nilai kontrak sengaja TIDAK diikutkan —
+        ia perlu subkueri tersendiri, dan yang ingin melihatnya tinggal
+        membuka proyeknya.
+        """
+        kolom = (
+            projects_table.c.id,
+            projects_table.c.code,
+            projects_table.c.name,
+            projects_table.c.isActive,
+            projects_table.c.isCancelled,
+            projects_table.c.isRetention,
+        )
+
+        anak = await database.fetch_all(
+            select(*kolom)
+            .where(
+                projects_table.c.parentProjectID == project_id,
+                projects_table.c.isDelete == False,  # noqa: E712
+            )
+            .order_by(projects_table.c.code)
+        )
+
+        induk_id = await ProjectRepository.induk_dari(project_id)
+        induk = None
+        if induk_id:
+            induk = await database.fetch_one(
+                select(*kolom).where(
+                    projects_table.c.id == induk_id,
+                    projects_table.c.isDelete == False,  # noqa: E712
+                )
+            )
+
+        return {
+            "induk": dict(induk) if induk else None,
+            "anak": [dict(r) for r in anak],
+        }
+
+    @staticmethod
     async def induk_dari(project_id: int):
         """Id induk sebuah proyek; None bila ia berdiri sendiri."""
         return await database.fetch_val(
