@@ -15,6 +15,22 @@ purchase_order_items_table = Table(
     Column("task", String(100), nullable=True),
     Column("quantity", DECIMAL(12, 2), nullable=False, server_default="0.00"),
     Column("price", DECIMAL(14, 4), nullable=False, server_default="0.0000"),
+    # Jumlah baris yang DITULIS, menggantikan volume kali harga.
+    #
+    # Harga satuan tersimpan empat desimal, dan sebagian pekerjaan tidak
+    # pernah bulat pada ketelitian itu: 7.000 liter seharga Rp 300.000 berarti
+    # Rp 42,857142… per liter — yang paling dekat yang dapat disimpan adalah
+    # 42,8571, menghasilkan Rp 299.999,70 pada dokumen yang ditandatangani.
+    # Menambah desimal tidak menyelesaikannya; pecahannya berulang tanpa habis.
+    #
+    # NULL berarti "hitung seperti biasa", dan itulah keadaan SELURUH baris
+    # yang sudah ada — sehingga pencetakan ulangnya tidak berubah sedikit pun.
+    #
+    # Selisihnya DIBATASI (lihat `TOLERANSI_PEMBULATAN`): yang ditulis hanya
+    # boleh membetulkan pembulatan, bukan menggantikan perkaliannya. Tanpa
+    # batas itu, kolom ini menjadi pintu memasukkan angka yang tidak ada
+    # hubungannya dengan volume dan harganya.
+    Column("amount", DECIMAL(17, 4), nullable=True, default=None),
     Column("remarks_1", Text, nullable=True),
     Column("remarks_2", Text, nullable=True),
     Column("remarks_3", Text, nullable=True),

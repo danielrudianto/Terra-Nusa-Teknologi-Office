@@ -7,10 +7,47 @@ from models.master_item_model import master_item_table
 from models.master_equipment_model import master_equipment_table
 
 _COLUMNS = [
-    "item_id", "equipment_id", "fleet_id", "task", "quantity", "price",
+    "item_id", "equipment_id", "fleet_id", "task", "quantity", "price", "amount",
     "remarks_1", "remarks_2", "remarks_3", "remarks_4",
     "remarks_5", "remarks_6", "unit",
 ]
+
+
+#: Selisih terbesar yang masih dianggap pembulatan, dalam rupiah.
+#:
+#: Sama dengan `TOLERANSI_PEMBULATAN` di layar. Dua angka yang berbeda di dua
+#: tempat membuat baris yang diterima formulir ditolak server — atau yang
+#: lebih buruk, sebaliknya.
+TOLERANSI_PEMBULATAN = 5
+
+
+def nilai_baris(item: dict) -> float:
+    """Jumlah yang ditulis bila ada; selain itu volume kali harga."""
+    ditulis = item.get("amount")
+    if ditulis is None or ditulis == "":
+        return float(item.get("quantity") or 0) * float(item.get("price") or 0)
+    return float(ditulis)
+
+
+def pembulatan_sah(item: dict) -> bool:
+    """
+    Jumlah yang ditulis masih dalam batas pembulatan.
+
+    Diperiksa DI SINI, bukan cukup di formulir: muatan permintaan dapat
+    disusun sendiri oleh siapa pun yang membuka Network tab, dan kolom ini
+    menentukan angka yang tercetak pada dokumen yang mengikat vendor.
+    """
+    ditulis = item.get("amount")
+    if ditulis is None or ditulis == "":
+        return True
+    try:
+        selisih = abs(
+            float(ditulis)
+            - float(item.get("quantity") or 0) * float(item.get("price") or 0)
+        )
+    except (TypeError, ValueError):
+        return False
+    return selisih <= TOLERANSI_PEMBULATAN
 
 
 def _clean_item(item: dict, po_id: int) -> dict:
@@ -25,6 +62,15 @@ def _clean_item(item: dict, po_id: int) -> dict:
     row["quantity"] = row.get("quantity") or 0
     row["price"] = row.get("price") or 0
     row["unit"] = row.get("unit") or ""
+
+    # Jumlah tertulis di luar batas pembulatan DIBUANG, bukan disimpan.
+    #
+    # Membuangnya membuat barisnya jatuh ke perkalian biasa — angka yang
+    # selalu dapat dipertanggungjawabkan. Menyimpannya berarti dokumen
+    # menyatakan nilai yang tidak dapat dicocokkan dengan volume dan
+    # harganya, dan itu baru ketahuan di tangan vendor.
+    if not pembulatan_sah(row):
+        row["amount"] = None
 
     """
     `task` tidak disimpan untuk barang katalog.
