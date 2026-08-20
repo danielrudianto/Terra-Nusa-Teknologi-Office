@@ -44,9 +44,22 @@ def test_approve_menolak_yang_sudah_dihapus():
     assert "has been deleted" in _blok("approve")
 
 
-def test_delete_menolak_yang_sudah_disetujui():
+def test_delete_menjaga_yang_sudah_disetujui():
+    """
+    Aturannya BERUBAH, penjagaannya tidak hilang.
+
+    Semula dokumen yang sudah disetujui ditolak siapa pun — 409 tanpa
+    kecuali. Kini ia hanya boleh dihapus PEMILIK, atas keputusan pemilik
+    sendiri: kadang dokumen memang keliru sejak awal dan harus benar-benar
+    hilang.
+
+    Yang diperiksa di sini keberadaan penjagaannya, bukan bunyi pesannya.
+    Perinciannya — level berapa, apa yang tertulis, apa yang terjadi pada
+    perintahnya — diuji lewat perilaku di `hapus_po_disetujui_test.py`.
+    """
     b = _blok("soft_delete")
-    assert "cannot be deleted" in b
+    assert "boleh_menghapus_yang_disetujui" in b
+    assert "PO_DELETE_APPROVED_FORBIDDEN" in b
 
 
 def test_keduanya_menyaring_ulang_di_perintahnya():
@@ -56,7 +69,16 @@ def test_keduanya_menyaring_ulang_di_perintahnya():
     Dua orang yang menekan pada saat hampir bersamaan dapat lolos
     pemeriksaan yang sama; syarat pada perintahnya hanya benar untuk yang
     pertama sampai.
+
+    Pada `soft_delete` saringan itu kini BERSYARAT — hanya bagi dokumen yang
+    belum disetujui. Memasangnya juga pada penghapusan oleh pemilik membuat
+    perintahnya tidak mencocokkan satu baris pun, dan `execute` yang
+    mengubah nol baris tidak melempar galat: layar mengabarkan berhasil atas
+    dokumen yang masih utuh. Keadaan itu dijaga perilakunya di
+    `hapus_po_disetujui_test.py`.
     """
     for nama in ("approve", "soft_delete"):
         b = _blok(nama)
         assert "isApproved == False" in b, nama
+
+    assert "if not disetujui:" in _blok("soft_delete")

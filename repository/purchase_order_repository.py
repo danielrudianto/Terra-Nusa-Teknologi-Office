@@ -1258,19 +1258,27 @@ class PurchaseOrderRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
-    async def soft_delete(purchase_order_id: int, user_id: int):
+    async def soft_delete(
+        purchase_order_id: int,
+        user_id: int,
+        user_level: int | None = None,
+    ):
         """
         Hapus lunak satu purchase order.
 
-        Yang SUDAH DISETUJUI ditolak. Dokumen yang disetujui sudah dicetak
-        dan dipegang vendor; menghapusnya dari sistem membuat lembar yang
-        beredar tidak punya padanan sama sekali — dan tidak ada jejak bahwa
-        ia pernah ada.
+        Yang BELUM disetujui bebas dihapus — termasuk yang sudah diperiksa
+        maupun yang dibatalkan. Dokumen itu belum terbit, belum dicetak, dan
+        belum dipegang siapa pun di luar kantor.
 
-        Dokumen yang perlu diubah setelah disetujui diselesaikan lewat
-        ADENDUM, bukan dengan menghapus lalu membuat ulang.
+        Yang SUDAH DISETUJUI hanya boleh dihapus PEMILIK. Dokumen yang
+        disetujui sudah dicetak dan dipegang vendor; menghapusnya membuat
+        lembar yang beredar tidak punya padanan sama sekali, dan tidak ada
+        jejak bahwa ia pernah ada. Jalan biasanya ADENDUM, bukan menghapus
+        lalu membuat ulang — tetapi kadang dokumen memang keliru sejak awal
+        dan harus benar-benar hilang, dan yang memutuskan itu pemiliknya.
         """
-        """Soft delete a purchase order."""
+        from utils.permission import boleh_menghapus_yang_disetujui
+
         try:
             keadaan = await database.fetch_one(
                 """
@@ -1281,20 +1289,37 @@ class PurchaseOrderRepository:
             )
             if not keadaan:
                 return {"error": "Purchase order not found", "status": 404}
-            if keadaan["isApproved"]:
-                return {
-                    "error": "Approved purchase order cannot be deleted",
-                    "status": 409,
-                }
+
+            disetujui = bool(keadaan["isApproved"])
+            if disetujui and not boleh_menghapus_yang_disetujui(user_level):
+                return app_error(
+                    ErrorCode.PO_DELETE_APPROVED_FORBIDDEN,
+                    "Purchase order yang sudah disetujui hanya dapat dihapus "
+                    "oleh pemilik. Yang perlu diubah setelah terbit "
+                    "diselesaikan lewat adendum.",
+                    403,
+                )
 
             query = (
                 update(purchase_orders_table)
                 .where(purchase_orders_table.c.id == purchase_order_id)
-                # Disaring ulang: dokumen yang disetujui di sela pemeriksaan
-                # di atas dan perintah ini tetap tidak boleh terhapus.
-                .where(purchase_orders_table.c.isApproved == False)  # noqa: E712
                 .values(isDelete=True, deletedBy=user_id, deletedAt=dt.now())
             )
+
+            # Saringan ulang HANYA bagi yang belum disetujui.
+            #
+            # Gunanya menutup jeda antara pemeriksaan di atas dan perintah
+            # ini: dokumen yang disetujui orang lain di sela itu tidak ikut
+            # terhapus. Tetapi memasangnya juga pada penghapusan oleh
+            # pemilik akan membuat perintahnya tidak mencocokkan satu baris
+            # pun — dan `execute` yang mengubah nol baris TIDAK melempar
+            # galat. Layar akan mengabarkan "berhasil dihapus" atas dokumen
+            # yang masih utuh.
+            if not disetujui:
+                query = query.where(
+                    purchase_orders_table.c.isApproved == False  # noqa: E712
+                )
+
             await database.execute(query)
             from repository.audit_log_repository import AuditLogRepository
 

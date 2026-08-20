@@ -292,7 +292,11 @@ async def delete_purchase_order(
     """
     try:
         user_id = current_user["id"]
-        result = await PurchaseOrderController.delete_purchase_order(purchase_order_id, user_id)
+        result = await PurchaseOrderController.delete_purchase_order(
+            purchase_order_id,
+            user_id,
+            int(current_user["authenticationLevel"] or 1),
+        )
         
         if "error" in result:
             raise HTTPException(

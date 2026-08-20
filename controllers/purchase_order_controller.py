@@ -622,9 +622,15 @@ class PurchaseOrderController:
             return internal_error()
 
     @staticmethod
-    async def delete_purchase_order(purchase_order_id: int, user_id: int):
+    async def delete_purchase_order(
+        purchase_order_id: int,
+        user_id: int,
+        user_level: int | None = None,
+    ):
         try:
-            result = await PurchaseOrderRepository.soft_delete(purchase_order_id, user_id)
+            result = await PurchaseOrderRepository.soft_delete(
+                purchase_order_id, user_id, user_level
+            )
             if "error" in result:
                 return {"error": result["error"], "status": result.get("status", 500)}
             return result

@@ -87,6 +87,13 @@ class ErrorCode:
     # membuat orang mencari izin yang tidak akan menolongnya.
     PO_CHECKER_IS_APPROVER = "PO_CHECKER_IS_APPROVER"
 
+    # Menghapus dokumen yang sudah terbit.
+    #
+    # Bukan `FORBIDDEN`: yang membacanya perlu tahu bahwa yang menghalangi
+    # KEADAAN dokumennya, bukan izinnya — dan bahwa jalan keluarnya adendum,
+    # bukan meminta haknya dinaikkan.
+    PO_DELETE_APPROVED_FORBIDDEN = "PO_DELETE_APPROVED_FORBIDDEN"
+
     # ---- data induk ----
     BANK_ACCOUNT_EXISTS = "BANK_ACCOUNT_EXISTS"
     EMPLOYEE_DELETED = "EMPLOYEE_DELETED"

@@ -288,6 +288,29 @@ def boleh_memeriksa_sendiri(level) -> bool:
     return False
 
 
+def boleh_menghapus_yang_disetujui(level) -> bool:
+    """
+    Pengguna ini boleh MENGHAPUS purchase order yang SUDAH DISETUJUI.
+
+    Hanya pemilik.
+
+    Dokumen yang belum disetujui bebas dihapus siapa pun yang berhak
+    menghapus — ia belum terbit dan belum dipegang siapa pun di luar kantor.
+    Yang sudah disetujui berbeda: lembarnya sudah dicetak dan ada di tangan
+    vendor, dan menghapusnya membuat lembar itu tidak punya padanan sama
+    sekali di sistem. Jalan yang biasa ADENDUM.
+
+    Tetapi kadang dokumen memang keliru sejak awal dan harus benar-benar
+    hilang. Yang memutuskan itu pemiliknya — bukan karena ia lebih teliti,
+    melainkan karena ialah yang menanggung akibatnya bila lembar yang
+    beredar ternyata masih dipakai.
+    """
+    try:
+        return int(level or 1) >= LEVEL_BOLEH_SETUJU_SENDIRI
+    except (TypeError, ValueError):
+        return False
+
+
 def boleh_menyetujui_yang_diperiksanya(level) -> bool:
     """
     Pengguna ini boleh MENYETUJUI dokumen yang DIPERIKSANYA sendiri.
