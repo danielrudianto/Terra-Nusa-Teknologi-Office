@@ -31,10 +31,14 @@ async def daftar_tender(
     pageSize: int = Query(10, ge=1, le=100),
     status: str = Query(""),
     cari: str = Query(""),
+    sortBy: str = Query(None),
+    sortByDirection: str = Query("desc"),
 ):
     """Daftar tender, beserta banyaknya penawaran yang sudah masuk."""
     return _bereskan(
-        await TenderController.daftar(page, pageSize, status, cari)
+        await TenderController.daftar(
+            page, pageSize, status, cari, sortBy, sortByDirection
+        )
     )
 
 

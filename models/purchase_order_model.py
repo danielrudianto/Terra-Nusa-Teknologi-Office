@@ -58,6 +58,23 @@ purchase_orders_table = Table(
     ),
     Column("customData", JSON, nullable=True, default=None),
     Column("ppn", DECIMAL(5, 2), nullable=False, server_default="0.00", default=0.00),
+    # Nilai DI LUAR dasar pajak yang tetap harus dibayarkan.
+    #
+    # Dipakai penutupan pertanggungan (6.4.2): premi dititipkan kepada broker
+    # untuk diteruskan kepada penanggung, sehingga ia bukan penghasilan broker
+    # dan tidak boleh menambah DPP — tetapi ia TETAP berpindah tangan.
+    #
+    # Tanpa kolom ini, layar mengirimkannya dan basis data membuangnya diam-
+    # diam: daftar, tampilan, dan rekap purchase order lalu menunjukkan
+    # Rp 35.000 untuk dokumen yang nilainya Rp 5.002.109.
+    Column(
+        "otherValue",
+        DECIMAL(17, 4),
+        nullable=False,
+        server_default="0.0000",
+        default=0,
+    ),
+
     # Selaras dengan tabel purchases agar PO mudah disambungkan ke pembelian.
     # pphPercentage dibuat nullable: sebagian besar PO tidak memotong PPh,
     # sedangkan pada purchases kolomnya wajib terisi.

@@ -30,9 +30,16 @@ class TenderController:
 
     @staticmethod
     async def daftar(
-        page: int, page_size: int, status: str, cari: str
+        page: int,
+        page_size: int,
+        status: str,
+        cari: str,
+        sortBy: str = None,
+        sortByDirection: str = "desc",
     ) -> Dict[str, Any]:
-        return await TenderRepository.daftar(page, page_size, status, cari)
+        return await TenderRepository.daftar(
+            page, page_size, status, cari, sortBy, sortByDirection
+        )
 
     @staticmethod
     async def ubah(tender_id: int, body: dict, user_id: int) -> Dict[str, Any]:

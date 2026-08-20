@@ -166,12 +166,52 @@ class TenderRepository:
             hasil.append(q)
         return hasil
 
+    #: Kolom yang boleh dipakai mengurutkan, dipetakan dari nama di layar.
+    #:
+    #: Daftar TERTUTUP, bukan nama kolom yang diteruskan apa adanya: nama
+    #: yang datang dari luar dan langsung dipakai menyusun `ORDER BY`
+    #: membuka jalan bagi kolom yang tidak dimaksudkan untuk dibaca — dan
+    #: pada sebagian basis data, bagi hal yang lebih buruk daripada itu.
+    #:
+    #: `quoteCount` sengaja TIDAK ada di sini. Ia bukan kolom melainkan
+    #: hasil hitungan yang dijalankan sesudah barisnya diambil, sehingga
+    #: mengurutkan dengannya hanya akan mengurutkan halaman yang sedang
+    #: tampil — bukan seluruh datanya. Yang terlihat mengurut, padahal
+    #: tidak.
+    SORTABLE = {
+        "number": tenders_table.c.number,
+        "name": tenders_table.c.name,
+        "date": tenders_table.c.date,
+        "dueDate": tenders_table.c.dueDate,
+        "projectName": tenders_table.c.projectName,
+        "tenderType": tenders_table.c.tenderType,
+        "status": tenders_table.c.status,
+        "createdAt": tenders_table.c.createdAt,
+    }
+
+    @staticmethod
+    def _urutan(sortBy: str = None, sortByDirection: str = "desc"):
+        """Kolom pengurut; jatuh ke id bila kolomnya tidak dikenal.
+
+        Cadangannya `id`, bukan salah satu kolom isian: itulah urutan yang
+        berlaku sebelum pengurutan ini ada, sehingga permintaan tanpa
+        pengurutan menghasilkan daftar yang sama seperti sebelumnya.
+        """
+        kolom = TenderRepository.SORTABLE.get(sortBy, tenders_table.c.id)
+        return (
+            kolom.asc()
+            if str(sortByDirection).lower() == "asc"
+            else kolom.desc()
+        )
+
     @staticmethod
     async def daftar(
         page: int = 1,
         page_size: int = 10,
         status: str = "",
         cari: str = "",
+        sortBy: str = None,
+        sortByDirection: str = "desc",
     ) -> Dict[str, Any]:
         try:
             syarat = [tenders_table.c.isDelete == False]  # noqa: E712
@@ -186,7 +226,7 @@ class TenderRepository:
             rows = await database.fetch_all(
                 select(tenders_table)
                 .where(and_(*syarat))
-                .order_by(tenders_table.c.id.desc())
+                .order_by(TenderRepository._urutan(sortBy, sortByDirection))
                 .limit(page_size)
                 .offset((page - 1) * page_size)
             )

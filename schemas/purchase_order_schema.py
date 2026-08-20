@@ -18,6 +18,8 @@ class PurchaseOrderBase(BaseModel):
     templateVersion: str
     projectName: str
     dpp: float = Field(ge=0)
+    # Nilai di luar dasar pajak (premi yang dititipkan pada PO 6.4.2).
+    otherValue: float = Field(ge=0, default=0.0)
     ppn: float = Field(ge=0, default=0.00)
     status: PurchaseOrderStatus = PurchaseOrderStatus.DRAFT
     # Flexible JSON payloads (line items, addresses, PIC contacts, delivery term)
@@ -56,6 +58,7 @@ class PurchaseOrderUpdate(BaseModel):
     templateVersion: Optional[str] = None
     projectName: Optional[str] = None
     dpp: Optional[float] = Field(default=None, ge=0)
+    otherValue: Optional[float] = Field(default=None, ge=0)
     ppn: Optional[float] = Field(default=None, ge=0)
     status: Optional[PurchaseOrderStatus] = None
     customData: Optional[Dict[str, Any]] = None
@@ -73,6 +76,9 @@ class PurchaseOrderResponse(BaseModel):
     templateVersion: str
     projectName: str
     dpp: float
+    # Wajib dicantumkan: FastAPI menyaring jawaban terhadap model ini,
+    # dan kolom yang tidak tercantum dibuang sebelum sampai ke layar.
+    otherValue: Optional[float] = 0.0
     ppn: float
     status: Optional[str] = None
     customData: Optional[Dict[str, Any]] = None

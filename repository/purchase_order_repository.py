@@ -537,7 +537,7 @@ class PurchaseOrderRepository:
             dokumen = await database.fetch_all(
                 f"""
                 SELECT po.id, po.date, po.name, po.purchaseType, po.projectName,
-                       po.dpp, po.ppn, po.pphPercentage, po.status,
+                       po.dpp, po.otherValue, po.ppn, po.pphPercentage, po.status,
                        po.isApproved, po.parentPurchaseOrderID,
                        -- Nama pemasok datang dari tabel `suppliers`; tabel
                        -- purchase_orders hanya menyimpan `supplierID`.
