@@ -52,6 +52,30 @@ projects_table = Table(
     # justru pada bagian yang menolong pengemudi menemukannya.
     Column("address", Text, nullable=True),
     Column("clientID", Integer, nullable=True),
+    # Proyek INDUK, bila proyek ini bagian dari proyek yang lebih besar.
+    #
+    # Sebagian pekerjaan dipecah menjadi beberapa kode: satu memegang
+    # kontraknya, yang lain menampung biaya per paket. Dilihat sendiri-sendiri
+    # keduanya tampak ganjil — ada penjualan tanpa pembelian, atau pembelian
+    # tanpa penjualan sama sekali — dan margin masing-masing tidak berarti
+    # apa-apa.
+    #
+    # Ditautkan ke `id`, BUKAN ke `code`: kode proyek dapat diketik ulang dan
+    # dipakai dokumen sebagai teks, sehingga tautan berbasis kode putus
+    # diam-diam begitu kodenya disunting.
+    #
+    # Kedalamannya SATU tingkat: proyek yang sudah menjadi anak tidak boleh
+    # menjadi induk. Dijaga di controller — bukan oleh basis data — sebab
+    # yang dicegah bukan tautan yang tidak sah melainkan rantai yang tidak
+    # berujung, dan laporan gabungan yang menelusuri rantai seperti itu tidak
+    # pernah selesai menghitung.
+    Column(
+        "parentProjectID",
+        Integer,
+        ForeignKey("projects.id"),
+        nullable=True,
+        default=None,
+    ),
     Column("startDate", Date(), nullable=True),
     Column("endDate", Date(), nullable=True),
     # Sengaja boolean, bukan enum teks.

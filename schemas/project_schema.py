@@ -20,6 +20,8 @@ class ProjectBase(BaseModel):
     isCancelled: Optional[bool] = False
     # Masa retensi — antara BAST 1 dan BAST 2. Proyeknya masih berjalan.
     isRetention: Optional[bool] = False
+    # Proyek induk; kosong berarti proyek ini berdiri sendiri.
+    parentProjectID: Optional[int] = None
 
     @field_validator("code")
     @classmethod
@@ -62,6 +64,7 @@ class ProjectUpdate(BaseModel):
     isActive: Optional[bool] = None
     isCancelled: Optional[bool] = None
     isRetention: Optional[bool] = None
+    parentProjectID: Optional[int] = None
 
 
 class ContractBase(BaseModel):

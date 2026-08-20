@@ -168,6 +168,27 @@ class ProjectRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    async def punya_anak(project_id: int) -> int:
+        """Berapa proyek yang menjadikan proyek ini induknya."""
+        return await database.fetch_val(
+            select(func.count())
+            .select_from(projects_table)
+            .where(
+                projects_table.c.parentProjectID == project_id,
+                projects_table.c.isDelete == False,  # noqa: E712
+            )
+        ) or 0
+
+    @staticmethod
+    async def induk_dari(project_id: int):
+        """Id induk sebuah proyek; None bila ia berdiri sendiri."""
+        return await database.fetch_val(
+            select(projects_table.c.parentProjectID).where(
+                projects_table.c.id == project_id
+            )
+        )
+
+    @staticmethod
     async def count_documents(code: str) -> int:
         """
         Berapa dokumen yang sudah memakai kode proyek ini.

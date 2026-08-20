@@ -38,6 +38,66 @@ def _selaraskan_keadaan(data: dict) -> dict:
     return data
 
 
+async def _periksa_induk(project_id: int, induk_id) -> dict | None:
+    """
+    Hubungan induk-anak yang tidak masuk akal ditolak.
+
+    Tiga hal dijaga, dan ketiganya menghasilkan laporan gabungan yang salah
+    tanpa satu pun galat bila dibiarkan:
+
+      1. Proyek tidak boleh menjadi induk DIRINYA SENDIRI. Laporan gabungan
+         yang menelusuri hubungan itu menjumlahkan biayanya dua kali.
+
+      2. Induknya tidak boleh proyek yang SUDAH menjadi anak. Kedalamannya
+         dibatasi satu tingkat: rantai induk-anak-cucu membuat laporan
+         gabungan harus menelusuri sedalam apa pun rantainya, dan rantai yang
+         melingkar tidak pernah selesai dihitung.
+
+      3. Proyek yang PUNYA ANAK tidak boleh dijadikan anak. Alasannya sama:
+         ia akan menjadi tingkat kedua dari sebuah rantai.
+
+    Dijaga di server, bukan cukup dengan menyaring pilihan di layar: muatan
+    permintaan dapat disusun sendiri oleh siapa pun yang membuka Network tab.
+    """
+    if induk_id in (None, "", 0):
+        return None
+
+    try:
+        induk_id = int(induk_id)
+    except (TypeError, ValueError):
+        return {"error": "Proyek induk tidak dikenal.", "status": 400}
+
+    if induk_id == int(project_id):
+        return {
+            "error": "Proyek tidak dapat menjadi induk dirinya sendiri.",
+            "status": 400,
+        }
+
+    if await ProjectRepository.get_by_id(induk_id) is None:
+        return {"error": "Proyek induk tidak ditemukan.", "status": 404}
+
+    if await ProjectRepository.induk_dari(induk_id):
+        return {
+            "error": (
+                "Proyek yang dipilih sudah menjadi anak proyek lain. "
+                "Hubungan induk-anak hanya satu tingkat."
+            ),
+            "status": 409,
+        }
+
+    jumlah_anak = await ProjectRepository.punya_anak(project_id)
+    if jumlah_anak:
+        return {
+            "error": (
+                f"Proyek ini sudah menjadi induk bagi {jumlah_anak} proyek, "
+                f"sehingga ia tidak dapat dijadikan anak proyek lain."
+            ),
+            "status": 409,
+        }
+
+    return None
+
+
 class ProjectController:
     # ---- Proyek -----------------------------------------------------------
 
@@ -132,6 +192,12 @@ class ProjectController:
                 data.pop("code", None)
         else:
             data.pop("code", None)
+
+        # Hubungan induk-anak dijaga di sini.
+        if "parentProjectID" in data:
+            galat = await _periksa_induk(project_id, data["parentProjectID"])
+            if galat:
+                return galat
 
         return await ProjectRepository.update(
             project_id, _selaraskan_keadaan(data), user_id
