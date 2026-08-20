@@ -26,6 +26,8 @@ class FakeDatabase:
         self._raise: dict[str, Any] = {}
         # riwayat kueri yang dijalankan
         self.calls: List[tuple] = []
+        # Nilai terikat tiap pemanggilan, sejajar dengan `calls`.
+        self.calls_values: List[tuple] = []
 
     # ---- pengaturan dari sisi pengujian --------------------------------
     def queue(self, method: str, *values: Any) -> "FakeDatabase":
@@ -48,24 +50,49 @@ class FakeDatabase:
         return None
 
     # ---- antarmuka yang dipakai repository -----------------------------
-    async def _take(self, method: str, query: Any, default: Any):
+    #
+    # `values` IKUT diterima dan dicatat.
+    #
+    # `databases` menerima kueri berupa teks beserta nilai terikatnya —
+    # `fetch_all(sql, {"proyek": ...})` — dan repository yang menulis SQL
+    # mentah memakai bentuk itu. Tanpa parameter ini, memanggilnya dari
+    # pengujian gagal dengan "takes 2 positional arguments but 3 were given",
+    # dan galatnya tertelan `except` di dalam repository sehingga yang
+    # terlihat hanya hasil kosong tanpa sebab.
+    async def _take(self, method: str, query: Any, default: Any, values: Any = None):
+        # `calls` TETAP berpasangan dua.
+        #
+        # Belasan pengujian membongkarnya sebagai `for m, q in db.calls`;
+        # menambahkan unsur ketiga mematahkan semuanya sekaligus — dan yang
+        # gagal bukan hal yang sedang diubah, sehingga sebabnya sulit dikenali
+        # oleh yang membaca hasilnya.
+        #
+        # Nilai terikat disimpan sejajar, dibaca lewat `last_values()`.
         self.calls.append((method, query))
+        self.calls_values.append((method, values))
         if method in self._raise:
             raise self._raise.pop(method)
         queue = self._queue[method]
         return queue.pop(0) if queue else default
 
-    async def fetch_all(self, query: Any):
-        return await self._take("fetch_all", query, [])
+    async def fetch_all(self, query: Any, values: Any = None):
+        return await self._take("fetch_all", query, [], values)
 
-    async def fetch_one(self, query: Any):
-        return await self._take("fetch_one", query, None)
+    async def fetch_one(self, query: Any, values: Any = None):
+        return await self._take("fetch_one", query, None, values)
 
-    async def fetch_val(self, query: Any):
-        return await self._take("fetch_val", query, None)
+    async def fetch_val(self, query: Any, values: Any = None):
+        return await self._take("fetch_val", query, None, values)
 
-    async def execute(self, query: Any):
-        return await self._take("execute", query, 1)
+    async def execute(self, query: Any, values: Any = None):
+        return await self._take("execute", query, 1, values)
+
+    def last_values(self, method: str | None = None):
+        """Nilai terikat pada pemanggilan terakhir; untuk memeriksa filternya."""
+        for m, v in reversed(self.calls_values):
+            if method is None or m == method:
+                return v
+        return None
 
     def transaction(self):
         """

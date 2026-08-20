@@ -80,6 +80,8 @@ async def pemeriksaan_sebelum_terbit(
 async def rekap_proyek(
     proyek: str,
     user: Annotated[User, Depends(require("purchase_order", "read"))],
+    dari: str = None,
+    sampai: str = None,
 ):
     """
     Rekap seluruh purchase order sebuah proyek, untuk diunduh sebagai Excel.
@@ -87,7 +89,7 @@ async def rekap_proyek(
     Ditaruh SEBELUM rute ber-parameter: FastAPI mencocokkan berurutan, dan
     "rekap" akan tertangkap sebagai id dokumen bila di bawah.
     """
-    hasil = await PurchaseOrderController.rekap_proyek(proyek)
+    hasil = await PurchaseOrderController.rekap_proyek(proyek, dari, sampai)
     if isinstance(hasil, dict) and "error" in hasil:
         raise HTTPException(status_code=hasil["status"], detail=error_detail(hasil))
     return hasil

@@ -288,6 +288,40 @@ def boleh_memeriksa_sendiri(level) -> bool:
     return False
 
 
+def boleh_menyetujui_yang_diperiksanya(level) -> bool:
+    """
+    Pengguna ini boleh MENYETUJUI dokumen yang DIPERIKSANYA sendiri.
+
+    Hanya pemilik.
+
+    Pemeriksaan dan persetujuan dipisah menjadi dua tangan dengan sengaja:
+    pemeriksa membaca isinya — harga, volume, spesifikasi — dan penyetuju
+    memutuskan dokumen itu boleh terbit. Satu orang yang mengerjakan
+    keduanya berturut-turut mengembalikan keduanya menjadi satu tangan, dan
+    tahap pemeriksaan tinggal menjadi satu klik tambahan.
+
+    Yang membuatnya sulit terlihat: dari kursi penggunanya tidak terasa
+    seperti melanggar apa pun. Ia menekan "Periksa", menu itu langsung
+    berganti menampilkan "Setujui", dan ia menekannya. Dua tahap, satu
+    orang, dua detik.
+
+    Dua penjagaan yang sudah ada tidak menangkapnya, dan keduanya karena
+    sebab yang sama: `set_checked` melarang PEMBUAT memeriksa, dan
+    `update_status` melarang PEMBUAT menyetujui. Keduanya membandingkan
+    dengan pembuat dokumen — sehingga pemeriksa yang bukan pembuat lolos
+    dari keduanya.
+
+    Pemilik dikecualikan dengan alasan yang sama seperti pada persetujuan
+    dokumen buatannya sendiri: pada akhirnya ialah yang menanggung
+    akibatnya, dan kerap ialah satu-satunya yang hadir. Pengecualiannya
+    tetap tercatat pada jejak aktivitas.
+    """
+    try:
+        return int(level or 1) >= LEVEL_BOLEH_SETUJU_SENDIRI
+    except (TypeError, ValueError):
+        return False
+
+
 def boleh_menyetujui_sendiri(level) -> bool:
     """
     Pengguna ini boleh menyetujui dokumen yang dibuatnya sendiri.

@@ -77,6 +77,16 @@ class ErrorCode:
     # alih-alih meminta izinnya dinaikkan.
     PO_EDIT_FORBIDDEN = "PO_EDIT_FORBIDDEN"
 
+    # Pemeriksa dan penyetuju harus dua orang.
+    #
+    # Kode TERSENDIRI, bukan `SELF_APPROVAL_FORBIDDEN`. Yang terakhir
+    # diterjemahkan sebagai "Pembayaran tidak dapat disetujui oleh
+    # pembuatnya sendiri" — dua kata yang keduanya keliru di sini: ini
+    # purchase order, bukan pembayaran, dan yang dilarang menyetujui bukan
+    # pembuatnya melainkan pemeriksanya. Pesan yang salah menyebut sebabnya
+    # membuat orang mencari izin yang tidak akan menolongnya.
+    PO_CHECKER_IS_APPROVER = "PO_CHECKER_IS_APPROVER"
+
     # ---- data induk ----
     BANK_ACCOUNT_EXISTS = "BANK_ACCOUNT_EXISTS"
     EMPLOYEE_DELETED = "EMPLOYEE_DELETED"

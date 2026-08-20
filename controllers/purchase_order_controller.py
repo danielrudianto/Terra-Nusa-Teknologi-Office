@@ -468,7 +468,11 @@ class PurchaseOrderController:
             return internal_error()
 
     @staticmethod
-    async def rekap_proyek(project_name: str):
+    async def rekap_proyek(
+        project_name: str,
+        dari: str = None,
+        sampai: str = None,
+    ):
         """
         Rekap seluruh purchase order sebuah proyek, untuk diunduh sebagai
         Excel.
@@ -478,7 +482,9 @@ class PurchaseOrderController:
         menyimpang dari polanya membuat satu jalur yang berbeda sendiri tanpa
         alasan.
         """
-        return await PurchaseOrderRepository.rekap_proyek(project_name)
+        return await PurchaseOrderRepository.rekap_proyek(
+            project_name, dari, sampai
+        )
 
     @staticmethod
     async def get_all_purchase_orders(

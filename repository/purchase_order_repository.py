@@ -1,6 +1,9 @@
 import json
 from datetime import datetime as dt
-from utils.permission import boleh_menyetujui_sendiri
+from utils.permission import (
+    boleh_menyetujui_sendiri,
+    boleh_menyetujui_yang_diperiksanya,
+)
 from utils.errors import app_error, ErrorCode
 from sqlalchemy import insert, select, func, update, or_
 from sqlalchemy.exc import IntegrityError
@@ -487,7 +490,11 @@ class PurchaseOrderRepository:
 
 
     @staticmethod
-    async def rekap_proyek(project_name: str):
+    async def rekap_proyek(
+        project_name: str,
+        dari: str = None,
+        sampai: str = None,
+    ):
         """
         Seluruh purchase order sebuah proyek beserta baris barangnya.
 
@@ -505,8 +512,30 @@ class PurchaseOrderRepository:
         baris tersendiri, sama seperti pada dokumen tercetak.
         """
         try:
+            """
+            Rentang tanggal bersifat PILIHAN, dan batasnya INKLUSIF.
+
+            Yang meminta rekap biasanya menyebut "pembelian minggu ini" —
+            dan yang dimaksud termasuk hari terakhirnya. Batas atas yang
+            eksklusif menghilangkan dokumen hari itu tanpa ada yang menyadari,
+            sebab jumlahnya tetap masuk akal.
+
+            `po.date` bertipe DATE, bukan DATETIME, sehingga perbandingan
+            `<=` sudah mencakup seluruh hari itu — tidak perlu menggeser ke
+            hari berikutnya seperti pada kolom berjam.
+            """
+            syarat = ["po.projectName = :proyek", "po.isDelete = 0"]
+            nilai_dokumen = {"proyek": project_name}
+
+            if dari:
+                syarat.append("po.date >= :dari")
+                nilai_dokumen["dari"] = dari
+            if sampai:
+                syarat.append("po.date <= :sampai")
+                nilai_dokumen["sampai"] = sampai
+
             dokumen = await database.fetch_all(
-                """
+                f"""
                 SELECT po.id, po.date, po.name, po.purchaseType, po.projectName,
                        po.dpp, po.ppn, po.pphPercentage, po.status,
                        po.isApproved, po.parentPurchaseOrderID,
@@ -516,11 +545,10 @@ class PurchaseOrderRepository:
                        s.prefix AS supplierPrefix
                 FROM purchase_orders po
                 LEFT JOIN suppliers s ON s.id = po.supplierID
-                WHERE po.projectName = :proyek
-                  AND po.isDelete = 0
+                WHERE {" AND ".join(syarat)}
                 ORDER BY po.number ASC
                 """,
-                {"proyek": project_name},
+                nilai_dokumen,
             )
             if not dokumen:
                 return {"purchaseOrders": [], "items": []}
@@ -1034,17 +1062,51 @@ class PurchaseOrderRepository:
         # terbit. Menyetujui yang belum diperiksa berarti memutuskan tanpa
         # seorang pun membaca isinya lebih dulu.
         if status == "approved":
-            sudah = await database.fetch_val(
-                select(purchase_orders_table.c.isChecked).where(
-                    purchase_orders_table.c.id == purchase_order_id
-                )
+            # `isChecked` dan `checkedBy` dibaca SEKALI, bukan dua kali.
+            #
+            # Keduanya menjawab pertanyaan berurutan atas baris yang sama.
+            # Dua perjalanan terpisah membuka jeda yang di dalamnya
+            # pemeriksaannya dapat dicabut, dan persetujuannya lolos atas
+            # keadaan yang sudah tidak berlaku.
+            periksa = await database.fetch_one(
+                select(
+                    purchase_orders_table.c.isChecked,
+                    purchase_orders_table.c.checkedBy,
+                ).where(purchase_orders_table.c.id == purchase_order_id)
             )
-            if not sudah:
+            if not periksa or not periksa["isChecked"]:
                 return app_error(
                     ErrorCode.VALIDATION,
                     "Dokumen belum diperiksa. Mintakan pemeriksaan lebih "
                     "dulu sebelum disetujui.",
                     400,
+                )
+
+            # Pemeriksa TIDAK boleh menyetujui yang diperiksanya sendiri.
+            #
+            # Penjagaan persetujuan-sendiri di atas membandingkan dengan
+            # PEMBUAT, dan `set_checked` juga membandingkan dengan pembuat.
+            # Pemeriksa yang bukan pembuat karena itu lolos keduanya: ia
+            # menekan "Periksa", menu itu langsung berganti menampilkan
+            # "Setujui", dan ia menekannya. Dua tahap, satu orang, dua detik
+            # — dan tahap pemeriksaan tidak menghadirkan mata kedua sama
+            # sekali.
+            #
+            # `checkedBy` yang KOSONG dibiarkan lewat. Dokumen yang disetujui
+            # sebelum tahap pemeriksaan ada tidak pernah mencatat
+            # pemeriksanya; menolaknya berarti menuduh orang yang memang
+            # tidak diketahui.
+            pemeriksa = periksa["checkedBy"]
+            if (
+                pemeriksa is not None
+                and int(pemeriksa) == int(user_id)
+                and not boleh_menyetujui_yang_diperiksanya(user_level)
+            ):
+                return app_error(
+                    ErrorCode.PO_CHECKER_IS_APPROVER,
+                    "Dokumen tidak dapat disetujui oleh pemeriksanya "
+                    "sendiri. Mintakan persetujuan kepada pengguna lain.",
+                    403,
                 )
 
         try:
