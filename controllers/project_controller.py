@@ -135,6 +135,7 @@ class ProjectController:
         sortBy: Optional[str],
         sortByDirection: str,
         isRetention: Optional[bool] = None,
+        keadaan: Optional[str] = None,
     ) -> Dict[str, Any]:
         return await ProjectRepository.get_all(
             keyword,
@@ -145,6 +146,7 @@ class ProjectController:
             sortBy,
             sortByDirection,
             isRetention,
+            keadaan,
         )
 
     @staticmethod

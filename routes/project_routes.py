@@ -54,6 +54,8 @@ async def get_projects(
     isActive: bool | None = Query(None),
     isCancelled: bool | None = Query(None),
     isRetention: bool | None = Query(None),
+    # Daftar keadaan dipisah koma: "berjalan,retensi".
+    keadaan: str | None = Query(None),
 ):
     return _bereskan(
         await ProjectController.get_projects(
@@ -65,6 +67,7 @@ async def get_projects(
             sortBy,
             sortByDirection,
             isRetention,
+            keadaan,
         )
     )
 

@@ -110,6 +110,7 @@ class ProjectRepository:
         sortBy: Optional[str] = None,
         sortByDirection: str = "asc",
         isRetention: Optional[bool] = None,
+        keadaan: Optional[str] = None,
     ) -> Dict[str, Any]:
         try:
             agg = _nilai_kontrak_subquery()
@@ -131,6 +132,55 @@ class ProjectRepository:
                 syarat.append(projects_table.c.isCancelled == isCancelled)
             if isRetention is not None:
                 syarat.append(projects_table.c.isRetention == isRetention)
+
+            # Saringan keadaan berupa DAFTAR, bukan satu nilai.
+            #
+            # Layar menampilkan proyek berjalan saja, lalu menambahkan
+            # keadaan lain satu per satu — "termasuk tunggu retensi",
+            # "termasuk selesai". Itu pertanyaan ATAU, dan tidak dapat
+            # dinyatakan oleh tiga penanda boolean yang saling DAN.
+            #
+            # Nama keadaan yang tidak dikenal DIABAIKAN, bukan menggugurkan
+            # permintaannya: daftar yang kosong karena satu salah ketik lebih
+            # sukar dikenali daripada daftar yang kurang satu keadaan.
+            if keadaan:
+                pilihan = {
+                    k.strip().lower()
+                    for k in str(keadaan).split(",")
+                    if k.strip()
+                }
+                cabang = []
+                if "berjalan" in pilihan:
+                    cabang.append(
+                        and_(
+                            projects_table.c.isActive == True,  # noqa: E712
+                            projects_table.c.isCancelled == False,  # noqa: E712
+                            projects_table.c.isRetention == False,  # noqa: E712
+                        )
+                    )
+                if "retensi" in pilihan:
+                    cabang.append(
+                        and_(
+                            projects_table.c.isCancelled == False,  # noqa: E712
+                            projects_table.c.isRetention == True,  # noqa: E712
+                        )
+                    )
+                if "selesai" in pilihan:
+                    cabang.append(
+                        and_(
+                            projects_table.c.isActive == False,  # noqa: E712
+                            projects_table.c.isCancelled == False,  # noqa: E712
+                        )
+                    )
+                if "batal" in pilihan:
+                    cabang.append(
+                        projects_table.c.isCancelled == True  # noqa: E712
+                    )
+
+                # Seluruhnya tidak dikenal: diperlakukan seperti tanpa
+                # saringan, bukan seperti "tidak ada yang cocok".
+                if cabang:
+                    syarat.append(or_(*cabang))
 
             kolom = {
                 "code": projects_table.c.code,
@@ -338,6 +388,9 @@ class ProjectRepository:
                     p.name,
                     p.isActive,
                     p.isCancelled,
+                    -- Masa retensi; layar margin menyaringnya seperti daftar
+                    -- proyek, dan tanpa kolom ini keadaannya tidak terbaca.
+                    p.isRetention,
                     COALESCE(k.kontrak, 0)        AS kontrak,
                     COALESCE(b.beli, 0)           AS beli,
                     COALESCE(b.beli_internal, 0)  AS beli_internal,
@@ -426,6 +479,7 @@ class ProjectRepository:
                         "name": r["name"],
                         "isActive": bool(r["isActive"]),
                         "isCancelled": bool(r["isCancelled"]),
+                        "isRetention": bool(r["isRetention"]),
                         "kontrak": kontrak,
                         # Yang SUDAH difakturkan; pembanding biaya yang
                         # sebenarnya. Lihat catatan pada subkuerinya.
