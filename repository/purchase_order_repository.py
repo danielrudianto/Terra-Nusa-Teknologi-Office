@@ -354,6 +354,29 @@ class PurchaseOrderRepository:
             return 1
 
     @staticmethod
+    async def nomor_aktif_ada(project_name: str, number: int) -> bool:
+        """
+        Ada PO AKTIF (belum dihapus) bernomor ini di proyek ini?
+
+        Dipakai sebelum memaksa nomor: dua PO aktif bernomor sama dalam satu
+        proyek membuat urutannya ambigu. Baris TERHAPUS sengaja diabaikan —
+        justru itu yang sedang digantikan: dokumen salah dibatalkan, lalu
+        penggantinya terbit di nomor yang sama.
+        """
+        try:
+            query = select(func.count()).select_from(purchase_orders_table).where(
+                purchase_orders_table.c.projectName == project_name,
+                purchase_orders_table.c.number == number,
+                purchase_orders_table.c.isDelete == False,
+            )
+            return bool(await database.fetch_val(query))
+        except Exception as e:
+            log_error(f"Error checking active PO number: {str(e)}")
+            # Gagal memeriksa TIDAK boleh dibaca sebagai "kosong": itu membuka
+            # jalan menyimpan nomor dobel. Diperlakukan seolah ADA.
+            return True
+
+    @staticmethod
     async def get_global_purchase_order_count() -> int:
         """Count all non-deleted purchase orders (used for the running PO number)."""
         try:

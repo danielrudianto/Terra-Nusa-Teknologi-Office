@@ -202,6 +202,7 @@ class PurchaseOrderController:
         custom: dict | None = None,
         parent_number: int | None = None,
         addendum_number: int | None = None,
+        forced_number: int | None = None,
     ) -> tuple[str, int]:
         """
         Nomor dokumen dengan urutan berjalan per proyek.
@@ -222,7 +223,12 @@ class PurchaseOrderController:
         pembayaran yang sudah mengacu padanya.
         """
         try:
-            if parent_number is not None:
+            if forced_number is not None:
+                # Nomor DIPAKSA (koreksi historis): dipakai apa adanya, tidak
+                # menghitung deret. Penjagaan level & tabrakan dilakukan di
+                # pemanggilnya sebelum sampai ke sini.
+                number = forced_number
+            elif parent_number is not None:
                 # Urutan diambil dari induknya; tidak menambah deret proyek.
                 number = parent_number
             elif project_code:
@@ -267,8 +273,13 @@ class PurchaseOrderController:
         """Id induk beserta adendum sampai dokumen ini, urut terbitnya."""
         return await PurchaseOrderRepository.rantai_dokumen(purchase_order_id)
 
+    # Level minimum untuk MEMAKSA nomor dokumen (koreksi historis).
+    LEVEL_PAKSA_NOMOR = 5
+
     @staticmethod
-    async def create_purchase_order(purchase_order_data: Dict, user_id: int):
+    async def create_purchase_order(
+        purchase_order_data: Dict, user_id: int, user_level: int = 0
+    ):
         """Create a new purchase order with an auto-generated number."""
         try:
             project_name = purchase_order_data.get("projectName", "")
@@ -278,6 +289,8 @@ class PurchaseOrderController:
             # pull out helper-only fields that are not columns
             project_code = purchase_order_data.pop("projectCode", None)
             explicit_name = purchase_order_data.pop("name", None)
+            # Nomor yang DIPAKSA — koreksi dokumen historis, hanya level 5.
+            force_number = purchase_order_data.pop("forceNumber", None)
             # `items` bukan kolom purchase_orders — dipisah dan disimpan
             # ke purchase_order_items setelah PO-nya terbuat.
             items = purchase_order_data.pop("items", None) or []
@@ -347,8 +360,49 @@ class PurchaseOrderController:
                         "status": 400,
                     }
 
+            # ---- nomor DIPAKSA (koreksi historis) ----
+            #
+            # Menetapkan urutan INT-nya, lalu nama dibentuk ulang dari nomor
+            # itu. Semua penjagaannya di sini, sedekat mungkin dengan tempat
+            # menyimpannya — layar bisa dilewati.
+            if force_number is not None:
+                if (user_level or 0) < PurchaseOrderController.LEVEL_PAKSA_NOMOR:
+                    return {"error": "FORBIDDEN_LEVEL", "code": "FORBIDDEN_LEVEL", "status": 403}
+                if parent_id:
+                    # Adendum mewarisi nomor induknya; memaksa nomor lain
+                    # membuatnya bukan adendum dokumen itu lagi.
+                    return {"error": "FORCE_NUMBER_ON_ADDENDUM", "code": "FORCE_NUMBER_ON_ADDENDUM", "status": 400}
+                try:
+                    force_number = int(force_number)
+                except (TypeError, ValueError):
+                    return {"error": "INVALID_FORCE_NUMBER", "code": "INVALID_FORCE_NUMBER", "status": 400}
+                if force_number <= 0:
+                    return {"error": "INVALID_FORCE_NUMBER", "code": "INVALID_FORCE_NUMBER", "status": 400}
+                if not project_code:
+                    # Nomor dipaksa per proyek; tanpa kode proyek namanya tak
+                    # terbentuk dan urutannya tak bermakna.
+                    return {"error": "PROJECT_CODE_REQUIRED", "code": "PROJECT_CODE_REQUIRED", "status": 400}
+                if await PurchaseOrderRepository.nomor_aktif_ada(
+                    project_name, force_number
+                ):
+                    # Sudah ada PO AKTIF di nomor ini. Yang salah harus
+                    # dibatalkan lebih dulu, baru penggantinya menempati slotnya.
+                    return {"error": "NUMBER_IN_USE", "code": "NUMBER_IN_USE", "status": 409}
+
             # use client-provided PO number, otherwise auto-generate
-            if explicit_name:
+            if force_number is not None:
+                (
+                    purchase_order_name,
+                    purchase_order_number,
+                ) = await PurchaseOrderController.generate_purchase_order_name(
+                    project_code or "",
+                    purchase_order_data.get("purchaseType", ""),
+                    purchase_order_data.get("customData") or {},
+                    None,
+                    None,
+                    force_number,
+                )
+            elif explicit_name:
                 purchase_order_name = explicit_name
                 purchase_order_number = None
             else:

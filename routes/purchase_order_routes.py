@@ -27,8 +27,9 @@ async def create_purchase_order(
     try:
         user_id = current_user["id"]
         result = await PurchaseOrderController.create_purchase_order(
-            purchase_order_data.dict(), 
-            user_id
+            purchase_order_data.dict(),
+            user_id,
+            int(current_user["authenticationLevel"] or 1),
         )
         
         if "error" in result:

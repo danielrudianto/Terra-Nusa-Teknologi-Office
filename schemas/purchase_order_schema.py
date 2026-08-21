@@ -42,6 +42,13 @@ class PurchaseOrderCreate(PurchaseOrderBase):
     parentPurchaseOrderID: Optional[int] = None
     # If provided, use this exact PO number instead of auto-generating.
     name: Optional[str] = None
+    # Nomor urut DIPAKSA — untuk koreksi dokumen historis oleh level 5.
+    #
+    # Berbeda dari `name`: `forceNumber` menetapkan urutan INT-nya (`number`),
+    # lalu nama dokumen dibentuk ulang dari nomor itu + jenis + kode proyek —
+    # sehingga dokumennya tetap punya urutan, tetap bisa jadi induk adendum,
+    # dan tidak menggeser nomor PO lain. Hanya level 5, diperiksa di server.
+    forceNumber: Optional[int] = None
     # Baris item PO. WAJIB ada di schema: route memanggil `.dict()`, sehingga
     # field yang tidak dideklarasikan di sini akan dibuang sebelum sampai ke
     # controller — itulah sebabnya purchase_order_items selalu kosong.
