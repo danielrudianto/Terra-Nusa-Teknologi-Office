@@ -98,6 +98,24 @@ class ReimbursementRepository:
                 or_conditions.append(reimbursements_table.c.bankName.ilike(f"%{keyword}%"))
                 or_conditions.append(reimbursements_table.c.bankAccountName.ilike(f"%{keyword}%"))
                 or_conditions.append(reimbursements_table.c.bankAccountNumber.ilike(f"%{keyword}%"))
+                # NAMA BARANG ikut dicari.
+                #
+                # Nama pengajuan (`reimbursements.name`) kerap hanya nomor
+                # dokumen; yang diingat orang justru BARANGNYA — "tol",
+                # "parkir", "bensin" — dan itu tersimpan sebagai
+                # `reimbursement_items.description`, satu pengajuan banyak baris.
+                # Dicari lewat subkueri IN: satu baris yang cocok sudah cukup
+                # memunculkan pengajuannya, tanpa menggandakan barisnya pada
+                # hasil (yang terjadi bila di-join langsung).
+                or_conditions.append(
+                    reimbursements_table.c.id.in_(
+                        select(reimbursement_items_table.c.reimbursementID).where(
+                            reimbursement_items_table.c.description.ilike(
+                                f"%{keyword}%"
+                            )
+                        )
+                    )
+                )
 
             if or_conditions:
                 conditions.append(or_(*or_conditions))
