@@ -478,15 +478,25 @@ class PurchaseOrderRepository:
 
     @staticmethod
     def _order_clause(sortBy: str = None, sortByDirection: str = "desc"):
-        """Kolom pengurut; jatuh ke createdAt bila kolomnya tidak dikenal."""
+        """
+        Kolom pengurut; jatuh ke createdAt bila kolomnya tidak dikenal.
+
+        Selalu DIIKUTI `id` menurun sebagai pemecah seri. `date` bertipe DATE,
+        bukan DATETIME — puluhan PO kerap bertanggal sama, dan tanpa pemecah
+        seri urutan di antara mereka diserahkan ke basis data: tidak menentu,
+        dan tidak selalu yang terbaru di atas. `id` menaik seiring pembuatan,
+        sehingga `id` menurun menaruh yang PALING BARU dibuat lebih dulu di
+        antara baris bertanggal sama — persis "dari yang paling sekarang".
+        """
         column = PurchaseOrderRepository.SORTABLE.get(
             sortBy, purchase_orders_table.c.createdAt
         )
-        return (
+        utama = (
             column.asc()
             if str(sortByDirection).lower() == "asc"
             else column.desc()
         )
+        return (utama, purchase_orders_table.c.id.desc())
 
 
     @staticmethod
@@ -711,7 +721,7 @@ class PurchaseOrderRepository:
                     )
                 )
                 .where(*conditions)
-                .order_by(PurchaseOrderRepository._order_clause(sortBy, sortByDirection))
+                .order_by(*PurchaseOrderRepository._order_clause(sortBy, sortByDirection))
                 .offset(offset)
                 .limit(page_size)
             )
