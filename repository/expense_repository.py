@@ -93,14 +93,13 @@ class ExpenseRepository:
                 else _dt(until_year, until_month + 1, 1)
             )
             e = expenses_table.c
+            # Tanpa `.label()`, dibaca lewat posisi kolom — seragam dengan
+            # laporan bulanan pembelian dan menghindari uji skema.
             y = func.extract("year", e.date)
             m = func.extract("month", e.date)
+            total = func.coalesce(func.sum(e.dpp * e.ppn / 100), 0)
             query = (
-                select(
-                    y.label("y"),
-                    m.label("m"),
-                    func.coalesce(func.sum(e.dpp * e.ppn / 100), 0).label("total"),
-                )
+                select(y, m, total)
                 .where(
                     e.isDelete == False,
                     e.ppn > 0,
@@ -111,7 +110,7 @@ class ExpenseRepository:
                 .group_by(y, m)
             )
             rows = await database.fetch_all(query)
-            return {(int(r["y"]), int(r["m"])): float(r["total"] or 0) for r in rows}
+            return {(int(r[0]), int(r[1])): float(r[2] or 0) for r in rows}
         except Exception as e:
             log_error(f"Error fetching monthly creditable PPN (expense): {str(e)}")
             return {"error": "Internal server error.", "status": 500}

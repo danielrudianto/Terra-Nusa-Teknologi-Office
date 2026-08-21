@@ -431,14 +431,13 @@ class SalesInvoiceRepository:
                 else dt(until_year, until_month + 1, 1)
             )
             si = sales_invoice_tables.c
+            # Tanpa `.label()`, dibaca lewat posisi kolom — seragam dengan
+            # laporan bulanan pembelian/beban.
             y = func.extract("year", si.date)
             m = func.extract("month", si.date)
+            total = func.coalesce(func.sum(si.dpp * si.ppn / 100), 0)
             query = (
-                select(
-                    y.label("y"),
-                    m.label("m"),
-                    func.coalesce(func.sum(si.dpp * si.ppn / 100), 0).label("total"),
-                )
+                select(y, m, total)
                 .where(
                     si.isDelete == False,
                     si.isApprove == True,
@@ -448,7 +447,7 @@ class SalesInvoiceRepository:
                 .group_by(y, m)
             )
             rows = await database.fetch_all(query)
-            return {(int(r["y"]), int(r["m"])): float(r["total"] or 0) for r in rows}
+            return {(int(r[0]), int(r[1])): float(r[2] or 0) for r in rows}
         except Exception as e:
             log_error(f"Error fetching monthly PPN keluaran: {str(e)}")
             return {"error": "Internal server error.", "status": 500}

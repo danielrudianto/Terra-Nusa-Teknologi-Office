@@ -461,14 +461,14 @@ class PurchaseRepository:
                 else dt(until_year, until_month + 1, 1)
             )
             p = purchases_table.c
+            # Tanpa `.label()`: kolom agregat ini murni internal, dan uji skema
+            # menolak label pada repository ini yang tidak ada di
+            # `PurchaseResponse`. Nilainya dibaca lewat posisi kolom.
             y = func.extract("year", p.date)
             m = func.extract("month", p.date)
+            total = func.coalesce(func.sum(p.dpp * p.ppn / 100), 0)
             query = (
-                select(
-                    y.label("y"),
-                    m.label("m"),
-                    func.coalesce(func.sum(p.dpp * p.ppn / 100), 0).label("total"),
-                )
+                select(y, m, total)
                 .where(
                     p.isDelete == False,
                     p.isInternal == False,
@@ -480,7 +480,7 @@ class PurchaseRepository:
                 .group_by(y, m)
             )
             rows = await database.fetch_all(query)
-            return {(int(r["y"]), int(r["m"])): float(r["total"] or 0) for r in rows}
+            return {(int(r[0]), int(r[1])): float(r[2] or 0) for r in rows}
         except Exception as e:
             log_error(f"Error fetching monthly creditable PPN (purchase): {str(e)}")
             return {"error": "Internal server error.", "status": 500}
