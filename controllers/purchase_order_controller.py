@@ -406,6 +406,39 @@ class PurchaseOrderController:
                         "status": 500,
                     }
 
+            # Beri tahu para pemeriksa: ada PO baru yang minta diperiksa.
+            #
+            # Efek samping, BUKAN bagian dari pembuatannya: dijalankan sebagai
+            # tugas terpisah dan dibungkus try, supaya push yang gagal tidak
+            # pernah menggagalkan penyimpanan PO yang sudah benar. Pembuatnya
+            # dikecualikan — dokumen tidak diperiksa oleh yang membuatnya.
+            try:
+                import asyncio
+                from repository.push_subscription_repository import (
+                    PushSubscriptionRepository,
+                )
+                from utils.webpush import kirim_ke_pengguna, push_aktif
+
+                if push_aktif():
+                    pemeriksa = await PushSubscriptionRepository.pemeriksa_ids(
+                        kecuali_user_id=user_id
+                    )
+                    if pemeriksa:
+                        proyek = purchase_order_data.get("projectName") or ""
+                        asyncio.create_task(
+                            kirim_ke_pengguna(
+                                pemeriksa,
+                                judul="Minta diperiksa",
+                                pesan=f"{purchase_order_name}"
+                                + (f" — {proyek}" if proyek else "")
+                                + " menunggu pemeriksaan.",
+                                url=f"/Pemeriksaan?open={result['purchase_order_id']}",
+                                tag=f"po-check-{result['purchase_order_id']}",
+                            )
+                        )
+            except Exception as push_err:
+                log_error(f"Gagal menjadwalkan notifikasi PO: {str(push_err)}")
+
             return {
                 "message": "Purchase order created successfully",
                 "purchase_order_id": result["purchase_order_id"],

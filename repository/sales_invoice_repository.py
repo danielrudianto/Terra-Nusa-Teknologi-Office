@@ -544,6 +544,12 @@ class SalesInvoiceRepository:
     ) -> Dict[str, Any]:
         """Set nomor faktur pajak PPN pada sebuah invoice."""
         try:
+            lama = await database.fetch_val(
+                select(sales_invoice_tables.c.taxInvoiceName).where(
+                    sales_invoice_tables.c.id == sales_invoice_id
+                )
+            )
+
             query = (
                 sales_invoice_tables.update()
                 .where(sales_invoice_tables.c.id == sales_invoice_id)
@@ -556,6 +562,22 @@ class SalesInvoiceRepository:
             result = await database.execute(query)
             if result == 0:
                 return {"error": "Sales invoice not found", "status": 404}
+
+            # Faktur pajak menyentuh dokumen pajak — perubahannya harus
+            # terekam, sama seperti bukti potong.
+            from repository.audit_log_repository import AuditLogRepository
+
+            mengubah = bool((lama or "").strip()) and (lama or "").strip() != (
+                tax_invoice_name or ""
+            ).strip()
+            await AuditLogRepository.record(
+                entity="sales_invoices",
+                entityID=sales_invoice_id,
+                action="update",
+                userID=user_id,
+                changes={"taxInvoiceName": {"from": lama, "to": tax_invoice_name}},
+                note="Koreksi faktur pajak" if mengubah else "Isi faktur pajak",
+            )
             return {"message": "Tax invoice number saved successfully"}
         except Exception as e:
             log_error(f"Error setting tax invoice name: {str(e)}")
