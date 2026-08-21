@@ -216,6 +216,43 @@ async def update_purchase(
     return result
 
 
+@router.get("/{purchase_id}/meta", response_model=dict)
+async def get_purchase_meta(
+    purchase_id: int,
+    current_user: Annotated[User, Depends(require("purchase", "update"))],
+):
+    """
+    Detail pembelian untuk layar sunting meta, beserta tanda apakah
+    pembayarannya sudah ada (untuk mengunci kolom nilai di layar).
+    """
+    result = await PurchaseController.get_purchase_meta(purchase_id)
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(status_code=result["status"], detail=error_detail(result))
+    return result
+
+
+@router.put("/{purchase_id}/meta", response_model=dict)
+async def update_purchase_meta(
+    purchase_id: int,
+    payload: dict,
+    current_user: Annotated[User, Depends(require("purchase", "update"))],
+):
+    """
+    Sunting META pembelian LUAR — hanya level 5, dan nilai keuangannya
+    terkunci bila pembayarannya sudah ada. Terpisah dari `/update` yang
+    dipakai layar Update Internal.
+    """
+    result = await PurchaseController.update_purchase_meta(
+        purchase_id,
+        payload,
+        current_user.id,
+        current_user.authenticationLevel or 1,
+    )
+    if "error" in result:
+        raise HTTPException(status_code=result["status"], detail=error_detail(result))
+    return result
+
+
 @router.put("/update-status", response_model=dict)
 async def update_status(
     purchaseStatus: PurchaseUpdateStatus, 

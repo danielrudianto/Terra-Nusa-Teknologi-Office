@@ -417,6 +417,104 @@ class PurchaseController:
             log_error(f"Error updating purchase {purchaseID}: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
 
+    # Bidang meta pembelian LUAR yang boleh disunting lewat jalur ini.
+    # Dipisah dari nilai keuangan karena keduanya berbeda penjaga: meta
+    # boleh diubah kapan pun, nilai keuangan hanya selama belum ada
+    # pembayaran yang melekat.
+    _META_BOLEH = {"date", "taxInvoiceName", "invoiceName", "receiptName"}
+    _META_NILAI = {"dpp", "ppn", "pphCode", "pphTaxObject", "pphPercentage"}
+    LEVEL_EDIT_META = 5
+
+    @staticmethod
+    async def get_purchase_meta(purchaseID: int):
+        """
+        Detail satu pembelian untuk layar sunting meta, DITAMBAH tanda
+        apakah pembayarannya sudah ada.
+
+        Layarnya perlu tahu itu di depan: bila sudah ada pembayaran, kolom
+        DPP/PPN/PPh dikunci — mengubahnya membuat nominal yang sudah
+        disetujui tidak lagi cocok dengan dokumennya. Tanpa tanda ini
+        layar tidak punya cara mengunci kolomnya sebelum orang telanjur
+        mengetiknya.
+        """
+        try:
+            purchase = await PurchaseRepository.get_by_id(purchaseID)
+            if not purchase or (isinstance(purchase, dict) and "error" in purchase):
+                return purchase or {"error": "Purchase not found", "status": 404}
+
+            jumlah = await PaymentOutgoingRepository.hitung_pembayaran_aktif(
+                purchaseID
+            )
+            purchase["hasActivePayment"] = bool(jumlah)
+            return purchase
+        except Exception as e:
+            log_error(f"Error fetching purchase meta {purchaseID}: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def update_purchase_meta(
+        purchaseID: int, data: dict, userID: int, userLevel: int = 0
+    ):
+        """
+        Sunting META pembelian LUAR — tanggal, nomor faktur pajak, nomor
+        invoice, nomor kuitansi; dan DPP/PPN/PPh SELAMA belum ada pembayaran.
+
+        Berbeda dari "Update Internal" yang menyunting seluruh isi dokumen
+        internal: jalur ini hanya membetulkan keterangan pembelian LUAR yang
+        terlanjur salah ketik — nomor fakturnya keliru, tanggalnya salah —
+        tanpa membongkar dokumennya.
+
+        Dua penjaga:
+
+          * HANYA level 5. Pembelian luar adalah dokumen yang menjadi dasar
+            pembayaran ke pihak ketiga; membetulkan nomornya dari belakang
+            adalah wewenang yang harus dipegang sedikit orang, dan diperiksa
+            di server, bukan sekadar disembunyikan tombolnya di layar.
+
+          * Nilai keuangannya (DPP/PPN/PPh) dikunci bila pembayarannya sudah
+            ada. Sama seperti pada `update_purchase`: mengubah nominal setelah
+            pembayaran disetujui membuat angka yang disetujui tidak lagi cocok
+            dengan dokumennya, dan tidak ada yang tahu mana yang benar.
+        """
+        try:
+            if (userLevel or 0) < PurchaseController.LEVEL_EDIT_META:
+                log_error(
+                    f"Sunting meta pembelian {purchaseID} ditolak: "
+                    f"level {userLevel} < {PurchaseController.LEVEL_EDIT_META}."
+                )
+                return {"error": "FORBIDDEN_LEVEL", "status": 403}
+
+            lama = await PurchaseRepository.get_by_id(purchaseID)
+            if not lama or (isinstance(lama, dict) and "error" in lama):
+                return {"error": "Purchase not found", "status": 404}
+
+            # Hanya bidang yang memang boleh; sisanya dibuang di sini supaya
+            # muatan asing tidak pernah sampai ke repository.
+            boleh = PurchaseController._META_BOLEH | PurchaseController._META_NILAI
+            bersih = {k: v for k, v in (data or {}).items() if k in boleh}
+            if not bersih:
+                return {"error": "No editable field supplied.", "status": 400}
+
+            diubah_nilai = {
+                k for k in PurchaseController._META_NILAI
+                if k in bersih and str(bersih[k]) != str(lama.get(k))
+            }
+            if diubah_nilai:
+                jumlah = await PaymentOutgoingRepository.hitung_pembayaran_aktif(
+                    purchaseID
+                )
+                if jumlah != 0:
+                    log_error(
+                        f"Perubahan nilai meta pembelian {purchaseID} ditolak: "
+                        f"{jumlah} pembayaran melekat."
+                    )
+                    return {"error": "PURCHASE_HAS_PAYMENTS", "status": 409}
+
+            return await PurchaseRepository.update(purchaseID, bersih, userID)
+        except Exception as e:
+            log_error(f"Error updating purchase meta {purchaseID}: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
     @staticmethod
     async def delete_purchase(purchaseID: int, userID: int, userLevel: int = 0):
         """
