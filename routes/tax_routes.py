@@ -20,6 +20,16 @@ async def fetch_ppn_report(month: int, year: int, current_user: Annotated[User, 
         )
     return result
 
+@router.get("/ppn-position")
+async def fetch_ppn_position(month: int, year: int, current_user: Annotated[User, Depends(require("tax", "read"))]):
+    result = await TaxController.get_ppn_position(month, year)
+    if isinstance(result, dict) and "error" in result:
+        log_error(f"Error during fetching ppn position: {str(result['error'])}")
+        raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
+    return result
+
 @router.get("/pph")
 async def fetch_pph_report(month: int, year: int, current_user: Annotated[User, Depends(require("tax", "read"))]):
     result = await TaxController.get_pph_report(month, year)

@@ -365,6 +365,55 @@ class SalesInvoiceRepository:
             raise
 
     @staticmethod
+    async def get_ppn_keluaran(month: int, year: int):
+        """
+        PPN keluaran: faktur penjualan ber-PPN pada satu periode.
+
+        Bentuknya diselaraskan dengan baris PPN masukan (pembelian/beban) agar
+        laporan posisi PPN dapat menyandingkan keduanya: setiap baris membawa
+        `dpp`, `ppn` (PERSEN, sama seperti masukan), `taxInvoiceName`, tanggal,
+        proyek, dan nama klien.
+
+        Hanya faktur yang sudah disetujui dan belum dihapus yang dihitung —
+        draf faktur belum menimbulkan PPN terutang, jadi tidak boleh ikut
+        menaikkan estimasi kurang bayar.
+        """
+        try:
+            si = sales_invoice_tables.c
+            query = (
+                select(
+                    si.id,
+                    si.name,
+                    si.date,
+                    si.dpp,
+                    si.ppn,
+                    si.pphPercentage,
+                    si.taxInvoiceName,
+                    si.projectName,
+                    si.spkNumber,
+                    clients_table.c.name.label("client_name"),
+                    clients_table.c.npwp.label("client_npwp"),
+                )
+                .join(
+                    clients_table,
+                    sales_invoice_tables.c.clientID == clients_table.c.id,
+                )
+                .where(
+                    si.isDelete == False,
+                    si.isApprove == True,
+                    si.ppn > 0,
+                    func.extract("month", si.date) == month,
+                    func.extract("year", si.date) == year,
+                )
+                .order_by(si.date.asc())
+            )
+            rows = await database.fetch_all(query)
+            return [dict(row) for row in rows]
+        except Exception as e:
+            log_error(f"Error fetching PPN keluaran: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def get_monthly_recap(month: int, year: int):
         try:
             client_columns = [

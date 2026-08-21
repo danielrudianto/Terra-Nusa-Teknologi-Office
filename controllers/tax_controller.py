@@ -65,6 +65,116 @@ class TaxController:
             return internal_error()
         
     @staticmethod
+    async def get_ppn_position(month: int, year: int):
+        """
+        Posisi PPN satu periode: estimasi kurang/lebih bayar.
+
+        PPN keluaran (dari faktur penjualan) dikurangi PPN masukan yang DAPAT
+        dikreditkan (pembelian/beban yang sudah punya nomor faktur pajak).
+        Masukan tanpa faktur pajak dipisah — nilainya nyata tetapi belum boleh
+        mengurangi setoran sampai fakturnya terbit, jadi tidak ikut dalam
+        selisih melainkan ditampilkan sebagai catatan.
+
+        Selisih positif berarti kurang bayar (harus disetor), negatif berarti
+        lebih bayar (kelebihan/kredit). Angka ini ESTIMASI: bergantung pada
+        kelengkapan faktur pajak yang sudah tercatat pada saat laporan dibuka.
+        """
+        try:
+            # --- Keluaran: faktur penjualan ber-PPN ---
+            keluaran_rows = await SalesInvoiceRepository.get_ppn_keluaran(
+                month, year
+            )
+            if isinstance(keluaran_rows, dict) and keluaran_rows.get("error"):
+                log_error(
+                    f"Error fetching PPN keluaran: {keluaran_rows.get('error')}"
+                )
+                return internal_error()
+
+            # --- Masukan: pembelian + beban ber-PPN ---
+            dari_pembelian = await PurchaseRepository.get_ppn_report(month, year)
+            dari_beban = await ExpenseRepository.get_ppn_report(month, year)
+
+            def bersih(hasil, nama):
+                """Kosong bukan galat; hanya kegagalan kueri yang dilaporkan."""
+                if isinstance(hasil, dict):
+                    if hasil.get("status") == 404:
+                        return []
+                    log_error(f"Error fetching PPN from {nama}: {hasil.get('error')}")
+                    raise RuntimeError(hasil.get("error"))
+                return hasil or []
+
+            masukan_rows = bersih(dari_pembelian, "purchases")
+            for b in masukan_rows:
+                b.setdefault("sumber", "purchase")
+            masukan_rows += bersih(dari_beban, "expenses")
+
+            def nilai_ppn(row):
+                """PPN = DPP × persen / 100. `ppn` selalu tersimpan sebagai persen."""
+                dpp = row.get("dpp") or 0
+                ppn = row.get("ppn") or 0
+                return (dpp * ppn) / 100
+
+            def ada_faktur(row):
+                return bool((row.get("taxInvoiceName") or "").strip())
+
+            # Keluaran
+            for r in keluaran_rows:
+                r["ppnValue"] = nilai_ppn(r)
+            keluaran_total = sum(nilai_ppn(r) for r in keluaran_rows)
+
+            # Masukan dibagi dua: yang sudah ada faktur (dapat dikreditkan) dan
+            # yang belum (nyata, tetapi belum boleh mengurangi setoran).
+            kreditable, tanpa_faktur = [], []
+            for r in masukan_rows:
+                r["ppnValue"] = nilai_ppn(r)
+                (kreditable if ada_faktur(r) else tanpa_faktur).append(r)
+
+            kreditable_total = sum(nilai_ppn(r) for r in kreditable)
+            tanpa_faktur_total = sum(nilai_ppn(r) for r in tanpa_faktur)
+
+            selisih = keluaran_total - kreditable_total
+            if selisih > 5:
+                status = "kurang_bayar"
+            elif selisih < -5:
+                status = "lebih_bayar"
+            else:
+                status = "nihil"
+
+            # Diurutkan menurut tanggal agar rincian mudah ditelusuri.
+            def urut(rows):
+                rows.sort(key=lambda x: (x.get("date") is None, x.get("date")))
+                return rows
+
+            return {
+                "month": month,
+                "year": year,
+                "status": status,
+                "keluaran": {
+                    "total": keluaran_total,
+                    "rows": urut(keluaran_rows),
+                },
+                "masukanKreditable": {
+                    "total": kreditable_total,
+                    "rows": urut(kreditable),
+                },
+                "masukanTanpaFaktur": {
+                    "total": tanpa_faktur_total,
+                    "rows": urut(tanpa_faktur),
+                },
+                # Selisih = keluaran − masukan yang dapat dikreditkan.
+                "selisih": selisih,
+                # Bila semua faktur masukan terbit, selisihnya menjadi ini.
+                "selisihBilaLengkap": keluaran_total
+                - kreditable_total
+                - tanpa_faktur_total,
+            }
+        except RuntimeError:
+            return internal_error()
+        except Exception as e:
+            log_error(f"Error fetching PPN position: {str(e)}")
+            return internal_error()
+
+    @staticmethod
     async def get_pph_report(month: int, year: int):
         log_info(f"Fetching PPh report for month {month} and year {year}")
         try:
