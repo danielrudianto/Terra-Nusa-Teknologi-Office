@@ -10,7 +10,14 @@ benar tersimpan sebagai NULL dan jawabannya tetap sukses.
 `skemacek.py` menjaga agar hal itu tidak terlewat.
 """
 
-from datetime import date, datetime
+# `TanggalHari` adalah alias `date`, KHUSUS untuk bidang yang bernama `date`.
+#
+# Bidang bernama `date` yang bernilai bawaan (`date: Optional[date] = None`)
+# menimpa tipe `datetime.date` di ruang nama kelasnya, dan Pydantic
+# membacanya sebagai `Optional[None]` — menolak setiap tanggal dengan "Input
+# should be None". Bidang lain (`startDate`, `endDate`) tidak bertabrakan
+# nama, jadi tetap memakai `date` biasa.
+from datetime import date, date as TanggalHari, datetime
 from decimal import Decimal
 from typing import List, Optional
 
@@ -42,7 +49,7 @@ class TenderItemBase(BaseModel):
 
 class TenderBase(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    date: date
+    date: TanggalHari
     tenderType: str
     projectName: str = Field(min_length=1, max_length=255)
     description: Optional[str] = None
@@ -76,7 +83,7 @@ class TenderCreate(TenderBase):
 class TenderUpdate(BaseModel):
     # PENTING: tidak mewarisi `TenderBase`; lihat catatan berkas.
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
-    date: Optional[date] = None
+    date: Optional[TanggalHari] = None
     tenderType: Optional[str] = None
     projectName: Optional[str] = Field(default=None, min_length=1, max_length=255)
     description: Optional[str] = None

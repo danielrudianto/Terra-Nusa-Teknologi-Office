@@ -1,6 +1,13 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
-from datetime import date, datetime
+# `TanggalHari` adalah alias `date`, KHUSUS untuk bidang yang bernama `date`.
+#
+# Bidang bernama `date` yang bernilai bawaan (`date: Optional[date] = None`)
+# menimpa tipe `datetime.date` di ruang nama kelasnya, dan Pydantic
+# membacanya sebagai `Optional[None]` — menolak setiap tanggal dengan "Input
+# should be None". Bidang lain (`startDate`, `endDate`) tidak bertabrakan
+# nama, jadi tetap memakai `date` biasa.
+from datetime import date, date as TanggalHari, datetime
 from decimal import Decimal
 
 
@@ -77,7 +84,7 @@ class ContractBase(BaseModel):
     pphCode: Optional[str] = Field(default=None, max_length=20)
     pphTaxObject: Optional[str] = Field(default=None, max_length=255)
     pphPercentage: Optional[Decimal] = None
-    date: date
+    date: TanggalHari
     description: Optional[str] = Field(default=None, max_length=500)
 
     @field_validator("documentType")
@@ -116,7 +123,7 @@ class ContractUpdate(BaseModel):
     pphCode: Optional[str] = Field(default=None, max_length=20)
     pphTaxObject: Optional[str] = Field(default=None, max_length=255)
     pphPercentage: Optional[Decimal] = None
-    date: Optional[date] = None
+    date: Optional[TanggalHari] = None
     description: Optional[str] = Field(default=None, max_length=500)
 
 

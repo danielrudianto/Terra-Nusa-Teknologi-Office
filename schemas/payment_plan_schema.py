@@ -7,7 +7,16 @@ baru karena itu harus ditambahkan di DUA tempat — Pydantic membuang bidang
 yang tidak dikenalnya tanpa galat apa pun. `skemacek.py` menjaganya.
 """
 
-from datetime import date, datetime
+# `date` di-ALIAS menjadi `TanggalHari`.
+#
+# Ada bidang bernama `date` di skema ini. Bila tipe dan nama bidangnya
+# sama-sama `date`, dan bidangnya punya nilai bawaan (`date: Optional[date] =
+# None`), maka `date = None` masuk ke ruang nama kelas dan MENIMPA tipe
+# `datetime.date` — Pydantic lalu membacanya sebagai `Optional[None]` dan
+# menolak SETIAP tanggal dengan "Input should be None". `PaymentPlanBase`
+# lolos hanya karena bidangnya tak bernilai bawaan; `PaymentPlanUpdate`
+# tidak. Alias memutus tabrakan nama itu sekali untuk seluruh berkas.
+from datetime import date as TanggalHari, datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -59,7 +68,7 @@ ARAH = {"keluar", "masuk"}
 class PaymentPlanBase(BaseModel):
     # `keluar` atau `masuk`; menentukan tandanya pada perhitungan kas.
     planType: str = "keluar"
-    date: date
+    date: TanggalHari
     amount: Decimal = Field(gt=0)
     description: str = Field(min_length=1, max_length=255)
     category: Optional[str] = None
@@ -108,7 +117,7 @@ class PaymentPlanCreate(PaymentPlanBase):
 class PaymentPlanUpdate(BaseModel):
     # PENTING: tidak mewarisi `PaymentPlanBase`; lihat catatan berkas.
     planType: Optional[str] = None
-    date: Optional[date] = None
+    date: Optional[TanggalHari] = None
     amount: Optional[Decimal] = Field(default=None, gt=0)
     description: Optional[str] = Field(default=None, min_length=1, max_length=255)
     category: Optional[str] = None
