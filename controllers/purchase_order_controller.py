@@ -419,6 +419,16 @@ class PurchaseOrderController:
             # simpan nomor urutnya, dipakai untuk menghitung PO berikutnya
             purchase_order_data["number"] = purchase_order_number
 
+            # Nomor DIPAKSA (koreksi historis): bila nama yang terbentuk masih
+            # dipegang BANGKAI dokumen yang barusan dibatalkan (jenisnya tidak
+            # berubah, sehingga namanya sama persis), bebaskan dulu namanya —
+            # kalau tidak, INSERT-nya gagal oleh keunikan nama dan penggantinya
+            # tidak pernah terbit sementara aslinya sudah telanjur dihapus.
+            if force_number is not None:
+                await PurchaseOrderRepository.bebaskan_nama_terhapus(
+                    purchase_order_name
+                )
+
             # billing_requirements is NOT NULL — default to {} for the trial
             if purchase_order_data.get("billing_requirements") is None:
                 purchase_order_data["billing_requirements"] = {}

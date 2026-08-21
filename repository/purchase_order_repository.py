@@ -377,6 +377,44 @@ class PurchaseOrderRepository:
             return True
 
     @staticmethod
+    async def bebaskan_nama_terhapus(name: str) -> bool:
+        """
+        Kosongkan `name` yang masih dipegang baris TERHAPUS.
+
+        `uq_purchase_order_name` berlaku atas SELURUH baris, termasuk yang
+        sudah dihapus. Saat dokumen salah dibatalkan lalu penggantinya terbit
+        di nomor yang sama TANPA mengubah jenisnya, nama keduanya identik —
+        dan INSERT-nya gagal oleh keunikan itu, padahal yang memegang nama itu
+        cuma bangkai dokumen yang memang sedang digantikan.
+
+        Nama baris terhapus itu diberi akhiran unik supaya slotnya bebas.
+        HANYA menyentuh baris `isDelete=True`; nama dokumen aktif tidak pernah
+        disentuh, jadi tidak ada dokumen hidup yang kehilangan namanya.
+
+        Efek sampingnya JUSTRU benar: pembelian yang mengacu ke nama itu (lewat
+        teks) kini menunjuk ke penggantinya yang aktif, bukan ke bangkainya.
+        """
+        try:
+            row = await database.fetch_one(
+                select(purchase_orders_table.c.id).where(
+                    purchase_orders_table.c.name == name,
+                    purchase_orders_table.c.isDelete == True,
+                )
+            )
+            if not row:
+                return False
+            baru = f"{name}~x{row['id']}"[:100]
+            await database.execute(
+                update(purchase_orders_table)
+                .where(purchase_orders_table.c.id == row["id"])
+                .values(name=baru)
+            )
+            return True
+        except Exception as e:
+            log_error(f"Error freeing deleted PO name '{name}': {str(e)}")
+            return False
+
+    @staticmethod
     async def get_global_purchase_order_count() -> int:
         """Count all non-deleted purchase orders (used for the running PO number)."""
         try:
