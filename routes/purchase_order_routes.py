@@ -171,6 +171,9 @@ async def get_all_purchase_orders(
     project_name: str = Query(None, description="Kode proyek, persis"),
     date_from: str = Query(None, description="Tanggal dokumen sejak (YYYY-MM-DD)"),
     date_to: str = Query(None, description="Tanggal dokumen sampai (YYYY-MM-DD)"),
+    checked: bool = Query(
+        None, description="true = sudah diperiksa (menunggu setuju); false = menunggu periksa"
+    ),
 ):
     """
     Get all purchase orders with pagination.
@@ -191,8 +194,9 @@ async def get_all_purchase_orders(
             project_name=project_name,
             date_from=date_from,
             date_to=date_to,
+            checked=checked,
         )
-        
+
         if "error" in result:
             raise HTTPException(
                 status_code=result.get("status", 500), 

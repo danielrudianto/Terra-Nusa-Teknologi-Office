@@ -591,6 +591,7 @@ class PurchaseOrderRepository:
         project_name: str = None,
         date_from: str = None,
         date_to: str = None,
+        checked: bool = None,
     ):
         """
         Get purchase orders with pagination (newest first).
@@ -639,6 +640,16 @@ class PurchaseOrderRepository:
                 conditions.append(purchase_orders_table.c.isApproved == False)
             elif status == "approved":
                 conditions.append(purchase_orders_table.c.isApproved == True)
+
+            # Saring berdasarkan tahap PEMERIKSAAN — dipakai aplikasi ponsel.
+            #
+            # `checked=False` -> yang menunggu DIPERIKSA; `checked=True` -> yang
+            # sudah diperiksa dan menunggu DISETUJUI. Disaring di SERVER, bukan
+            # di layar: memfilter per-halaman di ponsel membuat dokumen yang
+            # cocok — tetapi berada di halaman berikutnya — tidak pernah tampil,
+            # sehingga daftarnya terlihat KOSONG padahal beranda menghitung ada.
+            if checked is not None:
+                conditions.append(purchase_orders_table.c.isChecked == bool(checked))
 
             # Beberapa tipe sekaligus, dipisah koma.
             #

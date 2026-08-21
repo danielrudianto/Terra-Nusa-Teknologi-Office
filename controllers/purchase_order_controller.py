@@ -532,6 +532,7 @@ class PurchaseOrderController:
         project_name: str = None,
         date_from: str = None,
         date_to: str = None,
+        checked: bool = None,
     ):
         try:
             result = await PurchaseOrderRepository.get_all(
@@ -545,6 +546,7 @@ class PurchaseOrderController:
                 project_name=project_name,
                 date_from=date_from,
                 date_to=date_to,
+                checked=checked,
             )
             if "error" in result:
                 return {"error": result["error"], "status": result.get("status", 500)}
