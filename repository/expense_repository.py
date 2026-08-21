@@ -77,6 +77,46 @@ class ExpenseRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    async def get_ppn_masukan_kreditable_bulanan(until_year: int, until_month: int):
+        """
+        Total PPN masukan beban yang DAPAT dikreditkan, per bulan.
+
+        Sama seperti pembelian: hanya beban ber-PPN yang sudah punya nomor
+        faktur pajak. Dipakai laporan posisi PPN untuk kompensasi antar masa.
+        """
+        try:
+            from datetime import datetime as _dt
+
+            end_date = (
+                _dt(until_year + 1, 1, 1)
+                if until_month == 12
+                else _dt(until_year, until_month + 1, 1)
+            )
+            e = expenses_table.c
+            y = func.extract("year", e.date)
+            m = func.extract("month", e.date)
+            query = (
+                select(
+                    y.label("y"),
+                    m.label("m"),
+                    func.coalesce(func.sum(e.dpp * e.ppn / 100), 0).label("total"),
+                )
+                .where(
+                    e.isDelete == False,
+                    e.ppn > 0,
+                    e.taxInvoiceName.isnot(None),
+                    func.trim(e.taxInvoiceName) != "",
+                    e.date < end_date,
+                )
+                .group_by(y, m)
+            )
+            rows = await database.fetch_all(query)
+            return {(int(r["y"]), int(r["m"])): float(r["total"] or 0) for r in rows}
+        except Exception as e:
+            log_error(f"Error fetching monthly creditable PPN (expense): {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def create(expense_data: dict):
         """
         Create an expense in the database.

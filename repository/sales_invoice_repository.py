@@ -414,6 +414,46 @@ class SalesInvoiceRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    async def get_ppn_keluaran_bulanan(until_year: int, until_month: int):
+        """
+        Total PPN keluaran per bulan, dari awal sampai akhir periode terpilih.
+
+        Dipakai untuk menghitung kompensasi lebih bayar yang berjalan antar
+        masa: laporan posisi tidak boleh berdiri sendiri per bulan, karena
+        lebih bayar satu masa dikreditkan ke masa berikutnya. Hanya total per
+        bulan yang dibutuhkan di sini — rinciannya diambil terpisah untuk masa
+        terpilih saja.
+        """
+        try:
+            end_date = (
+                dt(until_year + 1, 1, 1)
+                if until_month == 12
+                else dt(until_year, until_month + 1, 1)
+            )
+            si = sales_invoice_tables.c
+            y = func.extract("year", si.date)
+            m = func.extract("month", si.date)
+            query = (
+                select(
+                    y.label("y"),
+                    m.label("m"),
+                    func.coalesce(func.sum(si.dpp * si.ppn / 100), 0).label("total"),
+                )
+                .where(
+                    si.isDelete == False,
+                    si.isApprove == True,
+                    si.ppn > 0,
+                    si.date < end_date,
+                )
+                .group_by(y, m)
+            )
+            rows = await database.fetch_all(query)
+            return {(int(r["y"]), int(r["m"])): float(r["total"] or 0) for r in rows}
+        except Exception as e:
+            log_error(f"Error fetching monthly PPN keluaran: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def get_monthly_recap(month: int, year: int):
         try:
             client_columns = [

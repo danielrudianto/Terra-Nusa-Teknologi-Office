@@ -132,7 +132,57 @@ class TaxController:
             kreditable_total = sum(nilai_ppn(r) for r in kreditable)
             tanpa_faktur_total = sum(nilai_ppn(r) for r in tanpa_faktur)
 
-            selisih = keluaran_total - kreditable_total
+            # Selisih masa ini saja, sebelum kompensasi antar masa.
+            selisih_bulan_ini = keluaran_total - kreditable_total
+
+            # --- Kompensasi lebih bayar dari masa-masa sebelumnya ---
+            #
+            # Lebih bayar satu masa dikreditkan ke masa berikutnya, jadi posisi
+            # bulan ini tidak berdiri sendiri. Kita lipat total per bulan dari
+            # awal data sampai SEBELUM bulan terpilih, membawa saldo lebih
+            # bayar sebagai kredit. Kurang bayar dianggap sudah disetor pada
+            # masanya (saldo kredit kembali nol), sesuai perlakuan SPT.
+            kel_bulanan = await SalesInvoiceRepository.get_ppn_keluaran_bulanan(
+                year, month
+            )
+            beli_bulanan = (
+                await PurchaseRepository.get_ppn_masukan_kreditable_bulanan(
+                    year, month
+                )
+            )
+            beban_bulanan = (
+                await ExpenseRepository.get_ppn_masukan_kreditable_bulanan(
+                    year, month
+                )
+            )
+
+            def peta(hasil, nama):
+                if isinstance(hasil, dict) and hasil.get("status") == 500:
+                    log_error(f"Error monthly PPN from {nama}: {hasil.get('error')}")
+                    raise RuntimeError(hasil.get("error"))
+                return hasil or {}
+
+            kel_bulanan = peta(kel_bulanan, "sales")
+            masuk_bulanan = {}
+            for sumber in (peta(beli_bulanan, "purchases"), peta(beban_bulanan, "expenses")):
+                for k, v in sumber.items():
+                    masuk_bulanan[k] = masuk_bulanan.get(k, 0.0) + v
+
+            # Semua (tahun, bulan) yang ada datanya, urut kronologis, hanya
+            # yang SEBELUM masa terpilih — masa terpilih dihitung dari rincian.
+            kunci = sorted(set(kel_bulanan) | set(masuk_bulanan))
+            saldo_kredit = 0.0  # lebih bayar berjalan (selalu >= 0)
+            for (y, m) in kunci:
+                if (y, m) >= (year, month):
+                    continue
+                net = kel_bulanan.get((y, m), 0.0) - masuk_bulanan.get((y, m), 0.0)
+                efektif = net - saldo_kredit
+                # Kurang bayar disetor -> kredit habis; lebih bayar -> dibawa.
+                saldo_kredit = 0.0 if efektif >= 0 else -efektif
+
+            kompensasi_masuk = saldo_kredit
+            selisih = selisih_bulan_ini - kompensasi_masuk
+
             if selisih > 5:
                 status = "kurang_bayar"
             elif selisih < -5:
@@ -161,12 +211,14 @@ class TaxController:
                     "total": tanpa_faktur_total,
                     "rows": urut(tanpa_faktur),
                 },
-                # Selisih = keluaran − masukan yang dapat dikreditkan.
+                # Selisih masa ini saja: keluaran − masukan yang dapat dikreditkan.
+                "selisihBulanIni": selisih_bulan_ini,
+                # Saldo lebih bayar yang terbawa dari masa-masa sebelumnya.
+                "kompensasiMasukLalu": kompensasi_masuk,
+                # Selisih akhir SETELAH kompensasi antar masa — angka posisi.
                 "selisih": selisih,
-                # Bila semua faktur masukan terbit, selisihnya menjadi ini.
-                "selisihBilaLengkap": keluaran_total
-                - kreditable_total
-                - tanpa_faktur_total,
+                # Bila semua faktur masukan (yang belum ada) juga terbit.
+                "selisihBilaLengkap": selisih - tanpa_faktur_total,
             }
         except RuntimeError:
             return internal_error()

@@ -445,6 +445,47 @@ class PurchaseRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    async def get_ppn_masukan_kreditable_bulanan(until_year: int, until_month: int):
+        """
+        Total PPN masukan pembelian yang DAPAT dikreditkan, per bulan.
+
+        Hanya baris ber-PPN, bukan internal, sudah ada nomor faktur pajak —
+        sebab yang belum ada fakturnya tidak boleh mengurangi setoran, jadi
+        tidak ikut kompensasi antar masa. Dipakai laporan posisi PPN untuk
+        menghitung lebih bayar yang berjalan dari masa ke masa.
+        """
+        try:
+            end_date = (
+                dt(until_year + 1, 1, 1)
+                if until_month == 12
+                else dt(until_year, until_month + 1, 1)
+            )
+            p = purchases_table.c
+            y = func.extract("year", p.date)
+            m = func.extract("month", p.date)
+            query = (
+                select(
+                    y.label("y"),
+                    m.label("m"),
+                    func.coalesce(func.sum(p.dpp * p.ppn / 100), 0).label("total"),
+                )
+                .where(
+                    p.isDelete == False,
+                    p.isInternal == False,
+                    p.ppn > 0,
+                    p.taxInvoiceName.isnot(None),
+                    func.trim(p.taxInvoiceName) != "",
+                    p.date < end_date,
+                )
+                .group_by(y, m)
+            )
+            rows = await database.fetch_all(query)
+            return {(int(r["y"]), int(r["m"])): float(r["total"] or 0) for r in rows}
+        except Exception as e:
+            log_error(f"Error fetching monthly creditable PPN (purchase): {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def get_monthly_recap(month: int, year: int):
         try:
             supplier_columns = [
