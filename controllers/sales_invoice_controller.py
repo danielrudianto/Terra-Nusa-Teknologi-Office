@@ -256,7 +256,12 @@ class SalesInvoiceController:
             raise HTTPException(status_code=500, detail="Internal server error")
 
     @staticmethod
-    async def set_income_tax_name(sales_invoice_id: int, income_tax_name: str, user_id: int) -> Dict:
+    async def set_income_tax_name(
+        sales_invoice_id: int,
+        income_tax_name: str,
+        user_id: int,
+        user_level: int | None = None,
+    ) -> Dict:
         """Set nomor bukti potong PPh."""
         log_info(f"Setting income tax slip name for sales invoice ID: {sales_invoice_id}")
         try:
@@ -266,7 +271,7 @@ class SalesInvoiceController:
                 raise HTTPException(status_code=400, detail="Income tax slip number is required")
 
             result = await SalesInvoiceRepository.set_income_tax_name(
-                sales_invoice_id, income_tax_name.strip(), user_id
+                sales_invoice_id, income_tax_name.strip(), user_id, user_level
             )
             if "error" in result:
                 raise HTTPException(status_code=result.get("status", 500), detail=result["error"])

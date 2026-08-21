@@ -117,8 +117,15 @@ async def set_income_tax_name(
     data: SalesInvoiceIncomeTaxUpdate,
     current_user: Annotated[User, Depends(require("sales_invoice", "update"))]
 ):
-    """Set nomor bukti potong PPh pada sales invoice (hanya yang sudah dibayar & ada PPh)."""
+    """Set nomor bukti potong PPh pada sales invoice (hanya yang sudah dibayar & ada PPh).
+
+    Mengisi pertama kali bebas seperti biasa; MENGUBAH yang sudah terisi hanya
+    boleh level 5 — dijaga di lapisan repository, bukan sekadar di layar.
+    """
     user_id = current_user["id"]
     return await SalesInvoiceController.set_income_tax_name(
-        sales_invoice_id, data.incomeTaxInvoiceName, user_id
+        sales_invoice_id,
+        data.incomeTaxInvoiceName,
+        user_id,
+        int(current_user["authenticationLevel"] or 1),
     )

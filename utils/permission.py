@@ -391,6 +391,25 @@ def boleh_memeriksa_sendiri(level) -> bool:
     return False
 
 
+# Mengubah bukti potong PPh yang SUDAH terisi.
+#
+# Mengisi PERTAMA kali bebas dilakukan bagian keuangan seperti biasa. Tetapi
+# MENGUBAH yang sudah terisi berbeda: nomor bukti potong yang tertukar antar
+# invoice (kerap karena nominalnya sama) baru ketahuan belakangan, dan
+# menimpanya menyentuh dokumen pajak yang sudah dicatat. Karena itu koreksinya
+# dibatasi pada level 5 — satu tangan yang bertanggung jawab, bukan siapa pun
+# yang kebetulan membuka layarnya.
+LEVEL_EDIT_BUKTI_POTONG = 5
+
+
+def boleh_edit_bukti_potong(level) -> bool:
+    """Pengguna ini boleh MENGUBAH bukti potong PPh yang sudah terisi."""
+    try:
+        return int(level or 1) >= LEVEL_EDIT_BUKTI_POTONG
+    except (TypeError, ValueError):
+        return False
+
+
 def boleh_menghapus_yang_disetujui(level) -> bool:
     """
     Pengguna ini boleh MENGHAPUS purchase order yang SUDAH DISETUJUI.

@@ -563,10 +563,38 @@ class SalesInvoiceRepository:
 
     @staticmethod
     async def set_income_tax_name(
-        sales_invoice_id: int, income_tax_name: str, user_id: int
+        sales_invoice_id: int,
+        income_tax_name: str,
+        user_id: int,
+        user_level: int | None = None,
     ) -> Dict[str, Any]:
-        """Set nomor bukti potong PPh pada sebuah invoice."""
+        """
+        Set nomor bukti potong PPh pada sebuah invoice.
+
+        Mengisi PERTAMA kali (dari kosong) bebas seperti biasa. MENGUBAH yang
+        sudah terisi hanya boleh oleh level 5 — koreksi nomor bukti potong yang
+        tertukar menyentuh dokumen pajak yang sudah dicatat, dan penjagaannya
+        di SINI, bukan sekadar menyembunyikan tombolnya.
+        """
+        from utils.permission import boleh_edit_bukti_potong
+
         try:
+            lama = await database.fetch_val(
+                select(sales_invoice_tables.c.incomeTaxInvoiceName).where(
+                    sales_invoice_tables.c.id == sales_invoice_id
+                )
+            )
+            sudah_terisi = bool((lama or "").strip())
+            mengubah = sudah_terisi and (lama or "").strip() != income_tax_name.strip()
+
+            if mengubah and not boleh_edit_bukti_potong(user_level):
+                return app_error(
+                    ErrorCode.FORBIDDEN,
+                    "Bukti potong yang sudah terisi hanya dapat diubah oleh "
+                    "level 5.",
+                    403,
+                )
+
             query = (
                 sales_invoice_tables.update()
                 .where(sales_invoice_tables.c.id == sales_invoice_id)
@@ -579,6 +607,22 @@ class SalesInvoiceRepository:
             result = await database.execute(query)
             if result == 0:
                 return {"error": "Sales invoice not found", "status": 404}
+
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="sales_invoices",
+                entityID=sales_invoice_id,
+                action="update",
+                userID=user_id,
+                changes={
+                    "incomeTaxInvoiceName": {
+                        "from": lama,
+                        "to": income_tax_name,
+                    }
+                },
+                note="Koreksi bukti potong" if mengubah else "Isi bukti potong",
+            )
             return {"message": "Income tax slip number saved successfully"}
         except Exception as e:
             log_error(f"Error setting income tax name: {str(e)}")
