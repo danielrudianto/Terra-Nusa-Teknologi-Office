@@ -432,7 +432,7 @@ class PurchaseOrderController:
                                 pesan=f"{purchase_order_name}"
                                 + (f" — {proyek}" if proyek else "")
                                 + " menunggu pemeriksaan.",
-                                url=f"/Pemeriksaan?open={result['purchase_order_id']}",
+                                url=f"/Purchase-order?mode=periksa&open={result['purchase_order_id']}",
                                 tag=f"po-check-{result['purchase_order_id']}",
                             )
                         )

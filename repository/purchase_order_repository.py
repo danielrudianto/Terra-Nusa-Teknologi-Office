@@ -889,6 +889,13 @@ class PurchaseOrderRepository:
 
             return {
                 "message": "Purchase order updated successfully",
+                # Nomor & id dikembalikan supaya CETAK setelah menyunting
+                # memakai nomor yang benar. Tanpa ini, formulir mencetak dengan
+                # `purchase_order_name` kosong — dan nomor PO HILANG dari PDF.
+                # Namanya terkunci (tak berubah saat menyunting), jadi diambil
+                # dari keadaan sebelumnya.
+                "purchase_order_id": purchase_order_id,
+                "purchase_order_name": (dict(sebelum).get("name") if sebelum else None),
                 # Layar memberitahukan pencabutan ini.
                 #
                 # Tanpa penanda, dokumen yang tadinya siap disetujui
