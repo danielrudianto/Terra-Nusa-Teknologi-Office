@@ -136,6 +136,10 @@ class PurchaseOrderItemRepository:
                     *purchase_order_items_table.c,
                     master_item_table.c.sku.label("sku"),
                     master_item_table.c.description.label("item_description"),
+                    # Merek katalog, dicetak sebagai "Ex. <merek>" di belakang
+                    # nama barang. Ikut join agar cetak ulang dokumen lama pun
+                    # menampilkannya tanpa menyimpannya di baris PO.
+                    master_item_table.c.brand.label("brand"),
                     master_equipment_table.c.name.label("equipment_name"),
                 )
                 .select_from(joined)
