@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict, Any, List
 from datetime import date as date_type, datetime
 from enum import Enum
@@ -27,6 +27,18 @@ class PurchaseOrderBase(BaseModel):
     billing_requirements: Dict[str, Any] = Field(default_factory=dict)
     payment_term: str = "CASH"
     note: Optional[str] = None
+
+    # `null` pada nilai yang berdefault nol dibaca sebagai "tidak ada" = 0.
+    #
+    # Layar kerap mengirim `otherValue: null` (mis. PO-C saat tidak ada PPh 22)
+    # atau `ppn: null`. Tanpa ini Pydantic menolaknya — `null` bukan angka —
+    # dan seluruh pembuatan PO gagal dengan 422 yang menyebut "otherValue".
+    # Default hanya berlaku saat KUNCI-nya hilang, bukan saat kuncinya null;
+    # penyetaraan ini yang menutup celah itu.
+    @field_validator("otherValue", "ppn", mode="before")
+    @classmethod
+    def _null_jadi_nol(cls, v):
+        return 0.0 if v is None else v
 
 
 class PurchaseOrderCreate(PurchaseOrderBase):
