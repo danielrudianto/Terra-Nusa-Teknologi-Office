@@ -147,6 +147,31 @@ SINONIM: list[list[str]] = [
   ['seal', 'sil', 'perapat'],
   ['belt', 'sabuk', 'van belt', 'vanbelt'],
   ['battery', 'baterai', 'aki'],
+
+  # ---------- tambahan dari katalog terkini ----------
+  # Hanya istilah yang benar-benar muncul di katalog sekarang.
+  ['sandpaper', 'amplas'],
+  ['nail', 'paku'],
+  ['padlock', 'gembok'],
+  ['kran', 'keran'],
+  ['pipe', 'pipa'],
+  ['nozzle', 'nosel'],
+  ['glue', 'lem', 'adhesive'],
+  ['paper', 'kertas'],
+  ['marker', 'spidol'],
+  ['stapler', 'staples', 'hekter', 'jekter'],
+  ['compressor', 'kompresor'],
+  ['flashlight', 'senter', 'lampu senter'],
+
+  # ---------- merchandise & souvenir ----------
+  ['t-shirt', 'kaos', 'kaus', 'tshirt', 'baju kaos'],
+  ['polo shirt', 'kaos polo', 'polo'],
+  ['jacket', 'jaket'],
+  ['topi', 'hat'],
+  ['mug', 'gelas', 'cangkir'],
+  ['sticker', 'stiker'],
+  ['keychain', 'gantungan kunci'],
+  ['boots', 'sepatu boot', 'sepatu boots'],
 ]
 
 

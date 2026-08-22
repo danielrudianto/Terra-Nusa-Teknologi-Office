@@ -228,6 +228,35 @@ _PASANGAN = [
     ("seal", ["sil", "perapat"]),
     ("belt", ["sabuk", "van belt", "vanbelt"]),
     ("battery", ["baterai", "aki"]),
+
+    # ---- tambahan dari katalog terkini (2.410 barang aktif) ----
+    #
+    # Hanya istilah yang BENAR-BENAR muncul di katalog sekarang, dipasangkan
+    # dengan sebutan lain yang lazim diketik. Jumlah kemunculannya diperiksa
+    # sebelum ditambahkan supaya ini bukan dugaan.
+    ("sandpaper", ["amplas"]),                       # amplas ·1
+    ("nail", ["paku"]),                              # paku ·7
+    ("padlock", ["gembok"]),                         # gembok ·3
+    ("kran", ["keran"]),                             # kran ·16 (stop kran angin)
+    ("pipe", ["pipa"]),                              # pipa ·17 / pipe ·6
+    ("nozzle", ["nosel"]),                           # nozzle ·1
+    ("glue", ["lem", "adhesive"]),                   # lem ·13
+    ("paper", ["kertas"]),                           # kertas ·6 / paper ·6
+    ("marker", ["spidol"]),                          # spidol ·8
+    ("stapler", ["staples", "hekter", "jekter"]),    # stapler ·2
+    ("compressor", ["kompresor"]),                   # kompresor ·8
+    ("flashlight", ["senter", "lampu senter"]),      # senter ·2
+
+    # ---- merchandise & souvenir (64 barang) ----
+    # Sebutannya paling beragam; satu barang bisa dicari dengan tiga nama.
+    ("t-shirt", ["kaos", "kaus", "tshirt", "baju kaos"]),
+    ("polo shirt", ["kaos polo", "polo"]),
+    ("jacket", ["jaket"]),
+    ("topi", ["hat"]),
+    ("mug", ["gelas", "cangkir"]),
+    ("sticker", ["stiker"]),
+    ("keychain", ["gantungan kunci"]),
+    ("boots", ["sepatu boot", "sepatu boots"]),
 ]
 
 
