@@ -8,7 +8,10 @@ from utils.logger_utils import log_error
 #: sepadan dibuatkan proyek + SPK sendiri. Client-nya berganti-ganti dan
 #: dicatat per dokumen. Dokumennya (mis. SPK) langsung terbit di bawah kode
 #: ini tanpa menunggu penyiapan proyek.
-KODE_MCH = "MCH"
+#:
+#: Kodenya MCHP (4 huruf) — muat pada pola kode proyek 4-5 huruf pada formulir
+#: pembuatan PO; nama tampilannya "Minimum Charge Project".
+KODE_MCH = "MCHP"
 
 
 def _mch_terkunci(kode: str | None, data: dict) -> dict | None:
