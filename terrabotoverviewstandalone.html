@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>TERRABOT</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ink: #14181f;
+    --muted: #566072;
+    --faint: #8b94a4;
+    --bg: #fbfcfe;
+    --surface: #ffffff;
+    --surface-2: #f2f5fb;
+    --surface-3: #e9eef7;
+    --border: #e2e8f1;
+    --line: #edf1f7;
+    --brand: #1e4fe0;
+    --brand-ink: #1740b4;
+    --brand-soft: #eaf0ff;
+    --accent: #b4590a;
+    --accent-soft: #fbeede;
+    --good: #1f7a52;
+    --warn: #9a6400;
+    --crit: #b23b2e;
+    --shadow: 0 1px 2px rgba(20, 30, 60, .04), 0 8px 24px rgba(20, 30, 60, .05);
+    --maxw: 1080px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #e7ecf4;
+      --muted: #9aa4b5;
+      --faint: #6e7889;
+      --bg: #0c0f15;
+      --surface: #131922;
+      --surface-2: #19212c;
+      --surface-3: #202a38;
+      --border: #273140;
+      --line: #1e2733;
+      --brand: #5f86f2;
+      --brand-ink: #7c9cf5;
+      --brand-soft: #182238;
+      --accent: #e0934c;
+      --accent-soft: #2a2016;
+      --good: #4bb185;
+      --warn: #d6a53a;
+      --crit: #e07567;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #e7ecf4;
+    --muted: #9aa4b5;
+    --faint: #6e7889;
+    --bg: #0c0f15;
+    --surface: #131922;
+    --surface-2: #19212c;
+    --surface-3: #202a38;
+    --border: #273140;
+    --line: #1e2733;
+    --brand: #5f86f2;
+    --brand-ink: #7c9cf5;
+    --brand-soft: #182238;
+    --accent: #e0934c;
+    --accent-soft: #2a2016;
+    --good: #4bb185;
+    --warn: #d6a53a;
+    --crit: #e07567;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Newsreader", Georgia, serif;
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  /* ---- typographic roles ---- */
+  h1, h2, h3, .mono, .eyebrow, .stat__num, .chip, .tag, th {
+    font-family: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  }
+  .mono, .eyebrow, .tag, .codeitem, .stat__label {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  .eyebrow {
+    font-size: 12px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--brand);
+    font-weight: 600;
+  }
+
+  /* ---- top bar ---- */
+  header.bar {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--bg) 86%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .bar__in { display: flex; align-items: center; gap: 14px; height: 60px; }
+  .brandmark {
+    font-family: "Archivo", sans-serif; font-weight: 800; letter-spacing: .04em;
+    font-size: 17px; color: var(--ink); text-decoration: none; display: flex; align-items: center; gap: 9px;
+  }
+  .brandmark .dot { width: 11px; height: 11px; border-radius: 3px; background: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+  .bar__spacer { flex: 1; }
+  .bar__nav { display: flex; gap: 4px; }
+  .bar__nav a {
+    font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--muted);
+    text-decoration: none; padding: 6px 10px; border-radius: 7px;
+  }
+  .bar__nav a:hover { color: var(--brand); background: var(--brand-soft); }
+  @media (max-width: 720px) { .bar__nav { display: none; } }
+  .toggle {
+    font-family: "IBM Plex Mono", monospace; font-size: 12px; cursor: pointer;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--muted);
+    padding: 6px 11px; border-radius: 8px; display: flex; align-items: center; gap: 6px;
+  }
+  .toggle:hover { color: var(--ink); border-color: var(--brand); }
+  .toggle:focus-visible, a:focus-visible, button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+  /* ---- hero ---- */
+  .hero { padding: 78px 0 40px; position: relative; overflow: hidden; }
+  .hero::before {
+    content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+    background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 30px 30px;
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 70% 0%, #000 0%, transparent 70%);
+    mask-image: radial-gradient(ellipse 80% 60% at 70% 0%, #000 0%, transparent 70%);
+    opacity: .6;
+  }
+  .hero .wrap { position: relative; z-index: 1; }
+  .hero h1 {
+    font-size: clamp(44px, 8vw, 88px); font-weight: 800; letter-spacing: -.02em;
+    line-height: .98; margin: 18px 0 0; text-wrap: balance;
+  }
+  .hero h1 .accentword { color: var(--brand); }
+  .hero .lede {
+    font-size: clamp(18px, 2.4vw, 22px); color: var(--muted); max-width: 40ch;
+    margin: 22px 0 0; line-height: 1.5;
+  }
+  .hero .org {
+    margin-top: 20px; font-family: "IBM Plex Mono", monospace; font-size: 13px;
+    color: var(--faint); letter-spacing: .02em;
+  }
+  .hero .org b { color: var(--ink); font-weight: 600; }
+
+  /* ---- stat strip ---- */
+  .stats {
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 0;
+    border: 1px solid var(--border); border-radius: 14px; overflow: hidden;
+    background: var(--surface); box-shadow: var(--shadow); margin-top: 40px;
+  }
+  .stat { padding: 20px 18px; border-right: 1px solid var(--line); }
+  .stat:last-child { border-right: none; }
+  .stat__num { font-size: 30px; font-weight: 800; letter-spacing: -.01em; line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .stat__num small { font-size: 17px; color: var(--brand); font-weight: 700; }
+  .stat__label { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin-top: 8px; line-height: 1.35; }
+  @media (max-width: 860px) { .stats { grid-template-columns: repeat(3, 1fr); } .stat:nth-child(3){border-right:none;} .stat:nth-child(-n+3){border-bottom:1px solid var(--line);} }
+  @media (max-width: 480px) { .stats { grid-template-columns: repeat(2, 1fr); } .stat { border-right: 1px solid var(--line); } .stat:nth-child(odd){border-right:1px solid var(--line);} .stat:nth-child(even){border-right:none;} }
+
+  /* ---- sections ---- */
+  section { padding: 56px 0; border-top: 1px solid var(--line); }
+  section.first { border-top: none; }
+  .sec-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 30px; }
+  .sec-num { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: var(--brand); font-weight: 600; padding-top: 6px; }
+  .sec-title { font-family: "Archivo", sans-serif; font-weight: 700; font-size: clamp(24px, 4vw, 34px); letter-spacing: -.01em; margin: 0; line-height: 1.1; text-wrap: balance; }
+  .sec-title + .sec-sub { margin-top: 8px; }
+  .sec-sub { color: var(--muted); font-size: 17px; max-width: 62ch; margin: 0; }
+
+  .prose p { max-width: 68ch; color: var(--ink); }
+  .prose p.dim { color: var(--muted); }
+
+  /* ---- module cards ---- */
+  .grid { display: grid; gap: 16px; }
+  .grid.two { grid-template-columns: repeat(2, 1fr); }
+  .grid.three { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 820px) { .grid.three { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .grid.two, .grid.three { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 13px;
+    padding: 20px 20px 18px; box-shadow: var(--shadow); position: relative;
+    display: flex; flex-direction: column;
+  }
+  .card__key { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--brand); letter-spacing: .04em; margin-bottom: 9px; }
+  .card h3 { font-size: 18px; font-weight: 700; margin: 0 0 7px; letter-spacing: -.01em; line-height: 1.15; }
+  .card p { margin: 0; font-size: 15px; line-height: 1.55; color: var(--muted); }
+  .card .why {
+    margin-top: 13px; padding-top: 12px; border-top: 1px dashed var(--border);
+    font-size: 13.5px; color: var(--ink); line-height: 1.5;
+  }
+  .card .why b { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; font-weight: 600;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--accent); display: block; margin-bottom: 4px; }
+
+  /* ---- highlight (design decisions) ---- */
+  .decision {
+    background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    border-radius: 12px; padding: 22px 24px; box-shadow: var(--shadow);
+  }
+  .decision h3 { font-family: "Archivo", sans-serif; font-size: 19px; font-weight: 700; margin: 0 0 4px; letter-spacing: -.01em; }
+  .decision .prob { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: var(--faint); margin-bottom: 12px; }
+  .decision p { margin: 0; color: var(--muted); font-size: 15.5px; }
+  .decision p + p { margin-top: 9px; }
+  .decision .out { color: var(--ink); }
+  .decision .out b { color: var(--good); font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 600; }
+
+  /* ---- doc type table ---- */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 560px; }
+  th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--line); }
+  thead th { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); font-weight: 600; background: var(--surface-2); }
+  tbody tr:last-child td { border-bottom: none; }
+  td.code { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--brand); font-weight: 500; white-space: nowrap; }
+  td.desc { color: var(--ink); }
+  td.role { color: var(--muted); font-size: 13px; }
+
+  /* ---- chips / tags ---- */
+  .tags { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tag {
+    font-size: 12px; padding: 5px 11px; border-radius: 999px; letter-spacing: .02em;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--muted);
+  }
+  .tag b { color: var(--ink); font-weight: 600; }
+
+  /* ---- callout ---- */
+  .note {
+    background: var(--brand-soft); border: 1px solid color-mix(in srgb, var(--brand) 22%, transparent);
+    border-radius: 12px; padding: 18px 22px; color: var(--ink); font-size: 15.5px;
+  }
+  .note .lbl { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--brand-ink); font-weight: 600; display: block; margin-bottom: 6px; }
+
+  footer.foot { border-top: 1px solid var(--line); padding: 34px 0 60px; color: var(--faint); font-family: "IBM Plex Mono", monospace; font-size: 12.5px; }
+  footer.foot b { color: var(--muted); font-weight: 600; }
+
+  .lead-in { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: var(--accent); letter-spacing: .04em; margin: 0 0 4px; }
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="wrap bar__in">
+    <a class="brandmark" href="#top"><span class="dot"></span>TERRABOT</a>
+    <div class="bar__spacer"></div>
+    <nav class="bar__nav">
+      <a href="#konteks">Konteks</a>
+      <a href="#pengadaan">Pengadaan</a>
+      <a href="#keuangan">Keuangan</a>
+      <a href="#data">Data</a>
+      <a href="#platform">Platform</a>
+      <a href="#keputusan">Keputusan</a>
+    </nav>
+    <button class="toggle" id="tgl" aria-label="Ganti tema">◐ <span id="tgllab">Tema</span></button>
+  </div>
+</header>
+
+<a id="top"></a>
+<div class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Ikhtisar Sistem · ERP Internal</p>
+    <h1><span class="accentword">TERRABOT</span><br>ruang kerja satu perusahaan.</h1>
+    <p class="lede">Sistem ERP yang menjalankan pengadaan, keuangan, pajak, proyek, dan SDM PT Alpha Konstruksi Nusantara dalam satu tempat — dari surat pesanan hingga estimasi setoran pajak.</p>
+    <p class="org">PT ALPHA KONSTRUKSI NUSANTARA · <b>Kontraktor geoteknik &amp; fondasi bor (bored pile)</b> · Bekasi, Indonesia</p>
+
+    <div class="stats">
+      <div class="stat"><div class="stat__num">30<small>+</small></div><div class="stat__label">Jenis dokumen pengadaan</div></div>
+      <div class="stat"><div class="stat__num">40<small>+</small></div><div class="stat__label">Domain API backend</div></div>
+      <div class="stat"><div class="stat__num">5</div><div class="stat__label">Tingkat wewenang</div></div>
+      <div class="stat"><div class="stat__num">3</div><div class="stat__label">Bahasa antarmuka</div></div>
+      <div class="stat"><div class="stat__num">2.4<small>rb</small></div><div class="stat__label">Barang katalog</div></div>
+      <div class="stat"><div class="stat__num">100<small>%</small></div><div class="stat__label">Mutasi terekam audit</div></div>
+    </div>
+  </div>
+</div>
+
+<main class="wrap">
+
+  <!-- 00 KONTEKS -->
+  <section class="first" id="konteks">
+    <div class="sec-head">
+      <span class="sec-num">00</span>
+      <div>
+        <h2 class="sec-title">Untuk apa TERRABOT dibangun</h2>
+        <p class="sec-sub">Satu sistem menggantikan berkas Excel yang tersebar, dokumen Word yang disalin ulang, dan catatan pajak yang direkap tangan tiap bulan.</p>
+      </div>
+    </div>
+    <div class="prose">
+      <p>PT Alpha Konstruksi Nusantara mengerjakan proyek fondasi bor — pekerjaan yang berjalan di banyak titik sekaligus, dengan ratusan pembelian material dan alat, tagihan ke klien, upah tenaga kerja harian, dan kewajiban pajak yang harus rapi tiap masa. Sebelum TERRABOT, tiap bagian memegang catatannya sendiri; angka yang sama ditulis ulang di beberapa tempat dan cepat atau lambat berbeda.</p>
+      <p class="dim">TERRABOT menyatukannya menjadi satu sumber kebenaran. Dokumen terbit dari data, bukan diketik ulang; nomornya berurutan dan tidak bisa dipakai dua kali; setiap perubahan tercatat siapa dan kapan; dan laporan pajak disusun dari transaksi yang sudah ada, bukan direkap dari nol. Yang di bawah ini adalah modul-modulnya dan alasan tiap bagian ada.</p>
+    </div>
+    <div style="margin-top:24px" class="tags">
+      <span class="tag"><b>Backend</b> · FastAPI · Python</span>
+      <span class="tag"><b>Frontend</b> · Angular 20 · Material</span>
+      <span class="tag"><b>Basis data</b> · MariaDB / MySQL</span>
+      <span class="tag"><b>Pencarian</b> · Meilisearch</span>
+      <span class="tag"><b>Dokumen</b> · pdfmake · ExcelJS</span>
+      <span class="tag"><b>Mobile</b> · PWA + notifikasi push</span>
+      <span class="tag"><b>i18n</b> · ID / EN / ZH</span>
+    </div>
+  </section>
+
+  <!-- 01 PENGADAAN -->
+  <section id="pengadaan">
+    <div class="sec-head">
+      <span class="sec-num">01</span>
+      <div>
+        <h2 class="sec-title">Mesin pengadaan &amp; purchase order</h2>
+        <p class="sec-sub">Inti sistem. Satu formulir per jenis pekerjaan menerbitkan dokumen resmi yang mengikat vendor — lengkap, bernomor, dan siap cetak.</p>
+      </div>
+    </div>
+
+    <p class="lead-in">// 30+ jenis dokumen, satu tata kelola</p>
+    <p class="prose" style="margin-top:0">Setiap kategori pengeluaran punya bentuk dokumennya sendiri — pasal, tabel, dan tata cara penagihan yang berbeda. TERRABOT menyediakan formulir khusus untuk masing-masing, memakai template klausul yang dikunci per versi sehingga dokumen yang dicetak selalu konsisten dengan datanya.</p>
+
+    <div class="tablewrap" style="margin:22px 0 26px">
+      <table>
+        <thead><tr><th>Kode</th><th>Dokumen</th><th>Untuk</th></tr></thead>
+        <tbody>
+          <tr><td class="code">A</td><td class="desc">Transportasi</td><td class="role">Jasa angkut darat / laut / udara</td></tr>
+          <tr><td class="code">B</td><td class="desc">Sewa alat</td><td class="role">Excavator, genset, alat berat</td></tr>
+          <tr><td class="code">C</td><td class="desc">Bahan bakar</td><td class="role">Solar, dengan PPh 22 &amp; PBBKB</td></tr>
+          <tr><td class="code">D</td><td class="desc">Tenaga kerja</td><td class="role">Upah harian per komponen</td></tr>
+          <tr><td class="code">F</td><td class="desc">Material</td><td class="role">Besi, beton, + jasa pengujian</td></tr>
+          <tr><td class="code">G</td><td class="desc">Perlengkapan proyek</td><td class="role">Barang katalog umum</td></tr>
+          <tr><td class="code">H1 · H2</td><td class="desc">Subkontraktor</td><td class="role">Badan usaha / perorangan</td></tr>
+          <tr><td class="code">5.1.x</td><td class="desc">Beban operasional</td><td class="role">Aset, ATK, utilitas, pajak, software…</td></tr>
+          <tr><td class="code">6.3–6.5</td><td class="desc">Beban umum</td><td class="role">Iklan, legal, asuransi, rekrutmen, pelatihan</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="grid three">
+      <div class="card">
+        <div class="card__key">penomoran</div>
+        <h3>Nomor berurutan per proyek</h3>
+        <p>Nomor dokumen dibentuk otomatis per proyek — <span class="mono" style="font-size:12px">045-PO-R501-G</span> — dan tidak pernah dipakai ulang.</p>
+        <div class="why"><b>Kenapa</b>Nomor adalah rujukan hukum di dokumen vendor. Sekali terbit tidak boleh bergeser, karena menggesernya mengubah dokumen yang sudah ditandatangani.</div>
+      </div>
+      <div class="card">
+        <div class="card__key">adendum</div>
+        <h3>Adendum sebagai selisih</h3>
+        <p>Perubahan volume terbit sebagai adendum berisi selisihnya, bukan mengganti dokumen asal. Cetaknya menyertakan induk + seluruh adendum sebelumnya.</p>
+        <div class="why"><b>Kenapa</b>Lembar yang sudah ditandatangani tidak boleh berubah isinya. Rantai dokumen menjaga jejak yang utuh dan dapat diaudit.</div>
+      </div>
+      <div class="card">
+        <div class="card__key">dua tangan</div>
+        <h3>Diperiksa lalu disetujui</h3>
+        <p>Dokumen melewati pemeriksa (membaca harga &amp; spesifikasi) lalu penyetuju (memutuskan terbit). Pembuat tidak boleh menyetujui dokumennya sendiri.</p>
+        <div class="why"><b>Kenapa</b>Memisahkan "benar secara isi" dari "boleh terbit" — dua pertanyaan berbeda yang tidak seharusnya dijawab satu orang.</div>
+      </div>
+      <div class="card">
+        <div class="card__key">katalog</div>
+        <h3>Barang dari master, bukan diketik</h3>
+        <p>Baris barang dipilih dari katalog. Saat dicetak, namanya tampil <span class="mono" style="font-size:12px">[SKU] · Deskripsi · Ex. Merek</span> — diambil hidup dari master.</p>
+        <div class="why"><b>Kenapa</b>Menyalin nama ke dokumen berarti menyimpan nama yang bisa menyimpang dari katalognya, dan nama panjang melampaui batas kolom.</div>
+      </div>
+      <div class="card">
+        <div class="card__key">pembulatan</div>
+        <h3>Koreksi pembulatan harga</h3>
+        <p>Harga satuan bersimpan 4 desimal; sebagian pekerjaan tak pernah bulat. Kolom "Jumlah" boleh membetulkan pembulatan dalam batas toleransi.</p>
+        <div class="why"><b>Kenapa</b>Tanpa ini, Rp 300.000 tercetak Rp 299.999,70 — beda dari lembar yang ditandatangani vendor. Di luar batas, ditolak.</div>
+      </div>
+      <div class="card">
+        <div class="card__key">wewenang 5</div>
+        <h3>Koreksi historis terkendali</h3>
+        <p>Level tertinggi dapat memaksa nomor tertentu atau menyunting dokumen historis yang salah kode — dijaga di server, tercatat di audit.</p>
+        <div class="why"><b>Kenapa</b>Kesalahan historis harus bisa diperbaiki tanpa menggeser nomor dokumen lain. Kuncinya di backend, bukan sekadar menyembunyikan tombol.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 KEUANGAN & PAJAK -->
+  <section id="keuangan">
+    <div class="sec-head">
+      <span class="sec-num">02</span>
+      <div>
+        <h2 class="sec-title">Keuangan &amp; perpajakan</h2>
+        <p class="sec-sub">Dari pembelian dan tagihan sampai posisi kas, piutang, dan estimasi pajak yang tersusun otomatis dari transaksi.</p>
+      </div>
+    </div>
+
+    <div class="grid three">
+      <div class="card">
+        <div class="card__key">pembelian &amp; beban</div>
+        <h3>Pembelian, beban, reimbursement</h3>
+        <p>Realisasi dari PO menjadi pembelian; beban operasional dan penggantian biaya karyawan tercatat terpisah dengan alur persetujuannya.</p>
+      </div>
+      <div class="card">
+        <div class="card__key">tagihan</div>
+        <h3>Faktur penjualan &amp; pembayaran</h3>
+        <p>Tagihan ke klien beserta uang masuk/keluar, dengan status lunas dan pelacakan piutang (AR) &amp; utang (AP) per masa.</p>
+      </div>
+      <div class="card">
+        <div class="card__key">bank &amp; pinjaman</div>
+        <h3>Kas, bank, pinjaman</h3>
+        <p>Mutasi rekening, posisi kas, dan pinjaman terintegrasi — sehingga dashboard menampilkan keadaan uang perusahaan secara langsung.</p>
+      </div>
+    </div>
+
+    <div style="margin-top:22px" class="grid two">
+      <div class="decision">
+        <h3>Laporan PPN yang menghitung kompensasi antar masa</h3>
+        <p class="prob">Modul pajak · Posisi PPN</p>
+        <p>PPN keluaran (dari faktur penjualan) dikurangi PPN masukan yang sudah punya faktur pajak. Masukan yang fakturnya belum terbit dipisah sebagai catatan — nyata, tapi belum boleh mengurangi setoran.</p>
+        <p class="out">Yang membedakannya: lebih bayar satu masa <b>dikompensasikan ke masa berikutnya</b> secara berjalan, bukan dihitung per bulan berdiri sendiri — mengikuti perlakuan SPT sebenarnya.</p>
+      </div>
+      <div class="decision">
+        <h3>Rekap pajak &amp; bulanan sekali klik</h3>
+        <p class="prob">Modul pajak · PPh &amp; rekap</p>
+        <p>PPN, PPh (pembelian/beban), dan PPh gaji karyawan tersusun per masa langsung dari transaksi. Rekap bulanan menggabungkan penjualan, pembelian, mutasi bank, AR/AP, aset, dan pinjaman.</p>
+        <p class="out">Hasilnya diekspor ke Excel bergaya rapi — <b>siap diserahkan ke konsultan pajak</b> tanpa merekap ulang dari nol.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 DATA & PENCARIAN -->
+  <section id="data">
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <div>
+        <h2 class="sec-title">Data induk &amp; pencarian</h2>
+        <p class="sec-sub">Katalog barang, alat, pemasok, dan klien yang menjadi bahan tiap dokumen — dengan pencarian yang mengerti cara orang lapangan menyebut barang.</p>
+      </div>
+    </div>
+
+    <div class="grid three">
+      <div class="card">
+        <div class="card__key">master</div>
+        <h3>Barang, alat, pemasok, klien</h3>
+        <p>Katalog barang (SKU, merek, tipe, satuan), alat sewa, pemasok dengan daftar hitam, dan klien — sumber tunggal yang dirujuk semua dokumen.</p>
+      </div>
+      <div class="card">
+        <div class="card__key">pencarian</div>
+        <h3>Meilisearch instan</h3>
+        <p>Ketik sebagian nama, hasil muncul seketika. Urutan peringkat disetel agar ukuran yang persis (D22 ≠ D25) menang atas yang meleset satu huruf.</p>
+      </div>
+      <div class="card">
+        <div class="card__key">sinonim</div>
+        <h3>Mengerti bahasa lapangan</h3>
+        <p>"kuku macan" menemukan <i>wire rope clip</i>; "kunci" menemukan <i>wrench</i>; salah eja lama seperti "stanless" tetap ketemu. Dua arah, ID ⇄ EN.</p>
+        <div class="why"><b>Kenapa</b>Yang mencari mengetik sebutan sehari-hari. Tanpa sinonim ia menyimpulkan barangnya belum ada, lalu membuat entri kembar.</div>
+      </div>
+    </div>
+
+    <div class="note" style="margin-top:20px">
+      <span class="lbl">Proyek MCHP — "Minimum Charge Project"</span>
+      Satu proyek "ember" yang selalu terbuka untuk kerjaan receh (mis. bor satu titik) yang tidak sepadan dibuatkan proyek + SPK sendiri. Kliennya berganti-ganti, dicatat per dokumen, dan penomorannya berjalan sendiri — sehingga tim tidak perlu menunggu penyiapan proyek untuk pekerjaan kecil.
+    </div>
+  </section>
+
+  <!-- 04 SDM & PROYEK -->
+  <section id="sdm">
+    <div class="sec-head">
+      <span class="sec-num">04</span>
+      <div>
+        <h2 class="sec-title">SDM &amp; proyek</h2>
+        <p class="sec-sub">Orang yang mengerjakan, dan proyek tempat semua biaya dan pendapatan berlabuh.</p>
+      </div>
+    </div>
+    <div class="grid three">
+      <div class="card">
+        <div class="card__key">sdm</div>
+        <h3>Karyawan &amp; slip gaji</h3>
+        <p>Data karyawan, profil, absensi, dan slip gaji dengan perhitungan PPh 21 — beserta formulir isian yang diisi karyawan sendiri.</p>
+      </div>
+      <div class="card">
+        <div class="card__key">rekrutmen</div>
+        <h3>Rekrutmen &amp; ujian daring</h3>
+        <p>Alur perekrutan lengkap dengan modul ujian daring untuk calon karyawan — langsung di dalam sistem yang sama.</p>
+      </div>
+      <div class="card">
+        <div class="card__key">proyek</div>
+        <h3>Buku besar &amp; margin proyek</h3>
+        <p>Tiap proyek mengumpulkan pembelian dan tagihannya; laporan margin menghitung untung-ruginya. Proyek induk–anak dan masa retensi ditangani.</p>
+        <div class="why"><b>Kenapa</b>Proyek batal tidak dihapus — biayanya tetap tercatat agar tidak menjadi "yatim" yang terhitung di total perusahaan tapi tak punya proyek.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 PLATFORM -->
+  <section id="platform">
+    <div class="sec-head">
+      <span class="sec-num">05</span>
+      <div>
+        <h2 class="sec-title">Platform &amp; tata kelola</h2>
+        <p class="sec-sub">Lapisan yang membuat sistem aman dipakai banyak orang, di banyak perangkat, dalam bahasa yang berbeda.</p>
+      </div>
+    </div>
+    <div class="grid three">
+      <div class="card">
+        <div class="card__key">wewenang</div>
+        <h3>5 tingkat + batas divisi</h3>
+        <p>Wewenang berjenjang 1–5 dengan pembatasan per divisi/wilayah. Tindakan sensitif (hapus dokumen disetujui, edit bukti potong) dikunci di level tertinggi.</p>
+      </div>
+      <div class="card">
+        <div class="card__key">audit</div>
+        <h3>Jejak audit menyeluruh</h3>
+        <p>Setiap pembuatan, perubahan, persetujuan, dan penghapusan terekam beserta pelakunya — dokumen keuangan tak berubah tanpa jejak.</p>
+      </div>
+      <div class="card">
+        <div class="card__key">mobile</div>
+        <h3>PWA + persetujuan mobile</h3>
+        <p>Bisa dipasang ke layar utama seperti aplikasi. Layar khusus mobile untuk memeriksa &amp; menyetujui PO, dengan notifikasi push saat ada dokumen baru.</p>
+      </div>
+      <div class="card">
+        <div class="card__key">i18n</div>
+        <h3>Tiga bahasa, paritas terjaga</h3>
+        <p>Indonesia, Inggris, Mandarin — kesetaraan kuncinya diperiksa otomatis, sehingga tidak ada label yang tertinggal di satu bahasa.</p>
+      </div>
+      <div class="card">
+        <div class="card__key">dashboard</div>
+        <h3>Dashboard &amp; kalender</h3>
+        <p>Posisi kas, margin proyek, dan reimbursement tampil sekilas; kalender dan agenda menautkan jadwal ke pekerjaan.</p>
+      </div>
+      <div class="card">
+        <div class="card__key">konsistensi</div>
+        <h3>Pratinjau = cetak</h3>
+        <p>Yang dilihat sebelum menerbitkan disusun oleh komponen yang sama dengan halaman lihat — dijaga skrip pemeriksa agar pratinjau tak pernah menyimpang dari cetaknya.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 06 KEPUTUSAN -->
+  <section id="keputusan">
+    <div class="sec-head">
+      <span class="sec-num">06</span>
+      <div>
+        <h2 class="sec-title">Keputusan teknik yang kami pegang</h2>
+        <p class="sec-sub">Prinsip yang berulang di seluruh sistem — ini yang membedakan "jalan" dari "benar dan tahan lama".</p>
+      </div>
+    </div>
+    <div class="grid two">
+      <div class="decision">
+        <h3>Penjagaan di server, bukan di layar</h3>
+        <p class="prob">Prinsip · Integritas</p>
+        <p>Aturan penting — siapa boleh menyetujui, jumlah yang menyimpang, kode terkunci — dijaga di backend. Menyembunyikan tombol di layar tidak menghentikan permintaan yang disusun langsung lewat Network tab.</p>
+        <p class="out"><b>Hasil</b> — data tetap benar apa pun yang menyentuhnya.</p>
+      </div>
+      <div class="decision">
+        <h3>Dokumen yang sudah terbit tidak berubah</h3>
+        <p class="prob">Prinsip · Ketertelusuran</p>
+        <p>Nomor tak dipakai ulang, adendum berisi selisih, nama barang diambil hidup dari katalog. Lembar yang dipegang vendor harus dapat dipercaya selamanya.</p>
+        <p class="out"><b>Hasil</b> — tiap dokumen dapat ditelusuri, tak ada versi bayangan.</p>
+      </div>
+      <div class="decision">
+        <h3>Kosong bukan nol, nol bukan kosong</h3>
+        <p class="prob">Prinsip · Ketepatan angka</p>
+        <p>Nilai dari layar dinormalkan sebelum disimpan — field kosong menjadi <i>null</i>, bukan string kosong yang ditolak basis data; pemisah ribuan dibersihkan. Angka pajak disimpan sebagai persen, dihitung ulang saat dipakai.</p>
+        <p class="out"><b>Hasil</b> — satu baris salah tak menggagalkan seluruh dokumen.</p>
+      </div>
+      <div class="decision">
+        <h3>Perilaku dijaga oleh uji</h3>
+        <p class="prob">Prinsip · Keandalan</p>
+        <p>Aturan yang halus — batas pembulatan, paritas terjemahan, konsistensi pratinjau–cetak, kolom yang wajib tersimpan — dikunci oleh uji otomatis, sehingga perbaikan satu tempat tidak diam-diam merusak yang lain.</p>
+        <p class="out"><b>Hasil</b> — 550+ uji berjalan tiap penerapan.</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <b>TERRABOT</b> — ikhtisar sistem internal PT Alpha Konstruksi Nusantara.<br>
+    Disusun sebagai bahan tinjauan · FastAPI · Angular 20 · MariaDB · Meilisearch.
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var root = document.documentElement, btn = document.getElementById('tgl'), lab = document.getElementById('tgllab');
+    function cur() {
+      var s = root.getAttribute('data-theme');
+      if (s) return s;
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    function apply(t) { root.setAttribute('data-theme', t); lab.textContent = t === 'dark' ? 'Terang' : 'Gelap'; }
+    try { var saved = localStorage.getItem('tb-theme'); if (saved) apply(saved); else lab.textContent = cur() === 'dark' ? 'Terang' : 'Gelap'; } catch (e) {}
+    btn.addEventListener('click', function () {
+      var t = cur() === 'dark' ? 'light' : 'dark';
+      apply(t);
+      try { localStorage.setItem('tb-theme', t); } catch (e) {}
+    });
+  })();
+</script>
+</body>
+</html>
