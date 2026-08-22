@@ -87,3 +87,23 @@ def test_yang_di_dalam_batas_TERSIMPAN():
 def test_baris_tanpa_amount_tetap_tersimpan_kosong():
     row = _clean_item(dict(AIR), po_id=1)
     assert row["amount"] is None
+
+
+def test_amount_untai_kosong_jadi_none_bukan_string():
+    """
+    Regresi: kolom "Jumlah (opsional)" yang dikosongkan dikirim layar sebagai
+    untai KOSONG "", bukan None. Bila diteruskan apa adanya ke kolom Float,
+    MySQL menolak ("Incorrect DOUBLE value: ''") dan seluruh penyimpanan baris
+    gagal — persis kegagalan pada PO-C. Harus menjadi None, bukan "".
+    """
+    row = _clean_item({**AIR, "amount": ""}, po_id=1)
+    assert row["amount"] is None
+    # angka lain pun tidak boleh tersisa sebagai untai
+    assert not isinstance(row["quantity"], str)
+    assert not isinstance(row["price"], str)
+
+
+def test_amount_untai_berangka_terbaca():
+    """Untai angka dari mask (mis. '300000', '300 000') terbaca sebagai angka."""
+    assert _clean_item({**AIR, "amount": "300000"}, po_id=1)["amount"] == 300000
+    assert _clean_item({**AIR, "amount": "300 000"}, po_id=1)["amount"] == 300000

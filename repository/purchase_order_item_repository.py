@@ -21,12 +21,38 @@ _COLUMNS = [
 TOLERANSI_PEMBULATAN = 5
 
 
+def _ke_angka(v, default=None):
+    """
+    Ubah nilai dari layar menjadi angka, atau `default` bila tak bisa.
+
+    Layar mengirim angka lewat mask sebagai UNTAI — dan untai KOSONG (`""`)
+    saat kolomnya dibiarkan kosong, bukan `null`. Untai kosong itu bila
+    diteruskan apa adanya ke kolom Float membuat MySQL menolak dengan
+    "Incorrect DOUBLE value: ''", dan seluruh penyimpanan baris gagal.
+    Pemisah ribuan (spasi) juga dibuang supaya "5 000" tetap terbaca 5000.
+    """
+    if v is None:
+        return default
+    if isinstance(v, str):
+        s = v.strip().replace(" ", "").replace(" ", "")
+        if s == "":
+            return default
+        try:
+            return float(s)
+        except ValueError:
+            return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
 def nilai_baris(item: dict) -> float:
     """Jumlah yang ditulis bila ada; selain itu volume kali harga."""
-    ditulis = item.get("amount")
-    if ditulis is None or ditulis == "":
-        return float(item.get("quantity") or 0) * float(item.get("price") or 0)
-    return float(ditulis)
+    ditulis = _ke_angka(item.get("amount"))
+    if ditulis is None:
+        return (_ke_angka(item.get("quantity"), 0)) * (_ke_angka(item.get("price"), 0))
+    return ditulis
 
 
 def pembulatan_sah(item: dict) -> bool:
@@ -37,16 +63,20 @@ def pembulatan_sah(item: dict) -> bool:
     disusun sendiri oleh siapa pun yang membuka Network tab, dan kolom ini
     menentukan angka yang tercetak pada dokumen yang mengikat vendor.
     """
-    ditulis = item.get("amount")
-    if ditulis is None or ditulis == "":
+    raw = item.get("amount")
+    # Kosong (None atau untai kosong) = tidak ada jumlah tertulis -> sah,
+    # barisnya jatuh ke perkalian biasa.
+    if raw is None or (isinstance(raw, str) and raw.strip() == ""):
         return True
-    try:
-        selisih = abs(
-            float(ditulis)
-            - float(item.get("quantity") or 0) * float(item.get("price") or 0)
-        )
-    except (TypeError, ValueError):
+    ditulis = _ke_angka(raw)
+    # Ada isinya tetapi tidak terbaca sebagai angka -> DITOLAK, bukan diterima
+    # diam-diam lalu tersimpan sebagai sesuatu yang lain.
+    if ditulis is None:
         return False
+    selisih = abs(
+        ditulis
+        - (_ke_angka(item.get("quantity"), 0)) * (_ke_angka(item.get("price"), 0))
+    )
     return selisih <= TOLERANSI_PEMBULATAN
 
 
@@ -58,9 +88,15 @@ def _clean_item(item: dict, po_id: int) -> dict:
     item = dict(item)
     for c in _COLUMNS:
         row[c] = item.get(c)
-    # NOT NULL columns with sensible fallbacks
-    row["quantity"] = row.get("quantity") or 0
-    row["price"] = row.get("price") or 0
+    # Kolom angka DINORMALKAN dulu ke angka sungguhan (atau None untuk amount).
+    #
+    # Layar mengirimnya sebagai untai lewat mask, dan untai KOSONG "" untuk
+    # kolom yang dibiarkan kosong. "" langsung ke kolom Float ditolak MySQL
+    # ("Incorrect DOUBLE value: ''") dan menggagalkan seluruh penyimpanan
+    # baris — persis yang terjadi saat "Jumlah (opsional)" dikosongkan.
+    row["quantity"] = _ke_angka(row.get("quantity"), 0)
+    row["price"] = _ke_angka(row.get("price"), 0)
+    row["amount"] = _ke_angka(row.get("amount"))  # None bila kosong/tak valid
     row["unit"] = row.get("unit") or ""
 
     # Jumlah tertulis di luar batas pembulatan DIBUANG, bukan disimpan.
