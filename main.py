@@ -172,6 +172,11 @@ def _asal_diizinkan() -> list[str]:
     produksi = [
         "https://terrabot.alphakonstruksi.id",
         "http://terrabot.alphakonstruksi.id",
+        # Aplikasi mobile — build kedua dari repo frontend yang sama,
+        # disajikan di subdomain sendiri. Tanpa baris ini setiap panggilan
+        # API dari ponsel gagal di preflight OPTIONS dengan 400.
+        "https://m.terrabot.alphakonstruksi.id",
+        "http://m.terrabot.alphakonstruksi.id",
     ]
     lingkungan = (os.getenv("APP_ENV") or "development").strip().lower()
     if lingkungan in ("production", "produksi", "prod"):
