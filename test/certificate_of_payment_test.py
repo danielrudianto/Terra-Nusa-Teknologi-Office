@@ -1178,7 +1178,9 @@ class TestLapanganTidakTahuHarga:
 
     @pytest.mark.asyncio
     async def test_daftar_bersih_dari_uang(self, repo, monkeypatch):
-        async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20):
+        async def _semua(
+            po=None, proyek=None, pembuat=None, page=0, page_size=20, kata=None
+        ):
             return {
                 "total": 1,
                 "data": [{
@@ -1477,3 +1479,72 @@ class TestSaranPotongan:
         progres = [kontrak * Decimal("0.2")] * 5
         total_kembali = sum((p * tarif / 100 for p in progres), Decimal("0"))
         assert total_kembali == kontrak * tarif / 100  # = uang mukanya
+
+
+class TestPencarianDaftar:
+    """
+    Kata pencarian diteruskan ke penyimpanan, bukan dipakai menyaring hasil.
+
+    Daftar ini dipenggal per halaman. Menyaring satu halaman di layar hanya
+    mencari di baris yang kebetulan terbuka — yang dicari kerap ada di
+    halaman ketiga, dan layar menjawab "tidak ada" untuk dokumen yang ada.
+    """
+
+    @pytest.mark.asyncio
+    async def test_kata_diteruskan_ke_penyimpanan(self, monkeypatch):
+        diterima = {}
+
+        async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20,
+                         kata=None):
+            diterima["kata"] = kata
+            return {"total": 0, "data": []}
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "get_all", staticmethod(_semua)
+        )
+        await CoP.get_all(user_level=2, keyword="R501")
+        assert diterima["kata"] == "R501"
+
+    @pytest.mark.asyncio
+    async def test_tanpa_kata_tetap_none(self, monkeypatch):
+        diterima = {}
+
+        async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20,
+                         kata=None):
+            diterima["kata"] = kata
+            return {"total": 0, "data": []}
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "get_all", staticmethod(_semua)
+        )
+        await CoP.get_all(user_level=2)
+        assert diterima["kata"] is None
+
+    @pytest.mark.asyncio
+    async def test_hasil_pencarian_tetap_disaring_untuk_level_1(self, monkeypatch):
+        """
+        Pencarian TIDAK membuka jalan pintas ke nilai rupiah.
+
+        Ini bukan pengulangan tanpa guna: jalur pencarian adalah jalur baru
+        menuju daftar yang sama, dan penyaring nilai yang dipasang di satu
+        jalur mudah tertinggal di jalur berikutnya.
+        """
+
+        async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20,
+                         kata=None):
+            return {
+                "total": 1,
+                "data": [{
+                    "id": 9, "name": "CoP-001",
+                    "grossAmount": Decimal("52390000"),
+                    "netAmount": Decimal("51390000"),
+                    "items": [{"price": Decimal("845000")}],
+                }],
+            }
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "get_all", staticmethod(_semua)
+        )
+        hasil = await CoP.get_all(user_level=1, keyword="CoP")
+        bocor = _sisir_uang(hasil)
+        assert not bocor, f"nilai rupiah bocor lewat pencarian: {bocor}"

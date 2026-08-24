@@ -14,7 +14,7 @@
       */
       @page cop {
         size: A4 portrait;
-        margin: 14mm 14mm 12mm;
+        margin: 11mm 12mm 10mm;
       }
       @page bap {
         size: A4 landscape;
@@ -27,7 +27,7 @@
 
       body {
         font-family: "Helvetica", "Arial", sans-serif;
-        font-size: 9.5pt;
+        font-size: 8.6pt;
         color: #000;
         margin: 0;
       }
@@ -44,51 +44,144 @@
         margin-bottom: 9pt;
       }
 
-      /* ---- kepala dokumen: dua kolom ---- */
-      table.kepala { width: 100%; border-collapse: collapse; margin-bottom: 9pt; }
-      table.kepala td { vertical-align: top; padding: 1pt 0; }
-      td.k-label { width: 27%; }
-      td.k-titik { width: 2%; }
-      td.k-isi { width: 26%; font-weight: bold; }
-      td.k-label2 { width: 17%; padding-left: 8pt; }
-      td.k-isi2 { width: 28%; font-weight: bold; }
+      /* ================= LEMBAR CoP =================
+         Bentuknya mengikuti berkas Excel yang selama ini dipakai: seluruh
+         isi berada di dalam SATU BINGKAI, dan tiap bagian dipisahkan garis
+         mendatar yang menembus bingkai itu dari tepi ke tepi.
 
-      /* ---- bagian bernama ---- */
-      .bagian {
-        margin-top: 9pt;
-        margin-bottom: 3pt;
-        font-weight: bold;
-        font-size: 9.5pt;
-        border-bottom: 0.8pt solid #000;
-        padding-bottom: 2pt;
+         Bingkainya bukan hiasan. Lembar ini beredar sebagai lampiran
+         tagihan dan kerap difotokopi; batas yang jelas menjadi cara
+         tercepat melihat bahwa tidak ada bagian yang terpotong mesin. */
+      .bingkai {
+        border: 1pt solid #000;
       }
+
+      /* Kepala: logo di kiri, judul di tengah. */
+      table.judul {
+        width: 100%;
+        border-collapse: collapse;
+        border-bottom: 1pt solid #000;
+      }
+      table.judul td { vertical-align: middle; padding: 4pt 8pt; }
+      td.judul-logo { width: 72pt; }
+      td.judul-logo img { height: 34pt; }
+      .judul-nama {
+        font-size: 6pt;
+        letter-spacing: 0.2pt;
+        text-align: center;
+        margin-top: 1pt;
+      }
+      td.judul-teks {
+        text-align: center;
+        font-size: 13pt;
+        font-weight: bold;
+        padding-right: 80pt; /* mengimbangi kolom logo agar benar-benar tengah */
+      }
+
+      /* Blok isi di dalam bingkai. */
+      .blok {
+        padding: 4.5pt 8pt;
+        border-bottom: 1pt solid #000;
+      }
+      .blok:last-child { border-bottom: none; }
+
+      .judul-blok {
+        font-weight: bold;
+        margin-bottom: 3pt;
+      }
+
+      /* ---- kepala dokumen: dua kolom ---- */
+      table.kepala { width: 100%; border-collapse: collapse; }
+      table.kepala td { vertical-align: top; padding: 0.8pt 0; }
+      td.k-label { width: 22%; }
+      td.k-titik { width: 2%; }
+      td.k-isi { width: 26%; }
+      td.k-label2 { width: 18%; padding-left: 10pt; }
+      td.k-isi2 { width: 27%; text-align: right; padding-right: 30pt; }
 
       /* ---- baris hitungan: label : % x dasar = hasil ---- */
-      table.hitung { width: 100%; border-collapse: collapse; }
-      table.hitung td { padding: 1.2pt 0; vertical-align: baseline; }
-      .h-label { width: 40%; }
-      .h-titik { width: 2%; }
-      .h-persen { width: 8%; text-align: right; }
-      .h-kali { width: 3%; text-align: center; }
-      .h-rp { width: 4%; }
-      .h-dasar { width: 18%; text-align: right; }
-      .h-sama { width: 3%; text-align: center; }
-      .h-rp2 { width: 4%; }
-      .h-hasil { width: 18%; text-align: right; }
+      table.hitung {
+        width: 100%;
+        border-collapse: collapse;
+        /* Lebar kolom DITEGAKKAN.
 
-      tr.jumlah td {
-        border-top: 0.8pt solid #000;
-        font-weight: bold;
-        padding-top: 3pt;
+           Tanpa ini lebar persen hanya saran: tiap kolom menyusut ke
+           lebar isinya, dan kolom tanda selebar satu huruf "+" menempel
+           pada angka di sebelahnya sampai keduanya terbaca "-+". */
+        table-layout: fixed;
       }
-      tr.jumlah-tebal td {
-        border-top: 1.2pt solid #000;
-        border-bottom: 2.4pt double #000;
-        font-weight: bold;
-        padding: 4pt 0;
+      table.hitung td { padding: 0.7pt 0; vertical-align: baseline; }
+      .h-label { width: 33%; }
+      .h-titik { width: 2%; text-align: left; }
+      .h-persen { width: 9%; text-align: right; }
+      .h-kali { width: 4%; text-align: center; }
+      .h-rp { width: 4%; text-align: left; }
+      .h-dasar { width: 20%; text-align: right; }
+      .h-sama { width: 4%; text-align: center; }
+      .h-rp2 { width: 4%; text-align: left; }
+      .h-hasil { width: 17%; text-align: right; }
+      /* Ditulis sebagai `table.hitung td.h-tanda`, bukan `.h-tanda`.
+
+         Aturan `table.hitung td` di atas berbobot lebih tinggi daripada
+         satu nama kelas, sehingga `padding: 0.7pt 0` miliknya menimpa
+         jarak kiri yang dipasang di sini — dan tanda "+" tetap menempel
+         pada angkanya ("-+") sekalipun jaraknya sudah dituliskan. */
+      table.hitung td.h-tanda {
+        width: 4%;
+        text-align: left;
+        padding: 0.7pt 0 0.7pt 7pt;
       }
 
-      .tanda-tambah { text-align: center; font-weight: bold; }
+      /* Baris jumlah: labelnya rata kanan dan tebal, seperti pada Excel —
+         angka yang dijumlah dan kata "Total" bertemu di tengah lembar. */
+      tr.jumlah td { font-weight: bold; padding-top: 2pt; }
+      tr.jumlah .h-label { text-align: right; }
+      td.bergaris { border-top: 0.7pt solid #000; }
+      /* Garis penjumlahan Excel: satu garis di ATAS angka yang dijumlah. */
+      td.garis-jumlah {
+        border-top: 0.7pt solid #000;
+      }
+      tr.total-akhir td { font-weight: bold; padding: 2pt 0; }
+
+      .terbilang {
+        margin-top: 6pt;
+        font-style: italic;
+      }
+
+      /* ---- tanda tangan: DUA pihak ---- */
+      table.ttd {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8pt;
+        break-inside: avoid;
+      }
+      table.ttd td {
+        width: 50%;
+        text-align: center;
+        vertical-align: top;
+        padding: 0 10pt;
+      }
+      .ttd-peran { margin-bottom: 2pt; }
+      .ttd-badan { margin-bottom: 40pt; }
+      .ttd-nama {
+        text-decoration: underline;
+        font-weight: normal;
+      }
+      .ttd-jabatan { font-size: 8.6pt; }
+      .ttd-kosong {
+        border-bottom: 0.7pt solid #000;
+        display: inline-block;
+        min-width: 130pt;
+      }
+
+      /* Rantai persetujuan dicetak DI LUAR bingkai, sebagai catatan kaki.
+         Ia keterangan sistem — siapa yang membuat, memeriksa, menyetujui —
+         bukan bagian dari sertifikat yang ditandatangani kedua pihak. */
+      .jejak {
+        margin-top: 6pt;
+        font-size: 7pt;
+        color: #555;
+      }
 
       /* ---- tabel BAP ---- */
       table.bap {
@@ -116,27 +209,6 @@
       .bap-pekerjaan { max-width: 150pt; }
       .bap-ket { display: block; font-size: 6.6pt; color: #444; }
 
-      /* ---- tanda tangan ---- */
-      table.ttd {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 16pt;
-        break-inside: avoid;
-      }
-      table.ttd td {
-        width: 33.33%;
-        text-align: center;
-        vertical-align: top;
-        padding: 0 6pt;
-      }
-      .ttd-peran { font-size: 8.6pt; margin-bottom: 30pt; }
-      .ttd-nama {
-        border-top: 0.6pt solid #000;
-        padding-top: 3pt;
-        font-weight: bold;
-      }
-      .ttd-tanggal { font-size: 7.6pt; color: #444; }
-
       .catatan-kaki { margin-top: 10pt; font-size: 8.6pt; }
       .kecil { font-size: 8pt; color: #444; }
     </style>
@@ -144,255 +216,417 @@
   <body>
     <!-- ================= HALAMAN 1 — CERTIFICATE OF PAYMENT ================= -->
     <div class="halaman-cop">
-      <h1>Certificate of Payment</h1>
-      <div class="garis-judul"></div>
+      <div class="bingkai">
+        <table class="judul">
+          <tr>
+            <!--
+              Kop perusahaan.
 
-      <table class="kepala">
-        <tr>
-          <td class="k-label">Proyek</td><td class="k-titik">:</td>
-          <td class="k-isi">{{ cop.projectName }}</td>
-          <td class="k-label2">Pembayaran ke</td><td class="k-titik">:</td>
-          <td class="k-isi2">{{ cop.number }}</td>
-        </tr>
-        <tr>
-          <td class="k-label">Penerima</td><td class="k-titik">:</td>
-          <td class="k-isi">{{ spk.supplierName or "-" }}</td>
-          <td class="k-label2">Tanggal</td><td class="k-titik">:</td>
-          <td class="k-isi2">{{ cop.date | tanggal }}</td>
-        </tr>
-        <tr>
-          <td class="k-label">Pekerjaan</td><td class="k-titik">:</td>
-          <td class="k-isi">{{ pekerjaanRingkas }}</td>
-          <td class="k-label2">No. BAP</td><td class="k-titik">:</td>
-          <td class="k-isi2">{{ nomorBap }}</td>
-        </tr>
-        <tr>
-          <td class="k-label">No. Kontrak Kerja</td><td class="k-titik">:</td>
-          <td class="k-isi">{{ spk.name }}</td>
-          <td class="k-label2">Tanggal</td><td class="k-titik">:</td>
-          <td class="k-isi2">{{ cop.date | tanggal }}</td>
-        </tr>
-        <tr>
-          <td class="k-label">No. Addendum</td><td class="k-titik">:</td>
-          <td class="k-isi">{{ "Ada" if kontrak.adaAdendum else "-" }}</td>
-          <td class="k-label2"></td><td class="k-titik"></td><td class="k-isi2"></td>
-        </tr>
-        {% if cop.periodStart or cop.periodEnd %}
-        <tr>
-          <td class="k-label">Periode</td><td class="k-titik">:</td>
-          <td class="k-isi" colspan="4">
-            {{ cop.periodStart | tanggal }} s.d. {{ cop.periodEnd | tanggal }}
-          </td>
-        </tr>
-        {% endif %}
-      </table>
+              Nama perusahaan dicetak sebagai teks HANYA bila lambangnya
+              tidak ada: lambang itu sendiri sudah memuat namanya, dan
+              mencetak keduanya membuat "Alpha Konstruksi Nusantara"
+              tertulis dua kali bertumpuk di pojok yang sama.
+            -->
+            <td class="judul-logo">
+              {% if logoDataUri %}
+              <img src="{{ logoDataUri }}" alt="{{ perusahaan.nama }}" />
+              {% else %}
+              <div class="judul-nama">{{ perusahaan.nama }}</div>
+              {% endif %}
+            </td>
+            <td class="judul-teks">Certificate of Payment</td>
+          </tr>
+        </table>
 
-      <!-- ---- HARGA PEKERJAAN ---- -->
-      <div class="bagian">HARGA PEKERJAAN (DPP)</div>
-      <table class="hitung">
-        <tr>
-          <td class="h-label">Nilai Kontrak</td><td class="h-titik"></td>
-          <td class="h-persen"></td><td class="h-kali"></td>
-          <td class="h-rp"></td><td class="h-dasar"></td>
-          <td class="h-sama"></td>
-          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ kontrak.induk | rupiah }}</td>
-        </tr>
-        <tr>
-          <td class="h-label">Nilai Pekerjaan Tambah/Kurang</td><td></td>
-          <td></td><td></td><td></td><td></td><td></td>
-          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ kontrak.adendum | rupiah }}</td>
-        </tr>
-        <tr class="jumlah">
-          <td class="h-label">Total Nilai Kontrak</td><td></td>
-          <td></td><td></td><td></td><td></td><td></td>
-          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ kontrak.total | rupiah }}</td>
-        </tr>
-      </table>
+        <!-- ---- KEPALA DOKUMEN ---- -->
+        <div class="blok">
+          <table class="kepala">
+            <tr>
+              <td class="k-label">Proyek</td><td class="k-titik">:</td>
+              <td class="k-isi">{{ cop.projectName }}</td>
+              <td class="k-label2">Pembayaran ke</td><td class="k-titik">:</td>
+              <td class="k-isi2">{{ cop.number }}</td>
+            </tr>
+            <tr>
+              <td class="k-label">Penerima</td><td class="k-titik">:</td>
+              <td class="k-isi">{{ spk.supplierName or "-" }}</td>
+              <td class="k-label2">Tanggal</td><td class="k-titik">:</td>
+              <td class="k-isi2">{{ cop.date | tanggal }}</td>
+            </tr>
+            <tr>
+              <!--
+                Pekerjaan dicetak SATU BARIS PER JENIS, bukan diringkas.
 
-      <!--
-        Syarat kontrak, bukan angka periode ini.
+                Lembar ini menjadi lampiran tagihan; yang memeriksanya
+                mencocokkan nama pekerjaan di sini dengan yang tertulis pada
+                kontrak. "dan 3 lainnya" memaksa membuka BAP untuk tahu tiga
+                yang mana — padahal ruangnya di sini memang cukup.
+              -->
+              <td class="k-label">Pekerjaan</td><td class="k-titik">:</td>
+              <td class="k-isi">
+                {% for n in pekerjaanDaftar %}{{ n }}{% if not loop.last %}<br />{% endif %}{% else %}-{% endfor %}
+              </td>
+              <td class="k-label2">No. BAP</td><td class="k-titik">:</td>
+              <td class="k-isi2">{{ nomorBap }}</td>
+            </tr>
+            <tr>
+              <td class="k-label">No. Kontrak Kerja</td><td class="k-titik">:</td>
+              <td class="k-isi">{{ spk.name }}</td>
+              <td class="k-label2">Tanggal</td><td class="k-titik">:</td>
+              <td class="k-isi2">{{ cop.date | tanggal }}</td>
+            </tr>
+            <tr>
+              <td class="k-label">No. Addendum</td><td class="k-titik">:</td>
+              <td class="k-isi">{{ nomorAdendum or "-" }}</td>
+              <td class="k-label2"></td><td class="k-titik"></td><td class="k-isi2"></td>
+            </tr>
+          </table>
+        </div>
 
-        Dicetak apa adanya dari SPK supaya lembar ini menyatakan dasar
-        perhitungannya sendiri — yang membacanya tidak perlu membuka kontrak
-        untuk mengetahui berapa uang muka dan retensi yang disepakati.
-      -->
-      <table class="hitung" style="margin-top: 6pt">
-        <tr>
-          <td class="h-label">Down Payment</td><td class="h-titik">:</td>
-          <td class="h-persen">{{ spk.dpPercentage | persen }}</td>
-          <td class="h-kali">x</td>
-          <td class="h-rp">Rp.</td><td class="h-dasar">{{ kontrak.total | rupiah }}</td>
-          <td class="h-sama">=</td>
-          <td class="h-rp2">Rp.</td>
-          <td class="h-hasil">{{ (kontrak.total * spk.dpPercentage / 100) | rupiah }}</td>
-        </tr>
-        <tr>
-          <td class="h-label">Retensi</td><td class="h-titik">:</td>
-          <td class="h-persen">{{ spk.retentionPercentage | persen }}</td>
-          <td class="h-kali">x</td>
-          <td class="h-rp">Rp.</td><td class="h-dasar">{{ kontrak.total | rupiah }}</td>
-          <td class="h-sama">=</td>
-          <td class="h-rp2">Rp.</td>
-          <td class="h-hasil">{{ (kontrak.total * spk.retentionPercentage / 100) | rupiah }}</td>
-        </tr>
-        <tr>
-          <td class="h-label">PPh</td><td class="h-titik">:</td>
-          <td class="h-persen">{{ spk.pphPercentage | persen }}</td>
-          <td class="h-kali">x</td>
-          <td class="h-rp">Rp.</td><td class="h-dasar">{{ kontrak.total | rupiah }}</td>
-          <td class="h-sama">=</td>
-          <td class="h-rp2">Rp.</td>
-          <td class="h-hasil">{{ (kontrak.total * spk.pphPercentage / 100) | rupiah }}</td>
-        </tr>
-      </table>
+        <!-- ---- HARGA PEKERJAAN (DPP) ---- -->
+        <div class="blok">
+          <div class="judul-blok">HARGA PEKERJAAN (DPP)</div>
+          <table class="hitung">
+            <tr>
+              <td class="h-label">Nilai Kontrak</td>
+              <td class="h-titik"></td><td class="h-persen"></td>
+              <td class="h-kali"></td><td class="h-rp"></td><td class="h-dasar"></td>
+              <td class="h-sama"></td>
+              <td class="h-rp2">Rp.</td>
+              <td class="h-hasil">{{ kontrak.induk | uang }}</td>
+              <td class="h-tanda"></td>
+            </tr>
+            <tr>
+              <td class="h-label">Nilai Pekerjaan Tambah/Kurang</td>
+              <td class="h-titik"></td><td class="h-persen"></td>
+              <td class="h-kali"></td><td class="h-rp"></td><td class="h-dasar"></td>
+              <td class="h-sama"></td><td class="h-rp2"></td>
+              <td class="h-hasil"></td><td class="h-tanda"></td>
+            </tr>
+            <tr>
+              <td class="h-label"></td><td class="h-titik"></td>
+              <!--
+                "Addendum #" mengambil DUA kolom: persen dan kali.
 
-      <!-- ---- PROGRESS ---- -->
-      <div class="bagian">PROGRESS YANG DIBAYARKAN (Lampiran BAP &amp; Copy Kontrak Kerja)</div>
-      <table class="hitung">
-        <tr>
-          <td class="h-label">Progress Kontrak</td><td class="h-titik">:</td>
-          <td class="h-persen">{{ nilai.persenProgres | persenPecahan }}</td>
-          <td class="h-kali">x</td>
-          <td class="h-rp">Rp.</td><td class="h-dasar">{{ kontrak.total | rupiah }}</td>
-          <td class="h-sama">=</td>
-          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ nilai.kotor | rupiah }}</td>
-        </tr>
-        <tr class="jumlah">
-          <td class="h-label">Sub-Total Progress Periode Ini</td><td></td>
-          <td></td><td></td><td></td><td></td><td></td>
-          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ nilai.kotor | rupiah }}</td>
-        </tr>
-      </table>
+                Kolom kali sendiri selebar satu huruf "x", dan teks
+                sepanjang ini di dalamnya menempel pada "Rp." di sebelahnya
+                sampai keduanya terbaca sebagai satu kata ("AddendumRp.").
+              -->
+              <td colspan="2" style="text-align: right; padding-right: 8pt">
+                Addendum {{ nomorAdendum or "#" }}
+              </td>
+              <td class="h-rp">Rp.</td>
+              <td class="h-dasar" style="border-bottom: 0.7pt solid #000">
+                {{ kontrak.adendum | uang }}
+              </td>
+              <td class="h-sama"></td><td class="h-rp2"></td>
+              <td class="h-hasil"></td><td class="h-tanda"></td>
+            </tr>
+            <tr>
+              <td class="h-label"></td><td class="h-titik"></td>
+              <td class="h-persen"></td><td class="h-kali"></td>
+              <td class="h-rp"></td><td class="h-dasar"></td><td class="h-sama"></td>
+              <td class="h-rp2">Rp.</td>
+              <td class="h-hasil garis-jumlah">{{ kontrak.adendum | uang }}</td>
+              <td class="h-tanda garis-jumlah">+</td>
+            </tr>
+            <tr class="jumlah">
+              <td class="h-label" colspan="6">Total Nilai Kontrak</td>
+              <td class="h-sama"></td>
+              <td class="h-rp2">Rp.</td>
+              <td class="h-hasil garis-jumlah">{{ kontrak.total | uang }}</td>
+              <td class="h-tanda"></td>
+            </tr>
+          </table>
 
-      <!-- ---- PENGURANGAN ---- -->
-      <div class="bagian">PENGURANGAN</div>
-      <table class="hitung">
-        {% for p in penyesuaian if p.kind == "deduction" %}
-        <tr>
-          <td class="h-label">
-            {{ p.category | namaKategori }}{% if p.label %} — {{ p.label }}{% endif %}
-          </td>
-          <td class="h-titik">:</td>
-          <td class="h-persen">{{ p.persenDariKotor | persenPecahan }}</td>
-          <td class="h-kali">x</td>
-          <td class="h-rp">Rp.</td><td class="h-dasar">{{ nilai.kotor | rupiah }}</td>
-          <td class="h-sama">=</td>
-          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ p.amount | rupiah }}</td>
-        </tr>
-        {% else %}
-        <tr>
-          <td class="h-label kecil" colspan="9">Tidak ada pengurangan pada periode ini.</td>
-        </tr>
-        {% endfor %}
-        <tr class="jumlah">
-          <td class="h-label">Sub-Total Pengurangan Periode Ini</td><td></td>
-          <td></td><td></td><td></td><td></td><td></td>
-          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ nilai.potongan | rupiah }}</td>
-        </tr>
-      </table>
+          <!--
+            Syarat kontrak, bukan angka periode ini.
 
-      {% if nilai.tambahan > 0 %}
-      <!--
-        Tambahan dicetak TERPISAH dari nilai pekerjaan.
+            Dicetak apa adanya dari SPK supaya lembar ini menyatakan dasar
+            perhitungannya sendiri — yang membacanya tidak perlu membuka
+            kontrak untuk tahu berapa uang muka dan retensi yang disepakati.
+          -->
+          <table class="hitung" style="margin-top: 8pt">
+            <tr>
+              <td class="h-label">Down Payment</td><td class="h-titik">:</td>
+              <td class="h-persen">{{ spk.dpPercentage | persenUS }}</td>
+              <td class="h-kali">x</td>
+              <td class="h-rp">Rp.</td>
+              <td class="h-dasar">{{ kontrak.total | uang }}</td>
+              <td class="h-sama">=</td><td class="h-rp2"></td>
+              <td class="h-hasil">{{ syarat.dp | uang }}</td>
+              <td class="h-tanda"></td>
+            </tr>
+            <tr>
+              <td class="h-label">Retensi</td><td class="h-titik">:</td>
+              <td class="h-persen">{{ spk.retentionPercentage | persenUS }}</td>
+              <td class="h-kali">x</td>
+              <td class="h-rp">Rp.</td>
+              <td class="h-dasar">{{ kontrak.total | uang }}</td>
+              <td class="h-sama">=</td><td class="h-rp2"></td>
+              <td class="h-hasil">{{ syarat.retensi | uang }}</td>
+              <td class="h-tanda"></td>
+            </tr>
+            <tr>
+              <td class="h-label">PPh</td><td class="h-titik">:</td>
+              <td class="h-persen">{{ spk.pphPercentage | persenUS }}</td>
+              <td class="h-kali">x</td>
+              <td class="h-rp">Rp.</td>
+              <td class="h-dasar">{{ kontrak.total | uang }}</td>
+              <td class="h-sama">=</td><td class="h-rp2"></td>
+              <td class="h-hasil">{{ syarat.pph | uang }}</td>
+              <td class="h-tanda"></td>
+            </tr>
+          </table>
+        </div>
 
-        Ia biaya di luar kontrak, bukan volume pekerjaan — dan menggabungnya
-        ke progres akan membuat persentase progres melebihi kenyataan.
-      -->
-      <div class="bagian">PENAMBAHAN (di luar nilai kontrak)</div>
-      <table class="hitung">
-        {% for p in penyesuaian if p.kind == "addition" %}
-        <tr>
-          <td class="h-label">
-            {{ p.category | namaKategori }}{% if p.label %} — {{ p.label }}{% endif %}
-          </td>
-          <td class="h-titik">:</td>
-          <td class="h-persen"></td><td class="h-kali"></td>
-          <td class="h-rp"></td><td class="h-dasar"></td><td class="h-sama"></td>
-          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ p.amount | rupiah }}</td>
-        </tr>
-        {% endfor %}
-        <tr class="jumlah">
-          <td class="h-label">Sub-Total Penambahan</td><td></td>
-          <td></td><td></td><td></td><td></td><td></td>
-          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ nilai.tambahan | rupiah }}</td>
-        </tr>
-      </table>
-      {% endif %}
+        <!-- ---- PROGRESS ---- -->
+        <div class="blok">
+          <div class="judul-blok">
+            PROGRESS YANG DIBAYARKAN (Lampiran BAP &amp; Copy Kontrak Kerja)
+          </div>
+          <table class="hitung">
+            <tr>
+              <td class="h-label">Progress Kontrak</td><td class="h-titik">:</td>
+              <td class="h-persen">{{ progres.persenInduk | persenPecahanUS }}</td>
+              <td class="h-kali">x</td>
+              <td class="h-rp">Rp.</td>
+              <td class="h-dasar">{{ kontrak.induk | uang }}</td>
+              <td class="h-sama">=</td><td class="h-rp2"></td>
+              <td class="h-hasil">{{ progres.nilaiInduk | uang }}</td>
+              <td class="h-tanda"></td>
+            </tr>
+            <tr>
+              <td class="h-label">Progress Addendum</td><td class="h-titik">:</td>
+              <td class="h-persen">{{ progres.persenAdendum | persenPecahanUS }}</td>
+              <td class="h-kali">x</td>
+              <td class="h-rp">Rp.</td>
+              <td class="h-dasar">{{ kontrak.adendum | uang }}</td>
+              <td class="h-sama">=</td><td class="h-rp2"></td>
+              <td class="h-hasil garis-jumlah">{{ progres.nilaiAdendum | uang }}</td>
+              <td class="h-tanda garis-jumlah">+</td>
+            </tr>
+            <tr class="jumlah">
+              <td class="h-label" colspan="6">Sub-Total Progress Periode Ini</td>
+              <td class="h-sama"></td>
+              <td class="h-rp2">Rp.</td>
+              <td class="h-hasil">{{ nilai.kotor | uang }}</td>
+              <td class="h-tanda"></td>
+            </tr>
+          </table>
+        </div>
 
-      <!-- ---- TOTAL ---- -->
-      <table class="hitung" style="margin-top: 10pt">
-        <tr class="jumlah">
-          <td class="h-label">Sub-Total Periode Ini (Progress − Pengurangan{% if nilai.tambahan > 0 %} + Penambahan{% endif %})</td>
-          <td></td><td></td><td></td><td></td><td></td><td></td>
-          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ nilai.bersih | rupiah }}</td>
-        </tr>
-        <tr>
-          <td class="h-label">PPN {{ nilai.tarifPpn | persen }}</td>
-          <td></td><td></td><td></td><td></td><td></td>
-          <td class="tanda-tambah">+</td>
-          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ nilai.ppn | rupiah }}</td>
-        </tr>
-        <tr class="jumlah-tebal">
-          <td class="h-label">Total Progress Periode Ini</td>
-          <td></td><td></td><td></td><td></td><td></td><td></td>
-          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ nilai.totalDibayar | rupiah }}</td>
-        </tr>
-      </table>
+        <!-- ---- PENGURANGAN ---- -->
+        <div class="blok">
+          <div class="judul-blok">PENGURANGAN</div>
+          <table class="hitung">
+            <!--
+              TIGA BARIS TETAP, dicetak sekalipun nilainya nol.
 
-      <!-- ---- AKUMULASI ---- -->
-      <div class="bagian">AKUMULASI PEMBAYARAN (DPP)</div>
-      <table class="hitung">
-        {% for r in riwayat %}
-        <tr>
-          <td class="h-label">
-            Pembayaran {{ r.number }}{% if r.iniSendiri %} <span class="kecil">(periode ini)</span>{% endif %}
-          </td>
-          <td class="h-titik"></td>
-          <td class="h-persen"></td><td class="h-kali"></td>
-          <td class="h-rp"></td><td class="h-dasar" style="text-align:left" class="kecil">{{ r.date | tanggal }}</td>
-          <td class="h-sama"></td>
-          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ r.net | rupiah }}</td>
-        </tr>
-        {% endfor %}
-        <tr class="jumlah">
-          <td class="h-label">Akumulasi s.d. pembayaran ke-{{ cop.number }}</td>
-          <td></td><td></td><td></td><td></td><td></td><td></td>
-          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ riwayatTotal | rupiah }}</td>
-        </tr>
-      </table>
+              Yang membacanya membacanya sebagai daftar periksa: baris yang
+              hilang tidak terbaca sebagai "tidak dipotong" melainkan sebagai
+              "terlupa dipotong". Kolom nominalnya berisi "-" bila memang
+              tidak ada — itu pernyataan, bukan ruang kosong.
+            -->
+            {% for p in pengurangan.pokok %}
+            <tr>
+              <td class="h-label">{{ p.category | namaKategori }}</td>
+              <td class="h-titik">:</td>
+              <td class="h-persen">{{ p.persenDariKotor | persenPecahanUS }}</td>
+              <td class="h-kali">x</td>
+              <td class="h-rp">Rp.</td>
+              <td class="h-dasar">{{ nilai.kotor | uang }}</td>
+              <td class="h-sama">=</td><td class="h-rp2"></td>
+              <td class="h-hasil{% if loop.last and not pengurangan.lain %} garis-jumlah{% endif %}">
+                {{ p.amount | uang }}
+              </td>
+              <td class="h-tanda{% if loop.last and not pengurangan.lain %} garis-jumlah{% endif %}">{% if loop.last and not pengurangan.lain %}+{% endif %}</td>
+            </tr>
+            {% endfor %}
 
-      {% if cop.note %}
-      <div class="bagian">CATATAN</div>
-      <div>{{ cop.note }}</div>
-      {% endif %}
+            {% for p in pengurangan.lain %}
+            <tr>
+              <td class="h-label">
+                {{ p.category | namaKategori }}{% if p.label %} — {{ p.label }}{% endif %}
+              </td>
+              <td class="h-titik">:</td>
+              <td class="h-persen">{{ p.persenDariKotor | persenPecahanUS }}</td>
+              <td class="h-kali">x</td>
+              <td class="h-rp">Rp.</td>
+              <td class="h-dasar">{{ nilai.kotor | uang }}</td>
+              <td class="h-sama">=</td><td class="h-rp2"></td>
+              <td class="h-hasil{% if loop.last %} garis-jumlah{% endif %}">{{ p.amount | uang }}</td>
+              <td class="h-tanda{% if loop.last %} garis-jumlah{% endif %}">{% if loop.last %}+{% endif %}</td>
+            </tr>
+            {% endfor %}
 
-      <p class="catatan-kaki">
-        Demikian sertifikat pembayaran ini dibuat dan ditandatangani untuk
-        dipergunakan sebagaimana mestinya.
-      </p>
+            <tr class="jumlah">
+              <td class="h-label" colspan="6">Sub-Total Pengurangan Periode Ini</td>
+              <td class="h-sama"></td>
+              <td class="h-rp2">Rp.</td>
+              <td class="h-hasil">{{ nilai.potongan | uang }}</td>
+              <td class="h-tanda"></td>
+            </tr>
+          </table>
 
-      <table class="ttd">
-        <tr>
-          <td>
-            <div class="ttd-peran">Dibuat oleh,</div>
-            <div class="ttd-nama">{{ cop.createdByName or "—" }}</div>
-          </td>
-          <td>
-            <div class="ttd-peran">Diperiksa oleh,</div>
-            <div class="ttd-nama">{{ cop.checkedByName or "—" }}</div>
-            {% if cop.checkedAt %}
-            <div class="ttd-tanggal">{{ cop.checkedAt | tanggal }}</div>
-            {% endif %}
-          </td>
-          <td>
-            <div class="ttd-peran">Disetujui oleh,</div>
-            <div class="ttd-nama">{{ cop.approvedByName or "—" }}</div>
-            {% if cop.approvedAt %}
-            <div class="ttd-tanggal">{{ cop.approvedAt | tanggal }}</div>
-            {% endif %}
-          </td>
-        </tr>
-      </table>
+          {% if nilai.tambahan > 0 %}
+          <!--
+            Tambahan dicetak TERPISAH dari nilai pekerjaan.
+
+            Ia biaya di luar kontrak, bukan volume pekerjaan — menggabungnya
+            ke progres membuat persentase progres melebihi kenyataan.
+          -->
+          <table class="hitung" style="margin-top: 8pt">
+            {% for p in penyesuaian if p.kind == "addition" %}
+            <tr>
+              <td class="h-label">
+                {{ p.category | namaKategori }}{% if p.label %} — {{ p.label }}{% endif %}
+              </td>
+              <td class="h-titik">:</td>
+              <td class="h-persen"></td><td class="h-kali"></td>
+              <td class="h-rp"></td><td class="h-dasar"></td><td class="h-sama"></td>
+              <td class="h-rp2"></td>
+              <td class="h-hasil{% if loop.last %} garis-jumlah{% endif %}">{{ p.amount | uang }}</td>
+              <td class="h-tanda{% if loop.last %} garis-jumlah{% endif %}">{% if loop.last %}+{% endif %}</td>
+            </tr>
+            {% endfor %}
+            <tr class="jumlah">
+              <td class="h-label" colspan="6">Sub-Total Penambahan Periode Ini</td>
+              <td class="h-sama"></td>
+              <td class="h-rp2">Rp.</td>
+              <td class="h-hasil">{{ nilai.tambahan | uang }}</td>
+              <td class="h-tanda"></td>
+            </tr>
+          </table>
+          {% endif %}
+
+          <!-- ---- TOTAL ---- -->
+          <table class="hitung" style="margin-top: 10pt">
+            <tr class="jumlah">
+              <td class="h-label" colspan="6">
+                Sub-Total Periode Ini (Progress − Pengurangan{% if nilai.tambahan > 0 %} + Penambahan{% endif %})
+              </td>
+              <td class="h-sama"></td>
+              <td class="h-rp2">Rp.</td>
+              <td class="h-hasil">{{ nilai.bersih | uang }}</td>
+              <td class="h-tanda"></td>
+            </tr>
+            <tr class="jumlah">
+              <td class="h-label" colspan="6">PPN {{ nilai.tarifPpn | persenUS }}</td>
+              <td class="h-sama"></td>
+              <td class="h-rp2">Rp.</td>
+              <td class="h-hasil garis-jumlah">{{ nilai.ppn | uang }}</td>
+              <td class="h-tanda garis-jumlah">+</td>
+            </tr>
+            <tr class="jumlah">
+              <td class="h-label" colspan="6">Total Progress Periode Ini</td>
+              <td class="h-sama"></td>
+              <td class="h-rp2">Rp.</td>
+              <td class="h-hasil">{{ nilai.totalDibayar | uang }}</td>
+              <td class="h-tanda"></td>
+            </tr>
+          </table>
+
+          <div class="terbilang">
+            Terbilang: {{ nilai.totalDibayar | terbilang }}
+          </div>
+        </div>
+
+        <!-- ---- AKUMULASI ---- -->
+        <div class="blok">
+          <div class="judul-blok">AKUMULASI PEMBAYARAN (DPP)</div>
+          <table class="hitung">
+            <!--
+              Uang muka menjadi baris PERTAMA.
+
+              Ia bukan pembayaran progres, tetapi tetap uang yang sudah
+              berpindah; akumulasi yang tidak menyebutnya membuat jumlah di
+              lembar ini berselisih dengan catatan penerimaan pemasok.
+            -->
+            <tr>
+              <td class="h-label">Downpayment</td><td class="h-titik"></td>
+              <td class="h-persen">{{ spk.dpPercentage | persenUS }}</td>
+              <td class="h-kali"></td>
+              <td class="h-rp">Rp.</td>
+              <td class="h-dasar">{{ dpKontrak | uang }}</td>
+              <td class="h-sama"></td><td class="h-rp2"></td>
+              <td class="h-hasil"></td><td class="h-tanda"></td>
+            </tr>
+            {% for r in riwayat %}
+            <tr>
+              <td class="h-label">Pembayaran {{ r.number }}</td>
+              <td class="h-titik"></td>
+              <td class="h-persen">{{ r.persen | persenPecahanUS }}</td>
+              <td class="h-kali"></td>
+              <td class="h-rp">Rp.</td>
+              <td class="h-dasar{% if loop.last %} garis-jumlah{% endif %}">{{ r.net | uang }}</td>
+              <td class="h-sama{% if loop.last %} garis-jumlah{% endif %}">{% if loop.last %}+{% endif %}</td>
+              <td class="h-rp2"></td>
+              <td class="h-hasil"></td><td class="h-tanda"></td>
+            </tr>
+            {% endfor %}
+            <tr class="jumlah">
+              <td class="h-label"></td><td class="h-titik"></td>
+              <td class="h-persen"></td><td class="h-kali"></td>
+              <td class="h-rp">Rp.</td>
+              <td class="h-dasar">{{ akumulasiTotal | uang }}</td>
+              <td class="h-sama"></td><td class="h-rp2"></td>
+              <td class="h-hasil"></td><td class="h-tanda"></td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- ---- CATATAN & TANDA TANGAN ---- -->
+        <div class="blok">
+          <div class="judul-blok">CATATAN</div>
+          {% if cop.periodEnd %}
+          <div>Periode s.d. {{ cop.periodEnd | tanggal }}</div>
+          {% endif %}
+          {% if cop.note %}
+          <div>{{ cop.note }}</div>
+          {% endif %}
+
+          <p style="margin: 10pt 0 0">
+            Demikian sertifikat pembayaran ini dibuat dan ditandatangani untuk
+            dipergunakan sebagaimana mestinya.
+          </p>
+
+          <!--
+            DUA pihak, bukan tiga.
+
+            Yang ditandatangani di sini adalah kesepakatan antara pemberi dan
+            penerima tugas. Rantai persetujuan internal — dibuat, diperiksa,
+            disetujui — bukan pihak dalam sertifikat ini; ia dicetak sebagai
+            catatan kaki di luar bingkai supaya jejaknya tetap ada tanpa
+            menjadi kolom tanda tangan yang tidak pernah diisi tangan.
+          -->
+          <table class="ttd">
+            <tr>
+              <td>
+                <div class="ttd-peran">Pemberi Tugas</div>
+                <div class="ttd-badan">{{ perusahaan.nama }}</div>
+                {% if penandatangan.nama %}
+                <div class="ttd-nama">{{ penandatangan.nama }}</div>
+                <div class="ttd-jabatan">{{ penandatangan.jabatan or "" }}</div>
+                {% else %}
+                <div><span class="ttd-kosong">&nbsp;</span></div>
+                {% endif %}
+              </td>
+              <td>
+                <div class="ttd-peran">Penerima Tugas,</div>
+                <div class="ttd-badan">{{ spk.supplierName or "" }}</div>
+                <div>(<span class="ttd-kosong">&nbsp;</span>)</div>
+              </td>
+            </tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="jejak">
+        Dibuat: {{ cop.createdByName or "—" }}
+        · Diperiksa: {{ cop.checkedByName or "—" }}
+        · Disetujui: {{ cop.approvedByName or "—" }}
+      </div>
     </div>
 
     <!-- ================= HALAMAN 2 — BERITA ACARA PEMERIKSAAN ================= -->

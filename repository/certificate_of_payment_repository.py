@@ -410,7 +410,16 @@ class CertificateOfPaymentRepository:
                        po.purchaseType,
                        pembuat.name   AS createdByName,
                        pemeriksa.name AS checkedByName,
-                       penyetuju.name AS approvedByName
+                       penyetuju.name AS approvedByName,
+                       -- Jabatan ikut dibaca karena blok tanda tangan
+                       -- mencetaknya di bawah nama. Diambil dari kolomnya
+                       -- sendiri, BUKAN disimpulkan dari level akses: dua
+                       -- orang dapat sama-sama level 4 dengan jabatan
+                       -- berbeda, dan menebaknya membuat dokumen resmi
+                       -- menyebut jabatan yang salah.
+                       pembuat.position   AS createdByPosition,
+                       pemeriksa.position AS checkedByPosition,
+                       penyetuju.position AS approvedByPosition
                 FROM certificate_of_payments c
                 JOIN purchase_orders po ON po.id = c.purchaseOrderID
                 LEFT JOIN users pembuat   ON pembuat.id   = c.createdBy
@@ -454,7 +463,18 @@ class CertificateOfPaymentRepository:
         created_by: int | None = None,
         page: int = 0,
         page_size: int = 20,
+        keyword: str | None = None,
     ):
+        """
+        Daftar CoP, disaring dan dipenggal halaman.
+
+        PENCARIAN DIKERJAKAN DI SQL, BUKAN DI LAYAR
+
+        Daftar ini dipenggal per halaman, dan menyaring hasil SATU halaman di
+        peramban hanya mencari di dua puluh baris yang kebetulan sedang
+        terbuka — yang dicari kerap berada di halaman ketiga, dan layar
+        menjawab "tidak ada" untuk dokumen yang jelas ada.
+        """
         try:
             syarat = ["c.isDelete = 0"]
             params: Dict[str, Any] = {}
@@ -468,9 +488,30 @@ class CertificateOfPaymentRepository:
                 syarat.append("c.createdBy = :pembuat")
                 params["pembuat"] = created_by
 
+            kata = (keyword or "").strip()
+            if kata:
+                # Empat kolom, karena itulah empat cara orang menyebut satu
+                # dokumen yang sama: nomor CoP-nya, nomor SPK-nya, nama
+                # proyeknya, atau nama pemasoknya.
+                syarat.append(
+                    "(c.name LIKE :kata OR po.name LIKE :kata "
+                    "OR c.projectName LIKE :kata OR s.name LIKE :kata)"
+                )
+                params["kata"] = f"%{kata}%"
+
             where = " AND ".join(syarat)
+            # Hitungannya ikut MENGGABUNG purchase_orders — pencariannya
+            # menyentuh kolom di sana, dan jumlah yang dihitung tanpa
+            # gabungan itu tidak dapat menyaringnya. Halaman terakhir lalu
+            # berisi baris kosong karena jumlahnya lebih besar dari isinya.
             total = await database.fetch_val(
-                f"SELECT COUNT(*) FROM certificate_of_payments c WHERE {where}",
+                f"""
+                SELECT COUNT(*)
+                FROM certificate_of_payments c
+                JOIN purchase_orders po ON po.id = c.purchaseOrderID
+                LEFT JOIN suppliers s ON s.id = po.supplierID
+                WHERE {where}
+                """,
                 params,
             )
 
@@ -479,9 +520,11 @@ class CertificateOfPaymentRepository:
             baris = await database.fetch_all(
                 f"""
                 SELECT c.*, po.name AS purchaseOrderName,
+                       s.name AS supplierName,
                        pembuat.name AS createdByName
                 FROM certificate_of_payments c
                 JOIN purchase_orders po ON po.id = c.purchaseOrderID
+                LEFT JOIN suppliers s ON s.id = po.supplierID
                 LEFT JOIN users pembuat ON pembuat.id = c.createdBy
                 WHERE {where}
                 ORDER BY c.date DESC, c.id DESC

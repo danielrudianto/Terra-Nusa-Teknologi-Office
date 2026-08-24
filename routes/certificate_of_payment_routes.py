@@ -87,6 +87,7 @@ async def daftar_cop(
     createdBy: Optional[int] = None,
     page: int = Query(0, ge=0),
     pageSize: int = Query(20, ge=1, le=200),
+    keyword: Optional[str] = None,
 ):
     return _lempar_bila_galat(
         await CertificateOfPaymentController.get_all(
@@ -96,6 +97,7 @@ async def daftar_cop(
             page=page,
             page_size=pageSize,
             user_level=_level(current_user),
+            keyword=keyword,
         )
     )
 

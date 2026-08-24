@@ -516,12 +516,20 @@ class CertificateOfPaymentController:
             if isinstance(lama, dict) and "error" in lama:
                 return lama
 
+            # Pembuatnya, atau siapa pun yang berwenang MEMERIKSA.
+            #
+            # Memeriksa bukan sekadar membubuhkan tanda: tugasnya membetulkan
+            # volume yang keliru dicatat sebelum dokumennya naik ke penyetuju.
+            # Batas level 3 di sini membuat pemeriksa level 2 hanya dapat
+            # menolak seluruh dokumen dan mengembalikannya ke lapangan untuk
+            # satu angka yang salah ketik — yang dalam praktiknya berakhir
+            # dengan dokumen ditandai diperiksa apa adanya.
             adalah_pembuat = int(lama.get("createdBy") or 0) == int(user_id)
-            if not adalah_pembuat and int(user_level or 1) < 3:
+            if not adalah_pembuat and not boleh_memeriksa_cop(user_level):
                 return app_error(
                     ErrorCode.FORBIDDEN,
                     "Certificate of payment hanya dapat diubah oleh "
-                    "pembuatnya, atau level 3 ke atas.",
+                    "pembuatnya, atau yang berwenang memeriksanya.",
                     403,
                 )
 
@@ -1131,6 +1139,53 @@ class CertificateOfPaymentController:
                     }
                 )
 
+            # ---- pengurangan sebagai TIGA BARIS TETAP ----
+            #
+            # Lembar Excel yang selama ini dipakai selalu mencetak
+            # "Pengembalian Down Payment", "Retensi", dan "PPh" — bahkan bila
+            # nilainya nol, di mana kolomnya berisi tanda pisah. Yang
+            # membacanya membaca ketiganya sebagai daftar periksa: baris yang
+            # HILANG tidak terbaca sebagai "tidak dipotong" melainkan sebagai
+            # "terlupa dipotong", dan itulah yang ditanyakan balik ke lapangan.
+            #
+            # Karena itu ketiganya dibentuk di sini, bukan diserahkan pada
+            # perulangan daftar penyesuaian. Kategori di luar ketiganya
+            # (denda, lain-lain) tetap dicetak menyusul apa adanya.
+            POKOK = ("uang_muka", "retensi", "pph")
+            baku: Dict[str, Decimal] = {k: Decimal("0") for k in POKOK}
+            potongan_lain: List[Dict[str, Any]] = []
+            for a in cop.get("adjustments") or []:
+                if a["kind"] != "deduction":
+                    continue
+                nominal = _d(a["amount"])
+                if a["category"] in baku:
+                    baku[a["category"]] += nominal
+                else:
+                    potongan_lain.append(
+                        {
+                            "category": a["category"],
+                            "label": a.get("label"),
+                            "amount": float(nominal),
+                            "persenDariKotor": float(_bagi(nominal, kotor)),
+                        }
+                    )
+
+            pengurangan_pokok = [
+                {
+                    "category": k,
+                    "amount": float(baku[k]),
+                    "persenDariKotor": float(_bagi(baku[k], kotor)),
+                }
+                for k in POKOK
+            ]
+
+            # Uang muka yang DITERIMA di muka — baris pertama pada akumulasi.
+            #
+            # Ia bukan pembayaran progres, tetapi tetap uang yang sudah
+            # berpindah; akumulasi yang tidak menyebutnya membuat jumlah di
+            # lembar ini berselisih dengan catatan penerimaan pemasok.
+            dp_kontrak = nilai_kontrak * _d(spk.get("dpPercentage")) / Decimal("100")
+
             return {
                 "cop": {
                     "id": cop["id"],
@@ -1144,6 +1199,9 @@ class CertificateOfPaymentController:
                     "createdByName": cop.get("createdByName"),
                     "checkedByName": cop.get("checkedByName"),
                     "approvedByName": cop.get("approvedByName"),
+                    "createdByPosition": cop.get("createdByPosition"),
+                    "checkedByPosition": cop.get("checkedByPosition"),
+                    "approvedByPosition": cop.get("approvedByPosition"),
                     "checkedAt": cop.get("checkedAt"),
                     "approvedAt": cop.get("approvedAt"),
                     "isApproved": bool(cop.get("isApproved")),
@@ -1182,6 +1240,11 @@ class CertificateOfPaymentController:
                     "totalDibayar": float(bersih + ppn),
                 },
                 "penyesuaian": penyesuaian,
+                "pengurangan": {
+                    "pokok": pengurangan_pokok,
+                    "lain": potongan_lain,
+                },
+                "dpKontrak": float(dp_kontrak),
                 "riwayat": [
                     {
                         "number": r["number"],
@@ -1279,9 +1342,10 @@ class CertificateOfPaymentController:
         page: int = 0,
         page_size: int = 20,
         user_level: int = 1,
+        keyword: str | None = None,
     ):
         hasil = await CertificateOfPaymentRepository.get_all(
-            purchase_order_id, project_name, created_by, page, page_size
+            purchase_order_id, project_name, created_by, page, page_size, keyword
         )
         if isinstance(hasil, dict) and "error" in hasil:
             return hasil
