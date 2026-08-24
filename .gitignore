@@ -1,14 +1,22 @@
-node_modules/
-venv/
-env/
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+env/
+venv/
+
+# Rahasia & data lokal
+.env
 storage/
+data.ms/
+app.log
+*.backup
+
+# Sisa migrasi Bun - jangan pernah masuk git
+node_modules/
 src/
 prisma/
 bun.lock
+bun.lockb
 package.json
 package-lock.json
 tsconfig.json
-data.ms/
-app.log
