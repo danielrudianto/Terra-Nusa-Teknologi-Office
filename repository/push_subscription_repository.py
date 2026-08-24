@@ -1,3 +1,4 @@
+from datetime import datetime as dt
 from typing import Any, Dict, List
 
 from sqlalchemy import select, insert, delete
@@ -26,13 +27,34 @@ class PushSubscriptionRepository:
         memasang ulang di perangkat yang sama tidak menambah baris baru, dan
         bila pindah akun, kepemilikannya ikut berpindah.
         """
+        # User agent DIPANGKAS ke muat kolomnya.
+        #
+        # Kolomnya VARCHAR(255) dan isinya sekadar keterangan perangkat pada
+        # daftar. Peramban tertentu mengirim untai yang lebih panjang, dan
+        # MySQL bermodus ketat menolak seluruh barisnya — langganan yang sah
+        # gagal tersimpan hanya karena keterangannya kepanjangan.
+        if user_agent and len(user_agent) > 255:
+            user_agent = user_agent[:255]
+
         try:
+            # `createdAt` DIISI DI SINI, bukan diserahkan ke default kolom.
+            #
+            # Pustaka `databases` menyusun kueri lewat jalurnya sendiri:
+            # kolom yang default-nya berupa fungsi Python tidak pernah
+            # dijalankan, dan yang terkirim ke MySQL adalah NULL. Karena
+            # kolomnya NOT NULL, setiap penyimpanan langganan gagal dengan
+            # galat 1048 — dan yang menekan tombol hanya melihat 500.
+            #
+            # Seluruh repository lain di proyek ini memang sudah mengisinya
+            # sendiri (lihat audit_log & user_avatar); yang ini satu-satunya
+            # yang tertinggal.
             sisip = mysql_insert(push_subscriptions_table).values(
                 userID=user_id,
                 endpoint=endpoint,
                 p256dh=p256dh,
                 auth=auth,
                 userAgent=user_agent,
+                createdAt=dt.now(),
             )
             upsert = sisip.on_duplicate_key_update(
                 userID=user_id,

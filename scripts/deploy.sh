@@ -21,7 +21,6 @@ AKAR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$AKAR"
 
 PY="$AKAR/env/bin/python"
-PIP="$AKAR/env/bin/pip"
 LAYANAN="terrabot"
 
 merah()  { printf '\033[31m%s\033[0m\n' "$*"; }
@@ -83,7 +82,10 @@ if [[ $HANYA_PERIKSA -eq 0 ]]; then
   # ---------------------------------------------------------------------
   if git diff --name-only "$SEBELUM" "$SESUDAH" | grep -q '^requirements.txt$'; then
     echo "==> requirements.txt berubah — memasang"
-    "$PIP" install -q -r requirements.txt || gagal "pip install"
+    # Lewat `python -m pip`, BUKAN `env/bin/pip`: skrip pip di venv ini
+    # shebang-nya rusak ("cannot execute: required file not found"),
+    # sedangkan modulnya sendiri sehat.
+    "$PY" -m pip install -q -r requirements.txt || gagal "pip install"
   fi
 fi
 
