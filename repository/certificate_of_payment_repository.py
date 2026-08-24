@@ -751,3 +751,70 @@ class CertificateOfPaymentRepository:
         except Exception as e:
             log_error(f"Gagal membaca baris kontrak: {str(e)}")
             return []
+
+    @staticmethod
+    async def nilai_kontrak(purchase_order_id: int) -> Decimal:
+        """Nilai SPK beserta seluruh adendum yang sudah disetujui."""
+        try:
+            ids = await CertificateOfPaymentRepository.rantai_ids(purchase_order_id)
+            if not ids:
+                return Decimal("0")
+            nilai = await database.fetch_val(
+                """
+                SELECT COALESCE(SUM(quantity * price), 0)
+                FROM purchase_order_items
+                WHERE purchaseOrderID IN :ids
+                """,
+                {"ids": tuple(ids)},
+            )
+            return _d(nilai)
+        except Exception as e:
+            log_error(f"Gagal menghitung nilai kontrak: {str(e)}")
+            return Decimal("0")
+
+    @staticmethod
+    async def akumulasi_penyesuaian(
+        purchase_order_id: int, kecuali_cop_id: int | None = None
+    ) -> Dict[str, Decimal]:
+        """
+        Berapa yang SUDAH dipotong per kategori pada SPK ini.
+
+        Dipakai menjaga pagu uang muka dan retensi: pengembalian uang muka
+        seluruh CoP tidak boleh melebihi uang muka yang benar-benar
+        dibayarkan, sama seperti volume tidak boleh melebihi volume kontrak.
+
+        `kecuali_cop_id` mengeluarkan CoP yang sedang disunting — angkanya
+        sendiri bukan pemakaian orang lain. Tanpa itu, membuka lalu menyimpan
+        tanpa mengubah apa pun akan ditolak karena pagunya seolah terpakai
+        dua kali.
+        """
+        try:
+            ids = await CertificateOfPaymentRepository.rantai_ids(purchase_order_id)
+            if not ids:
+                return {}
+            params: Dict[str, Any] = {"po": ids[0]}
+            saring = ""
+            if kecuali_cop_id:
+                saring = " AND c.id <> :kecuali"
+                params["kecuali"] = kecuali_cop_id
+
+            baris = await database.fetch_all(
+                f"""
+                SELECT a.category, a.kind, COALESCE(SUM(a.amount), 0) AS jumlah
+                FROM certificate_of_payment_adjustments a
+                JOIN certificate_of_payments c
+                  ON c.id = a.certificateOfPaymentID
+                WHERE c.purchaseOrderID = :po
+                  AND c.isDelete = 0
+                  AND c.status <> 'cancelled'
+                  {saring}
+                GROUP BY a.category, a.kind
+                """,
+                params,
+            )
+            return {
+                f"{r['kind']}:{r['category']}": _d(r["jumlah"]) for r in baris
+            }
+        except Exception as e:
+            log_error(f"Gagal membaca akumulasi penyesuaian: {str(e)}")
+            return {}

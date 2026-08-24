@@ -139,9 +139,13 @@ def repo(monkeypatch):
 
 
 def _muatan(qty, baris=BARIS_INDUK, **tambahan):
+    # Periode ikut disertakan: ia WAJIB sejak berita acara progres tanpa
+    # rentang tanggal dinyatakan tidak dapat dibaca.
     return {
         "purchaseOrderID": 5,
         "date": "2026-08-24",
+        "periodStart": "2026-08-18",
+        "periodEnd": "2026-08-24",
         "items": [{"purchaseOrderItemID": baris, "quantity": qty, **tambahan}],
     }
 
@@ -200,6 +204,8 @@ class TestPagu:
         muatan = {
             "purchaseOrderID": 5,
             "date": "2026-08-24",
+            "periodStart": "2026-08-18",
+            "periodEnd": "2026-08-24",
             "items": [
                 {"purchaseOrderItemID": BARIS_INDUK, "quantity": 30}
                 for _ in range(10)
@@ -257,7 +263,9 @@ class TestBarisAsing:
     @pytest.mark.asyncio
     async def test_tanpa_baris_ditolak(self, repo):
         hasil = await CoP.create(
-            {"purchaseOrderID": 5, "date": "2026-08-24", "items": []},
+            {"purchaseOrderID": 5, "date": "2026-08-24",
+             "periodStart": "2026-08-18", "periodEnd": "2026-08-24",
+             "items": []},
             user_id=1, user_level=1, departments={"engineering"},
         )
         assert hasil["status"] == 400
@@ -643,12 +651,36 @@ def repo_penyesuaian(repo, monkeypatch):
     repo["penyesuaian"] = None
     repo["cop"] = {
         "id": 9,
+        "purchaseOrderID": 5,
         "createdBy": 1,
         "isChecked": True,
         "isApproved": False,
         "checkedBy": 2,
         "grossAmount": Decimal("10000000"),
     }
+
+    # SPK contoh TANPA uang muka & retensi, supaya pengujian dasar
+    # penyesuaian tidak ikut menguji pagunya. Pagu diuji terpisah di
+    # `TestPaguUangMukaRetensi`.
+    async def _nilai_kontrak(po_id):
+        return repo.get("nilaiKontrak", Decimal("0"))
+
+    async def _akumulasi(po_id, kecuali_cop_id=None):
+        return repo.get("akumulasi", {})
+
+    monkeypatch.setattr(
+        modul.CertificateOfPaymentRepository,
+        "nilai_kontrak",
+        staticmethod(_nilai_kontrak),
+    )
+    monkeypatch.setattr(
+        modul.CertificateOfPaymentRepository,
+        "akumulasi_penyesuaian",
+        staticmethod(_akumulasi),
+    )
+    repo["spk"]["dpPercentage"] = 0.0
+    repo["spk"]["retentionPercentage"] = 0.0
+    repo["spk"]["pphPercentage"] = 0.0
     return repo
 
 
@@ -1225,3 +1257,223 @@ class TestLapanganTidakTahuHarga:
         hasil = await CoP.get_by_id(9, user_level=2)
         assert hasil["items"][0]["price"] == Decimal("845000")
         assert hasil["grossAmount"] == Decimal("52390000")
+
+
+# =====================================================================
+# 12. Periode WAJIB
+# =====================================================================
+
+
+class TestPeriodeWajib:
+    """
+    Berita acara progres tanpa rentang tanggal tidak dapat dibaca: ia
+    menyatakan "sekian volume terlaksana" tanpa menyebut kapan, dan dua CoP
+    berurutan menjadi mustahil dibedakan pekerjaannya.
+    """
+
+    @pytest.mark.asyncio
+    async def test_tanpa_periode_ditolak(self, repo):
+        muatan = _muatan(10)
+        muatan.pop("periodStart")
+        muatan.pop("periodEnd")
+        hasil = await CoP.create(muatan, user_id=1, user_level=1,
+                                 departments={"engineering"})
+        assert hasil["status"] == 400
+        assert repo["items_disimpan"] is None
+
+    @pytest.mark.asyncio
+    async def test_hanya_awal_ditolak(self, repo):
+        muatan = _muatan(10)
+        muatan.pop("periodEnd")
+        hasil = await CoP.create(muatan, user_id=1, user_level=1,
+                                 departments={"engineering"})
+        assert hasil["status"] == 400
+
+    @pytest.mark.asyncio
+    async def test_akhir_mendahului_awal_ditolak(self, repo):
+        """Skema menolak yang kosong; urutannya hanya dapat dijaga di sini."""
+        import datetime as d
+
+        muatan = _muatan(10)
+        muatan["periodStart"] = d.date(2026, 8, 24)
+        muatan["periodEnd"] = d.date(2026, 8, 18)
+        hasil = await CoP.create(muatan, user_id=1, user_level=1,
+                                 departments={"engineering"})
+        assert hasil["status"] == 400
+        assert "mendahului" in hasil["error"]
+
+    @pytest.mark.asyncio
+    async def test_awal_sama_dengan_akhir_boleh(self, repo):
+        """Pekerjaan satu hari tetap sah."""
+        import datetime as d
+
+        muatan = _muatan(10)
+        muatan["periodStart"] = d.date(2026, 8, 24)
+        muatan["periodEnd"] = d.date(2026, 8, 24)
+        hasil = await CoP.create(muatan, user_id=1, user_level=1,
+                                 departments={"engineering"})
+        assert "error" not in hasil
+
+    @pytest.mark.asyncio
+    async def test_menyunting_tidak_boleh_mengosongkan_periode(self, repo):
+        repo["cop"] = {
+            "id": 9, "createdBy": 1, "purchaseOrderID": 5, "isChecked": False,
+            "periodStart": "2026-08-18", "periodEnd": "2026-08-24", "items": [],
+        }
+        hasil = await CoP.update(
+            9, {"periodStart": None, "periodEnd": None},
+            user_id=1, user_level=1, departments={"engineering"},
+        )
+        assert hasil["status"] == 400
+
+
+# =====================================================================
+# 13. Pagu uang muka & retensi
+# =====================================================================
+
+
+@pytest.fixture
+def repo_pagu_dp(repo_penyesuaian, monkeypatch):
+    """
+    Kontrak 1.000.000.000 dengan uang muka 20% dan retensi 5%.
+
+    Angka contohnya mengikuti keadaan yang ditanyakan pemilik: uang muka
+    20%, progres pertama 10%, dipotong 20% sehingga tersisa 8%.
+    """
+    repo_penyesuaian["nilaiKontrak"] = Decimal("1000000000")
+    repo_penyesuaian["spk"]["dpPercentage"] = 20.0
+    repo_penyesuaian["spk"]["retentionPercentage"] = 5.0
+    # Progres periode ini 10% dari kontrak.
+    repo_penyesuaian["cop"]["grossAmount"] = Decimal("100000000")
+    repo_penyesuaian["akumulasi"] = {}
+    return repo_penyesuaian
+
+
+class TestPaguUangMukaRetensi:
+    """
+    Uang muka dikembalikan sedikit demi sedikit dari tiap progres, dan
+    akumulasinya tidak boleh melebihi uang muka yang benar-benar dibayarkan.
+    """
+
+    @pytest.mark.asyncio
+    async def test_potongan_proporsional_diterima(self, repo_pagu_dp):
+        """20% dari progres 100 juta = 20 juta; jauh di bawah pagu 200 juta."""
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot("uang_muka", 20_000_000)], user_id=2, user_level=2,
+            departments={"engineering"},
+        )
+        assert "error" not in hasil
+        # 100 juta - 20 juta = 80 juta, alias 8% dari kontrak.
+        assert hasil["netAmount"] == 80_000_000
+
+    @pytest.mark.asyncio
+    async def test_melebihi_sisa_uang_muka_ditolak(self, repo_pagu_dp):
+        """Sudah dikembalikan 190 juta; 20 juta lagi berarti 210 dari 200."""
+        repo_pagu_dp["akumulasi"] = {"deduction:uang_muka": Decimal("190000000")}
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot("uang_muka", 20_000_000)], user_id=2, user_level=2,
+            departments={"engineering"},
+        )
+        assert hasil["status"] == 400
+        assert "uang muka" in hasil["error"]
+        assert repo_pagu_dp["penyesuaian"] is None
+
+    @pytest.mark.asyncio
+    async def test_pas_menghabiskan_sisa_diterima(self, repo_pagu_dp):
+        repo_pagu_dp["akumulasi"] = {"deduction:uang_muka": Decimal("190000000")}
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot("uang_muka", 10_000_000)], user_id=2, user_level=2,
+            departments={"engineering"},
+        )
+        assert "error" not in hasil
+
+    @pytest.mark.asyncio
+    async def test_pagu_retensi_dijaga_terpisah(self, repo_pagu_dp):
+        """Retensi punya pagunya sendiri (5%), bukan berbagi dengan uang muka."""
+        repo_pagu_dp["akumulasi"] = {"deduction:retensi": Decimal("49000000")}
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot("retensi", 5_000_000)], user_id=2, user_level=2,
+            departments={"engineering"},
+        )
+        assert hasil["status"] == 400
+        assert "retensi" in hasil["error"]
+
+    @pytest.mark.asyncio
+    async def test_spk_tanpa_syarat_tidak_dijaga(self, repo_penyesuaian):
+        """
+        SPK lama yang tidak mencatat persentase apa pun tetap dapat dipotong.
+        Pagu nol berarti "tidak tercatat", bukan "tidak boleh sama sekali".
+        """
+        repo_penyesuaian["nilaiKontrak"] = Decimal("1000000000")
+        repo_penyesuaian["spk"]["dpPercentage"] = 0.0
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot("uang_muka", 5_000_000)], user_id=2, user_level=2,
+            departments={"engineering"},
+        )
+        assert "error" not in hasil
+
+    @pytest.mark.asyncio
+    async def test_pesan_menyebut_sisa_dan_seluruhnya(self, repo_pagu_dp):
+        repo_pagu_dp["akumulasi"] = {"deduction:uang_muka": Decimal("190000000")}
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot("uang_muka", 20_000_000)], user_id=2, user_level=2,
+            departments={"engineering"},
+        )
+        pesan = hasil["error"]
+        assert "10,000,000" in pesan or "10.000.000" in pesan
+        assert "200,000,000" in pesan or "200.000.000" in pesan
+
+
+class TestSaranPotongan:
+    """
+    Saran nominal untuk uang muka & retensi, dibatasi sisanya.
+
+    Menyarankan angka yang pasti ditolak server hanya membuat yang mengisi
+    mencoba-coba sendiri — karena itu saran pada periode terakhir dipotong
+    sampai sisanya, bukan tetap 20% dari progres.
+    """
+
+    @pytest.mark.asyncio
+    async def test_saran_proporsional(self, repo_pagu_dp, monkeypatch):
+        async def _get(cop_id):
+            return dict(repo_pagu_dp["cop"])
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "get_by_id", staticmethod(_get)
+        )
+        hasil = await CoP.get_by_id(9, user_level=2)
+        sy = hasil["spkSyarat"]
+        assert sy["saranUangMuka"] == 20_000_000   # 20% x 100 juta
+        assert sy["saranRetensi"] == 5_000_000     # 5%  x 100 juta
+        assert sy["dpPagu"] == 200_000_000
+        assert sy["dpSisa"] == 200_000_000
+
+    @pytest.mark.asyncio
+    async def test_saran_dibatasi_sisa(self, repo_pagu_dp, monkeypatch):
+        """Periode terakhir: sisa uang muka tinggal 5 juta, saran ikut 5 juta."""
+        repo_pagu_dp["akumulasi"] = {"deduction:uang_muka": Decimal("195000000")}
+
+        async def _get(cop_id):
+            return dict(repo_pagu_dp["cop"])
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "get_by_id", staticmethod(_get)
+        )
+        hasil = await CoP.get_by_id(9, user_level=2)
+        sy = hasil["spkSyarat"]
+        assert sy["dpSisa"] == 5_000_000
+        assert sy["saranUangMuka"] == 5_000_000
+
+    @pytest.mark.asyncio
+    async def test_pengembalian_menutup_sendiri_saat_selesai(self, repo_pagu_dp, monkeypatch):
+        """
+        Sifat yang membuat cara ini benar: bila TIAP progres dipotong 20%,
+        maka ketika progres mencapai 100% jumlah yang dikembalikan tepat
+        sebesar uang mukanya. Tidak ada yang perlu diakali di periode akhir.
+        """
+        kontrak = Decimal("1000000000")
+        tarif = Decimal("20")
+        # Lima periode, masing-masing 20% dari kontrak.
+        progres = [kontrak * Decimal("0.2")] * 5
+        total_kembali = sum((p * tarif / 100 for p in progres), Decimal("0"))
+        assert total_kembali == kontrak * tarif / 100  # = uang mukanya

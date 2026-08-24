@@ -30,8 +30,14 @@ class CoPItemInput(BaseModel):
 class CoPCreate(BaseModel):
     purchaseOrderID: int
     date: date_type
-    periodStart: Optional[date_type] = None
-    periodEnd: Optional[date_type] = None
+    # WAJIB, bukan opsional.
+    #
+    # Sebuah berita acara progres tanpa periode tidak dapat dibaca: ia
+    # menyatakan "sekian volume terlaksana" tanpa menyebut kapan, dan dua
+    # CoP berurutan menjadi mustahil dibedakan pekerjaannya. Ia juga yang
+    # dicetak pada lembar BAP.
+    periodStart: date_type
+    periodEnd: date_type
     projectName: Optional[str] = None
     note: Optional[str] = None
     items: List[CoPItemInput] = Field(min_length=1)

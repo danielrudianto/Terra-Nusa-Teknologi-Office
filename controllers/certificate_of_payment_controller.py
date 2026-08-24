@@ -330,6 +330,10 @@ class CertificateOfPaymentController:
                     400,
                 )
 
+            galat_periode = CertificateOfPaymentController._periksa_periode(data)
+            if galat_periode:
+                return galat_periode
+
             items_masuk = data.get("items") or []
             if not items_masuk:
                 return app_error(
@@ -366,6 +370,36 @@ class CertificateOfPaymentController:
         except Exception as e:
             log_error(f"Gagal membuat CoP: {str(e)}")
             return internal_error()
+
+    @staticmethod
+    def _periksa_periode(data: Dict[str, Any]):
+        """
+        Periode WAJIB, dan urutannya harus masuk akal.
+
+        Ditegakkan DI SINI, bukan hanya di layar dan bukan hanya di skema:
+        skema menolak yang kosong, tetapi tidak dapat menyatakan bahwa
+        akhir tidak boleh mendahului awal — dan periode terbalik menghasilkan
+        BAP yang menyebut rentang negatif tanpa satu pun galat muncul.
+        """
+        awal = data.get("periodStart")
+        akhir = data.get("periodEnd")
+        if not awal or not akhir:
+            return app_error(
+                ErrorCode.VALIDATION,
+                "Periode pekerjaan wajib diisi — tanggal awal dan akhirnya.",
+                400,
+            )
+        try:
+            if akhir < awal:
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "Periode akhir tidak boleh mendahului periode awal.",
+                    400,
+                )
+        except TypeError:
+            # Jenis tanggalnya tidak dapat dibandingkan; skema yang menolak.
+            pass
+        return None
 
     @staticmethod
     async def _siapkan_items(
@@ -498,6 +532,18 @@ class CertificateOfPaymentController:
                     "pemeriksaannya lebih dahulu bila memang perlu diubah.",
                     409,
                 )
+
+            # Menyunting boleh mengubah periodenya, tetapi tidak boleh
+            # mengosongkannya — dokumen yang sudah terbit tanpa periode
+            # sama tak terbacanya dengan yang dibuat tanpa periode.
+            if "periodStart" in data or "periodEnd" in data:
+                gabung = {
+                    "periodStart": data.get("periodStart", lama.get("periodStart")),
+                    "periodEnd": data.get("periodEnd", lama.get("periodEnd")),
+                }
+                galat_periode = CertificateOfPaymentController._periksa_periode(gabung)
+                if galat_periode:
+                    return galat_periode
 
             meta = {
                 k: data[k]
@@ -635,6 +681,89 @@ class CertificateOfPaymentController:
             return internal_error()
 
     # ------------------------------------------------------------------
+    # Syarat SPK: uang muka, retensi, PPh — beserta pagunya
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _syarat_spk(
+        purchase_order_id: int, cop_id: int | None, kotor: Decimal
+    ) -> Dict[str, Any]:
+        """
+        Syarat pembayaran kontrak beserta SISA yang masih boleh dipotong.
+
+        MENGAPA UANG MUKA DIPOTONG SETIAP PERIODE
+
+        Uang muka dibayarkan di depan, lalu dikembalikan sedikit demi sedikit
+        dari tiap pembayaran progres. Bila 20% dibayarkan di depan dan tiap
+        progres dipotong 20% dari nilainya, maka ketika progres mencapai
+        100% jumlah yang telah dikembalikan tepat 20% dari kontrak — persis
+        sebesar uang muka itu. Perhitungannya menutup sendiri; tidak ada
+        yang perlu diakali pada periode terakhir.
+
+        Retensi berjalan dengan pola yang sama, hanya tujuannya berbeda:
+        ia ditahan sampai masa pemeliharaan berakhir, bukan dikembalikan.
+
+        PAGU
+
+        Keduanya punya batas: pengembalian uang muka seluruh CoP tidak boleh
+        melebihi uang muka yang benar-benar dibayarkan, dan retensi tidak
+        boleh melebihi retensi yang disepakati. Batas itu tidak akan
+        tersentuh selama potongannya proporsional — ia menjaga yang DIKETIK
+        TANGAN, karena di situlah kelebihannya mungkin terjadi.
+        """
+        spk = await PurchaseOrderRepository.get_by_id(purchase_order_id)
+        if not spk or (isinstance(spk, dict) and "error" in spk):
+            return {}
+
+        tarif_pph = _d(spk.get("pphPercentage"))
+        tarif_dp = _d(spk.get("dpPercentage"))
+        tarif_ret = _d(spk.get("retentionPercentage"))
+
+        nilai_kontrak = await CertificateOfPaymentRepository.nilai_kontrak(
+            purchase_order_id
+        )
+        # CoP INI dikeluarkan dari akumulasi: potongannya sendiri bukan
+        # pemakaian orang lain.
+        sudah = await CertificateOfPaymentRepository.akumulasi_penyesuaian(
+            purchase_order_id, kecuali_cop_id=cop_id
+        )
+
+        dp_pagu = nilai_kontrak * tarif_dp / 100
+        ret_pagu = nilai_kontrak * tarif_ret / 100
+        dp_lalu = sudah.get("deduction:uang_muka", Decimal("0"))
+        ret_lalu = sudah.get("deduction:retensi", Decimal("0"))
+        dp_sisa = max(dp_pagu - dp_lalu, Decimal("0"))
+        ret_sisa = max(ret_pagu - ret_lalu, Decimal("0"))
+
+        # Saran DIBATASI sisanya.
+        #
+        # Pada periode terakhir, 20% dari progres dapat melampaui uang muka
+        # yang belum kembali — dan menyarankan angka yang pasti ditolak
+        # server hanya membuat yang mengisi mencoba-coba sendiri.
+        saran_dp = min(kotor * tarif_dp / 100, dp_sisa)
+        saran_ret = min(kotor * tarif_ret / 100, ret_sisa)
+
+        return {
+            "pphCode": spk.get("pphCode"),
+            "pphTaxObject": spk.get("pphTaxObject"),
+            "pphPercentage": float(tarif_pph),
+            "dpPercentage": float(tarif_dp),
+            "retentionPercentage": float(tarif_ret),
+            "nilaiKontrak": float(nilai_kontrak),
+            # Uang muka: pagu, sudah dikembalikan, sisa.
+            "dpPagu": float(dp_pagu),
+            "dpTerpakai": float(dp_lalu),
+            "dpSisa": float(dp_sisa),
+            # Retensi: pagu, sudah ditahan, sisa.
+            "retensiPagu": float(ret_pagu),
+            "retensiTerpakai": float(ret_lalu),
+            "retensiSisa": float(ret_sisa),
+            "saranPph": float(kotor * tarif_pph / 100),
+            "saranUangMuka": float(saran_dp),
+            "saranRetensi": float(saran_ret),
+        }
+
+    # ------------------------------------------------------------------
     # Penyesuaian: potongan & tambahan
     # ------------------------------------------------------------------
 
@@ -677,8 +806,14 @@ class CertificateOfPaymentController:
                     409,
                 )
 
-            siap, galat = CertificateOfPaymentController._siapkan_penyesuaian(
-                penyesuaian, _d(cop.get("grossAmount"))
+            siap, galat = await CertificateOfPaymentController._siapkan_penyesuaian(
+                penyesuaian,
+                _d(cop.get("grossAmount")),
+                # `.get`, bukan indeks langsung: CoP yang dibaca lewat
+                # jalur lain belum tentu membawa kolom ini, dan yang
+                # meledak di sini menggagalkan penyimpanan yang sah.
+                int(cop.get("purchaseOrderID") or 0) or None,
+                cop_id,
             )
             if galat:
                 return galat
@@ -701,8 +836,11 @@ class CertificateOfPaymentController:
             return internal_error()
 
     @staticmethod
-    def _siapkan_penyesuaian(
-        masuk: List[Dict[str, Any]], kotor: Decimal
+    async def _siapkan_penyesuaian(
+        masuk: List[Dict[str, Any]],
+        kotor: Decimal,
+        purchase_order_id: int | None = None,
+        cop_id: int | None = None,
     ):
         """
         Periksa kiriman layar. Kembalikan (baris_siap, galat).
@@ -776,6 +914,49 @@ class CertificateOfPaymentController:
                     "note": p.get("note"),
                 }
             )
+
+        # ---- pagu uang muka & retensi ----
+        #
+        # Sama prinsipnya dengan pagu volume: yang sudah dipotong pada CoP
+        # sebelumnya dijumlahkan, dan yang melampaui kesepakatannya ditolak
+        # beserta angka sisanya.
+        #
+        # Selama potongannya proporsional, batas ini tidak akan tersentuh —
+        # 20% dari tiap progres berjumlah tepat 20% dari kontrak ketika
+        # pekerjaannya selesai. Yang dijaganya adalah angka yang DIKETIK
+        # TANGAN, karena di situlah kelebihannya mungkin terjadi.
+        if purchase_order_id:
+            syarat = await CertificateOfPaymentController._syarat_spk(
+                purchase_order_id, cop_id, kotor
+            )
+            for kategori, kunci_sisa, sebutan in (
+                ("uang_muka", "dpSisa", "pengembalian uang muka"),
+                ("retensi", "retensiSisa", "retensi"),
+            ):
+                diminta = sum(
+                    (
+                        p["amount"]
+                        for p in siap
+                        if p["kind"] == "deduction" and p["category"] == kategori
+                    ),
+                    Decimal("0"),
+                )
+                if diminta <= 0:
+                    continue
+                sisa = _d(syarat.get(kunci_sisa))
+                # Pagu nol berarti syaratnya memang tidak tercatat di SPK —
+                # dibiarkan lewat supaya SPK lama tetap dapat dipotong.
+                pagu = _d(syarat.get("dpPagu" if kategori == "uang_muka" else "retensiPagu"))
+                if pagu <= 0:
+                    continue
+                if diminta > sisa:
+                    return None, app_error(
+                        ErrorCode.VALIDATION,
+                        f"Potongan {sebutan} ({diminta:,.2f}) melebihi sisanya "
+                        f"({sisa:,.2f}). Seluruhnya {pagu:,.2f}, dan sebagian "
+                        "sudah dipotong pada certificate of payment sebelumnya.",
+                        400,
+                    )
 
         bersih = kotor - potongan + tambahan
         if bersih < 0:
@@ -1078,26 +1259,11 @@ class CertificateOfPaymentController:
         # tetap yang memutuskan ia dipotong periode ini atau tidak.
         if boleh_melihat_nilai_cop(user_level):
             try:
-                spk = await PurchaseOrderRepository.get_by_id(
-                    int(hasil["purchaseOrderID"])
+                hasil["spkSyarat"] = await CertificateOfPaymentController._syarat_spk(
+                    int(hasil["purchaseOrderID"]),
+                    cop_id,
+                    _d(hasil.get("grossAmount")),
                 )
-                if isinstance(spk, dict) and "error" not in spk:
-                    kotor = _d(hasil.get("grossAmount"))
-                    tarif_pph = _d(spk.get("pphPercentage"))
-                    tarif_dp = _d(spk.get("dpPercentage"))
-                    tarif_ret = _d(spk.get("retentionPercentage"))
-                    hasil["spkSyarat"] = {
-                        "pphCode": spk.get("pphCode"),
-                        "pphTaxObject": spk.get("pphTaxObject"),
-                        "pphPercentage": float(tarif_pph),
-                        "dpPercentage": float(tarif_dp),
-                        "retentionPercentage": float(tarif_ret),
-                        # Saran nominal, dihitung dari nilai pekerjaan
-                        # periode ini.
-                        "saranPph": float(kotor * tarif_pph / 100),
-                        "saranUangMuka": float(kotor * tarif_dp / 100),
-                        "saranRetensi": float(kotor * tarif_ret / 100),
-                    }
             except Exception as e:
                 # Gagal membaca syarat SPK tidak boleh menggagalkan pembacaan
                 # CoP-nya; yang hilang hanya sarannya.
