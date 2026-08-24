@@ -718,9 +718,71 @@ class PurchaseOrderController:
         departments: set | None = None,
     ):
         """Tandai dokumen sudah atau belum diperiksa."""
-        return await PurchaseOrderRepository.set_checked(
+        hasil = await PurchaseOrderRepository.set_checked(
             purchase_order_id, checked, user_id, user_level, departments
         )
+
+        # Kabar setelah pemeriksaan SELESAI (bukan saat dicabut):
+        #
+        #   * penyetuju (level 4+) — "Minta disetujui": kini giliran mereka;
+        #   * pembuatnya — dokumennya lolos pemeriksaan.
+        #
+        # Efek samping dengan pola yang sama seperti notifikasi PO baru:
+        # tugas terpisah, dibungkus try — push yang gagal tidak boleh
+        # menggagalkan pemeriksaan yang sudah tercatat.
+        if checked and isinstance(hasil, dict) and "error" not in hasil:
+            try:
+                import asyncio
+                from repository.push_subscription_repository import (
+                    PushSubscriptionRepository,
+                )
+                from utils.webpush import kirim_ke_pengguna, push_aktif
+
+                if push_aktif():
+                    po = await PurchaseOrderRepository.get_by_id(
+                        purchase_order_id
+                    )
+                    if isinstance(po, dict) and "error" not in po:
+                        nama = po.get("name") or f"PO #{purchase_order_id}"
+                        proyek = po.get("projectName") or ""
+                        label = nama + (f" — {proyek}" if proyek else "")
+                        pembuat = po.get("createdBy")
+
+                        # Pemeriksa dan pembuat dikecualikan: pemeriksa
+                        # memang ditolak server menyetujui periksaannya
+                        # sendiri, dan pembuat menerima kabarnya sendiri
+                        # di bawah — bukan diminta menyetujui.
+                        penyetuju = await PushSubscriptionRepository.penyetuju_ids(
+                            kecuali_user_ids=[user_id, pembuat]
+                        )
+                        if penyetuju:
+                            asyncio.create_task(
+                                kirim_ke_pengguna(
+                                    penyetuju,
+                                    judul="Minta disetujui",
+                                    pesan=f"{label} sudah diperiksa dan "
+                                    "menunggu persetujuan.",
+                                    url=f"/Purchase-order?open={purchase_order_id}",
+                                    tag=f"po-approve-{purchase_order_id}",
+                                )
+                            )
+                        if pembuat is not None and int(pembuat) != int(user_id):
+                            asyncio.create_task(
+                                kirim_ke_pengguna(
+                                    [int(pembuat)],
+                                    judul="Selesai diperiksa",
+                                    pesan=f"{label} lolos pemeriksaan dan "
+                                    "lanjut menunggu persetujuan.",
+                                    url=f"/Purchase-order?open={purchase_order_id}",
+                                    tag=f"po-checked-{purchase_order_id}",
+                                )
+                            )
+            except Exception as push_err:
+                log_error(
+                    f"Gagal menjadwalkan notifikasi pemeriksaan PO: {str(push_err)}"
+                )
+
+        return hasil
 
     @staticmethod
     async def update_purchase_order_status(
@@ -733,6 +795,49 @@ class PurchaseOrderController:
             )
             if "error" in result:
                 return {"error": result["error"], "status": result.get("status", 500)}
+
+            # Kabar HASIL ke pembuatnya: disetujui, atau dibatalkan/ditolak.
+            #
+            # Hanya dua keadaan itu — kembali ke draf dan perubahan lain
+            # bukan keputusan yang perlu membangunkan ponsel orang. Pengambil
+            # keputusannya sendiri dikecualikan; ia baru saja menekan
+            # tombolnya.
+            if status in ("approved", "cancelled"):
+                try:
+                    import asyncio
+                    from utils.webpush import kirim_ke_pengguna, push_aktif
+
+                    if push_aktif():
+                        po = await PurchaseOrderRepository.get_by_id(
+                            purchase_order_id
+                        )
+                        if isinstance(po, dict) and "error" not in po:
+                            pembuat = po.get("createdBy")
+                            if pembuat is not None and int(pembuat) != int(user_id):
+                                nama = po.get("name") or f"PO #{purchase_order_id}"
+                                proyek = po.get("projectName") or ""
+                                label = nama + (f" — {proyek}" if proyek else "")
+                                disetujui = status == "approved"
+                                asyncio.create_task(
+                                    kirim_ke_pengguna(
+                                        [int(pembuat)],
+                                        judul="Disetujui" if disetujui else "Ditolak",
+                                        pesan=f"{label} "
+                                        + (
+                                            "telah disetujui."
+                                            if disetujui
+                                            else "ditolak/dibatalkan. Periksa "
+                                            "dokumennya untuk tindak lanjut."
+                                        ),
+                                        url=f"/Purchase-order?open={purchase_order_id}",
+                                        tag=f"po-hasil-{purchase_order_id}",
+                                    )
+                                )
+                except Exception as push_err:
+                    log_error(
+                        f"Gagal menjadwalkan notifikasi status PO: {str(push_err)}"
+                    )
+
             return result
         except Exception as e:
             log_error(f"Error updating purchase order status: {str(e)}")

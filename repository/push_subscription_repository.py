@@ -121,3 +121,34 @@ class PushSubscriptionRepository:
         except Exception as e:
             log_error(f"Gagal menentukan pemeriksa: {str(e)}")
             return []
+
+    @staticmethod
+    async def penyetuju_ids(
+        kecuali_user_ids: List[int] | None = None,
+    ) -> List[int]:
+        """
+        Pengguna yang BOLEH menyetujui purchase order: level 4 ke atas.
+
+        Cerminan aturan persetujuan di `update_status` — dokumen yang sudah
+        diperiksa menunggu keputusan level 4/5. Beberapa pengguna dapat
+        dikecualikan sekaligus: minimal pemeriksanya sendiri (server memang
+        menolak pemeriksa menyetujui periksaannya) dan pembuatnya (ia diberi
+        kabar tersendiri, bukan diminta menyetujui).
+        """
+        try:
+            rows = await database.fetch_all(
+                select(
+                    users_table.c.id,
+                    users_table.c.authenticationLevel,
+                ).where(users_table.c.isDeleted == False)  # noqa: E712
+            )
+            kecuali = {int(u) for u in (kecuali_user_ids or []) if u is not None}
+            return [
+                r["id"]
+                for r in rows
+                if int(r["authenticationLevel"] or 1) >= 4
+                and r["id"] not in kecuali
+            ]
+        except Exception as e:
+            log_error(f"Gagal menentukan penyetuju: {str(e)}")
+            return []
