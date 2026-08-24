@@ -1,0 +1,485 @@
+"""
+Penyimpanan Certificate of Payment.
+
+Di sinilah aturan yang benar-benar menjaga uang perusahaan berada:
+
+  * baris yang di-CoP-kan HARUS milik SPK-nya — bukan pekerjaan lain, bukan
+    baris karangan;
+  * akumulasi volume lintas seluruh CoP tidak boleh melampaui pagu barisnya;
+  * harga TIDAK PERNAH diambil dari kiriman layar, selalu dari baris SPK.
+
+Ketiganya ditegakkan DI SINI, bukan di layar. Layar dapat diubah siapa pun
+yang membuka peramban; yang menahan angka mengada-ada hanyalah pemeriksaan
+di sisi server.
+"""
+
+from datetime import datetime as dt
+from decimal import Decimal
+from typing import Any, Dict, List
+
+from sqlalchemy import insert, select, update
+
+from utils.database import database
+from utils.errors import ErrorCode, app_error, internal_error
+from utils.logger_utils import log_error
+from models.certificate_of_payment_model import (
+    certificate_of_payments_table,
+    certificate_of_payment_items_table,
+)
+from models.purchase_order_model import purchase_orders_table
+from models.purchase_order_item_model import purchase_order_items_table
+
+
+def _d(nilai: Any) -> Decimal:
+    """Angka apa pun -> Decimal, tanpa melewati float.
+
+    Volume dan harga dijumlahkan berkali-kali di berkas ini. Lewat float,
+    0.1 + 0.2 tidak sama dengan 0.3, dan pagu yang pas terpakai habis dapat
+    tampak terlampaui sepersekian satuan — penolakan yang tidak dapat
+    dijelaskan kepada yang mengisinya.
+    """
+    if nilai is None:
+        return Decimal("0")
+    if isinstance(nilai, Decimal):
+        return nilai
+    return Decimal(str(nilai))
+
+
+class CertificateOfPaymentRepository:
+    """Simpan & baca Certificate of Payment beserta penjagaan pagunya."""
+
+    # ------------------------------------------------------------------
+    # Rantai dokumen & pagu
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def rantai_ids(purchase_order_id: int) -> List[int]:
+        """
+        SPK induk beserta SELURUH adendum yang sudah disetujui.
+
+        Berbeda dengan `rantai_dokumen` pada purchase order — yang sengaja
+        berhenti di dokumen yang diminta karena dipakai untuk MENCETAK —
+        pagu justru harus melihat keadaan TERKINI: adendum yang terbit
+        kemarin memperbesar pagu hari ini.
+
+        Adendum yang BELUM disetujui tidak ikut. Ia belum menjadi kesepakatan,
+        dan volume yang belum disepakati tidak boleh dapat ditagihkan.
+        """
+        induk = await database.fetch_one(
+            """
+            SELECT id, parentPurchaseOrderID
+            FROM purchase_orders
+            WHERE id = :id AND isDelete = 0
+            """,
+            {"id": purchase_order_id},
+        )
+        if not induk:
+            return []
+
+        induk_id = induk["parentPurchaseOrderID"] or induk["id"]
+
+        adendum = await database.fetch_all(
+            """
+            SELECT id
+            FROM purchase_orders
+            WHERE parentPurchaseOrderID = :induk
+              AND isDelete = 0
+              AND isApproved = 1
+            ORDER BY addendumNumber
+            """,
+            {"induk": induk_id},
+        )
+        return [induk_id] + [r["id"] for r in adendum]
+
+    @staticmethod
+    async def pagu(purchase_order_id: int) -> List[Dict[str, Any]]:
+        """
+        Keadaan setiap baris pekerjaan pada rantai SPK ini.
+
+        Untuk tiap baris: volume kontraknya (`pagu`), yang sudah
+        disertifikasi CoP lain (`terpakai`), dan sisanya.
+
+        CoP yang DIBATALKAN atau DIHAPUS tidak ikut menghitung — volumenya
+        kembali tersedia. CoP yang masih draf IKUT: bila tidak, dua orang
+        dapat menyiapkan dua CoP yang masing-masing muat tetapi bersama-sama
+        melampaui pagunya, dan keduanya lolos.
+        """
+        ids = await CertificateOfPaymentRepository.rantai_ids(purchase_order_id)
+        if not ids:
+            return []
+
+        baris = await database.fetch_all(
+            select(
+                purchase_order_items_table.c.id,
+                purchase_order_items_table.c.purchaseOrderID,
+                purchase_order_items_table.c.task,
+                purchase_order_items_table.c.unit,
+                purchase_order_items_table.c.quantity,
+                purchase_order_items_table.c.price,
+                purchase_order_items_table.c.item_id,
+                purchase_order_items_table.c.equipment_id,
+                purchase_order_items_table.c.remarks_1,
+            ).where(purchase_order_items_table.c.purchaseOrderID.in_(ids))
+        )
+
+        terpakai = await database.fetch_all(
+            """
+            SELECT ci.purchaseOrderItemID AS baris, SUM(ci.quantity) AS jumlah
+            FROM certificate_of_payment_items ci
+            JOIN certificate_of_payments c
+              ON c.id = ci.certificateOfPaymentID
+            WHERE c.isDelete = 0
+              AND c.status <> 'cancelled'
+              AND ci.purchaseOrderItemID IN (
+                    SELECT id FROM purchase_order_items
+                    WHERE purchaseOrderID IN :ids
+              )
+            GROUP BY ci.purchaseOrderItemID
+            """,
+            {"ids": tuple(ids)},
+        )
+        dipakai = {r["baris"]: _d(r["jumlah"]) for r in terpakai}
+
+        hasil: List[Dict[str, Any]] = []
+        for b in baris:
+            pagu = _d(b["quantity"])
+            sudah = dipakai.get(b["id"], Decimal("0"))
+            hasil.append(
+                {
+                    "purchaseOrderItemID": b["id"],
+                    "purchaseOrderID": b["purchaseOrderID"],
+                    "task": b["task"],
+                    "unit": b["unit"],
+                    "itemID": b["item_id"],
+                    "equipmentID": b["equipment_id"],
+                    "keterangan": b["remarks_1"],
+                    "price": _d(b["price"]),
+                    "pagu": pagu,
+                    "terpakai": sudah,
+                    "sisa": pagu - sudah,
+                }
+            )
+        return hasil
+
+    # ------------------------------------------------------------------
+    # Penomoran
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def nomor_berikut(purchase_order_id: int) -> int:
+        """Urutan CoP berikutnya pada SPK ini (1, 2, 3 ...)."""
+        induk = await database.fetch_val(
+            """
+            SELECT COALESCE(parentPurchaseOrderID, id)
+            FROM purchase_orders WHERE id = :id
+            """,
+            {"id": purchase_order_id},
+        )
+        terakhir = await database.fetch_val(
+            """
+            SELECT MAX(number) FROM certificate_of_payments
+            WHERE purchaseOrderID = :po
+            """,
+            {"po": induk or purchase_order_id},
+        )
+        return int(terakhir or 0) + 1
+
+    # ------------------------------------------------------------------
+    # Tulis
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def create(data: Dict[str, Any], items: List[Dict[str, Any]], user_id: int):
+        """
+        Simpan satu CoP beserta barisnya.
+
+        `items` hanya memuat `purchaseOrderItemID`, `quantity`, dan
+        `remarks` — harga diambil sendiri dari SPK-nya di sini.
+        """
+        try:
+            async with database.transaction():
+                nomor = data.get("number") or await CertificateOfPaymentRepository.nomor_berikut(
+                    data["purchaseOrderID"]
+                )
+
+                cop_id = await database.execute(
+                    insert(certificate_of_payments_table).values(
+                        name=data["name"],
+                        number=nomor,
+                        purchaseOrderID=data["purchaseOrderID"],
+                        projectName=data.get("projectName") or "",
+                        date=data["date"],
+                        periodStart=data.get("periodStart"),
+                        periodEnd=data.get("periodEnd"),
+                        note=data.get("note"),
+                        status="draft",
+                        createdBy=user_id,
+                        # Diisi di sini, bukan diserahkan ke default kolom:
+                        # pustaka `databases` tidak menjalankan default Python
+                        # dan yang terkirim menjadi NULL.
+                        createdAt=dt.now(),
+                    )
+                )
+
+                for it in items:
+                    await database.execute(
+                        insert(certificate_of_payment_items_table).values(
+                            certificateOfPaymentID=cop_id,
+                            purchaseOrderItemID=it["purchaseOrderItemID"],
+                            quantity=it["quantity"],
+                            price=it["price"],
+                            amount=it["amount"],
+                            remarks=it.get("remarks"),
+                        )
+                    )
+
+                from repository.audit_log_repository import AuditLogRepository
+
+                await AuditLogRepository.record(
+                    entity="certificate_of_payments",
+                    entityID=cop_id,
+                    action="create",
+                    userID=user_id,
+                )
+
+            return {"certificateOfPaymentID": cop_id, "name": data["name"], "number": nomor}
+        except Exception as e:
+            log_error(f"Gagal membuat certificate of payment: {str(e)}")
+            return internal_error()
+
+    @staticmethod
+    async def ganti_items(cop_id: int, items: List[Dict[str, Any]], user_id: int):
+        """Ganti seluruh baris CoP (dipakai saat menyunting)."""
+        try:
+            async with database.transaction():
+                await database.execute(
+                    """
+                    DELETE FROM certificate_of_payment_items
+                    WHERE certificateOfPaymentID = :id
+                    """,
+                    {"id": cop_id},
+                )
+                for it in items:
+                    await database.execute(
+                        insert(certificate_of_payment_items_table).values(
+                            certificateOfPaymentID=cop_id,
+                            purchaseOrderItemID=it["purchaseOrderItemID"],
+                            quantity=it["quantity"],
+                            price=it["price"],
+                            amount=it["amount"],
+                            remarks=it.get("remarks"),
+                        )
+                    )
+            return {"message": "Baris certificate of payment diperbarui"}
+        except Exception as e:
+            log_error(f"Gagal mengganti baris CoP: {str(e)}")
+            return internal_error()
+
+    @staticmethod
+    async def update_meta(cop_id: int, nilai: Dict[str, Any], user_id: int):
+        """Perbarui keterangan CoP (tanggal, periode, catatan)."""
+        try:
+            if not nilai:
+                return {"message": "Tidak ada perubahan"}
+            await database.execute(
+                update(certificate_of_payments_table)
+                .where(certificate_of_payments_table.c.id == cop_id)
+                .values(**nilai)
+            )
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="certificate_of_payments",
+                entityID=cop_id,
+                action="update",
+                userID=user_id,
+            )
+            return {"message": "Certificate of payment diperbarui"}
+        except Exception as e:
+            log_error(f"Gagal memperbarui CoP: {str(e)}")
+            return internal_error()
+
+    @staticmethod
+    async def set_checked(cop_id: int, checked: bool, user_id: int):
+        """
+        Tandai CoP sudah/belum diperiksa.
+
+        Mencabut pemeriksaan ikut MENGGUGURKAN persetujuannya — sama seperti
+        purchase order, dan karena alasan yang sama: yang menyetujui bertumpu
+        pada pemeriksaan yang ternyata ditarik.
+        """
+        try:
+            nilai = (
+                {"isChecked": True, "checkedBy": user_id, "checkedAt": dt.now()}
+                if checked
+                else {
+                    "isChecked": False,
+                    "checkedBy": None,
+                    "checkedAt": None,
+                    "isApproved": False,
+                    "approvedBy": None,
+                    "approvedAt": None,
+                    "status": "draft",
+                }
+            )
+            await database.execute(
+                update(certificate_of_payments_table)
+                .where(certificate_of_payments_table.c.id == cop_id)
+                .values(**nilai)
+            )
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="certificate_of_payments",
+                entityID=cop_id,
+                action="set_checked",
+                userID=user_id,
+            )
+            return {"message": "Pemeriksaan diperbarui"}
+        except Exception as e:
+            log_error(f"Gagal menandai pemeriksaan CoP: {str(e)}")
+            return internal_error()
+
+    @staticmethod
+    async def approve(cop_id: int, user_id: int):
+        """Setujui CoP. Disaring ulang agar dua persetujuan bersamaan tidak lolos keduanya."""
+        try:
+            await database.execute(
+                update(certificate_of_payments_table)
+                .where(certificate_of_payments_table.c.id == cop_id)
+                .where(certificate_of_payments_table.c.isApproved == False)  # noqa: E712
+                .values(
+                    isApproved=True,
+                    approvedBy=user_id,
+                    approvedAt=dt.now(),
+                    status="approved",
+                )
+            )
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="certificate_of_payments",
+                entityID=cop_id,
+                action="approve",
+                userID=user_id,
+            )
+            return {"message": "Certificate of payment disetujui"}
+        except Exception as e:
+            log_error(f"Gagal menyetujui CoP: {str(e)}")
+            return internal_error()
+
+    @staticmethod
+    async def soft_delete(cop_id: int, user_id: int):
+        try:
+            await database.execute(
+                update(certificate_of_payments_table)
+                .where(certificate_of_payments_table.c.id == cop_id)
+                .values(isDelete=True, deletedBy=user_id, deletedAt=dt.now())
+            )
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="certificate_of_payments",
+                entityID=cop_id,
+                action="delete",
+                userID=user_id,
+            )
+            return {"message": "Certificate of payment dihapus"}
+        except Exception as e:
+            log_error(f"Gagal menghapus CoP: {str(e)}")
+            return internal_error()
+
+    # ------------------------------------------------------------------
+    # Baca
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def get_by_id(cop_id: int):
+        try:
+            baris = await database.fetch_one(
+                """
+                SELECT c.*,
+                       po.name        AS purchaseOrderName,
+                       po.purchaseType,
+                       pembuat.name   AS createdByName,
+                       pemeriksa.name AS checkedByName,
+                       penyetuju.name AS approvedByName
+                FROM certificate_of_payments c
+                JOIN purchase_orders po ON po.id = c.purchaseOrderID
+                LEFT JOIN users pembuat   ON pembuat.id   = c.createdBy
+                LEFT JOIN users pemeriksa ON pemeriksa.id = c.checkedBy
+                LEFT JOIN users penyetuju ON penyetuju.id = c.approvedBy
+                WHERE c.id = :id AND c.isDelete = 0
+                """,
+                {"id": cop_id},
+            )
+            if not baris:
+                return app_error(
+                    ErrorCode.NOT_FOUND, "Certificate of payment tidak ditemukan", 404
+                )
+
+            items = await database.fetch_all(
+                """
+                SELECT ci.*, poi.task, poi.unit, poi.quantity AS paguBaris,
+                       poi.item_id, poi.equipment_id
+                FROM certificate_of_payment_items ci
+                JOIN purchase_order_items poi ON poi.id = ci.purchaseOrderItemID
+                WHERE ci.certificateOfPaymentID = :id
+                ORDER BY ci.id
+                """,
+                {"id": cop_id},
+            )
+
+            hasil = dict(baris)
+            hasil["items"] = [dict(i) for i in items]
+            return hasil
+        except Exception as e:
+            log_error(f"Gagal membaca CoP: {str(e)}")
+            return internal_error()
+
+    @staticmethod
+    async def get_all(
+        purchase_order_id: int | None = None,
+        project_name: str | None = None,
+        created_by: int | None = None,
+        page: int = 0,
+        page_size: int = 20,
+    ):
+        try:
+            syarat = ["c.isDelete = 0"]
+            params: Dict[str, Any] = {}
+            if purchase_order_id:
+                syarat.append("c.purchaseOrderID = :po")
+                params["po"] = purchase_order_id
+            if project_name:
+                syarat.append("c.projectName = :proyek")
+                params["proyek"] = project_name
+            if created_by:
+                syarat.append("c.createdBy = :pembuat")
+                params["pembuat"] = created_by
+
+            where = " AND ".join(syarat)
+            total = await database.fetch_val(
+                f"SELECT COUNT(*) FROM certificate_of_payments c WHERE {where}",
+                params,
+            )
+
+            params["limit"] = max(1, int(page_size))
+            params["offset"] = max(0, int(page)) * max(1, int(page_size))
+            baris = await database.fetch_all(
+                f"""
+                SELECT c.*, po.name AS purchaseOrderName,
+                       pembuat.name AS createdByName
+                FROM certificate_of_payments c
+                JOIN purchase_orders po ON po.id = c.purchaseOrderID
+                LEFT JOIN users pembuat ON pembuat.id = c.createdBy
+                WHERE {where}
+                ORDER BY c.date DESC, c.id DESC
+                LIMIT :limit OFFSET :offset
+                """,
+                params,
+            )
+            return {"total": int(total or 0), "data": [dict(r) for r in baris]}
+        except Exception as e:
+            log_error(f"Gagal membaca daftar CoP: {str(e)}")
+            return internal_error()

@@ -479,3 +479,92 @@ def boleh_menyetujui_sendiri(level) -> bool:
         return int(level or 1) >= LEVEL_BOLEH_SETUJU_SENDIRI
     except (TypeError, ValueError):
         return False
+
+
+# =====================================================================
+# Certificate of Payment
+# =====================================================================
+#
+# Tiga tangan, tiga level, satu divisi:
+#
+#   dibuat    level 1 engineering  — orang lapangan, ia yang menyaksikan
+#   diperiksa level 2 engineering  — angkanya dicocokkan dengan SPK
+#   disetujui level 3 ke atas      — boleh ditagihkan
+#
+# Divisi ditegakkan untuk level 1-3. Level 4 ke atas dibebaskan dari
+# divisinya, sama seperti pada purchase order: keduanya berwenang atas
+# seluruh dokumen dan kerap merekalah satu-satunya yang hadir.
+
+DIVISI_COP = frozenset({"engineering"})
+
+#: Level yang bebas dari syarat divisi pada seluruh tahap CoP.
+LEVEL_COP_BEBAS_DIVISI = 4
+
+LEVEL_COP_BUAT = 1
+LEVEL_COP_PERIKSA = 2
+LEVEL_COP_SETUJU = 3
+
+#: Level minimum yang boleh MELIHAT nilai rupiah pada CoP.
+#
+# Orang lapangan (level 1) mengisi volume, dan hanya volume. Harga satuan
+# pekerjaan adalah hasil negosiasi procurement dengan vendor; yang mengetahui
+# di lapangan membuatnya dapat dibicarakan di lapangan.
+#
+# Ambangnya di sini SATU-SATUNYA sumbernya, dan penyaringannya terjadi di
+# server. Mengirim angkanya lalu menyembunyikannya di layar bukan merahasiakan
+# apa pun: yang sampai di peramban dapat dibaca siapa pun yang membuka
+# perkakas pengembang.
+LEVEL_COP_LIHAT_NILAI = 2
+
+
+def _divisi_cop_terpenuhi(level, departments=None) -> bool:
+    try:
+        lv = int(level or 1)
+    except (TypeError, ValueError):
+        return False
+    if lv >= LEVEL_COP_BEBAS_DIVISI:
+        return True
+    return bool(set(departments or ()) & DIVISI_COP)
+
+
+def boleh_membuat_cop(level, departments=None) -> bool:
+    """Boleh MEMBUAT certificate of payment."""
+    try:
+        lv = int(level or 1)
+    except (TypeError, ValueError):
+        return False
+    if lv < LEVEL_COP_BUAT:
+        return False
+    return _divisi_cop_terpenuhi(lv, departments)
+
+
+def boleh_memeriksa_cop(level, departments=None) -> bool:
+    """Boleh MEMERIKSA certificate of payment."""
+    try:
+        lv = int(level or 1)
+    except (TypeError, ValueError):
+        return False
+    if lv < LEVEL_COP_PERIKSA:
+        return False
+    return _divisi_cop_terpenuhi(lv, departments)
+
+
+def boleh_menyetujui_cop(level) -> bool:
+    """
+    Boleh MENYETUJUI certificate of payment.
+
+    Tanpa syarat divisi: persetujuan adalah keputusan, bukan pekerjaan
+    teknis, dan yang menanggungnya bukan divisi engineering.
+    """
+    try:
+        return int(level or 1) >= LEVEL_COP_SETUJU
+    except (TypeError, ValueError):
+        return False
+
+
+def boleh_melihat_nilai_cop(level) -> bool:
+    """Boleh melihat harga & nilai rupiah pada certificate of payment."""
+    try:
+        return int(level or 1) >= LEVEL_COP_LIHAT_NILAI
+    except (TypeError, ValueError):
+        return False

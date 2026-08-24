@@ -54,6 +54,8 @@ import models.user_permission_model  # izin khusus per pengguna
 import models.hr_recruitment_model  # ujian rekrutmen HR
 import models.tender_model  # Tender pengadaan
 import models.payment_plan_model  # Rencana pengeluaran
+import models.push_subscription_model  # langganan notifikasi push per perangkat
+import models.certificate_of_payment_model  # certificate of payment (CoP) atas SPK
 
 if __name__ == "__main__":
     metadata.create_all(engine, checkfirst=True)

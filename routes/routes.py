@@ -26,6 +26,7 @@ from routes.purchase_draft_routes import router as purchase_draft_router
 from routes.income_routes import router as income_router
 from routes.loan_routes import router as loan_router
 from routes.purchase_order_routes import router as purchase_order_router
+from routes.certificate_of_payment_routes import router as certificate_of_payment_router
 from routes.dashboard_routes import router as dashboard_router
 from routes.master_item_routes import router as master_item_router
 from routes.master_equipment_routes import router as master_equipment_router
@@ -91,6 +92,11 @@ router.include_router(project_router, prefix="/projects", tags=["Projects"])
 router.include_router(finance_status_router, prefix="/finance-status", tags=["Finance Status"])
 router.include_router(loan_router, prefix="/loans", tags=["Loan"])
 router.include_router(purchase_order_router, prefix="/purchase-orders", tags=["Purchase Orders"])
+router.include_router(
+    certificate_of_payment_router,
+    prefix="/certificate-of-payments",
+    tags=["Certificate of Payment"],
+)
 router.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])
 router.include_router(master_item_router, prefix="/master-items", tags=["Master Items"])
 router.include_router(master_equipment_router, prefix="/master-equipment", tags=["Master Equipment"])

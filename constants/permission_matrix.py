@@ -158,6 +158,23 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     # `approve` tidak berlaku: rencana bukan keputusan yang perlu disetujui,
     # melainkan taksiran yang diperbaiki terus-menerus.
     "payment_plan": (1, 1, 1, 2, 0),
+    # Certificate of Payment — berita acara progres atas sebuah SPK.
+    #
+    # `create` di akses 1 karena memang orang lapangan yang mengisinya:
+    # dialah yang menyaksikan pekerjaannya, dan menaikkannya berarti progres
+    # dicatat oleh orang yang tidak berada di sana.
+    #
+    # Yang menjaga bukan levelnya melainkan DIVISI-nya (engineering) beserta
+    # tiga lapis di controller: yang mencatat bukan yang memeriksa, dan bukan
+    # pula yang memutuskan boleh ditagihkan.
+    #
+    # `update` ikut di akses 1 — pembuatnya membetulkan salah ketik volumenya
+    # sendiri — tetapi hanya SELAMA belum diperiksa; syarat itu tidak dapat
+    # dinyatakan di matriks ini dan ditegakkan di controller.
+    #
+    # `approve` di akses 3, sama dengan purchase order: gerbang uang yang
+    # sebenarnya tetap berada di pembayaran keluar.
+    "certificate_of_payment": (1, 1, 1, 2, 3),
     "purchase_order": (1, 1, 1, 2, 3),
     "reimbursement": (1, 1, 1, 2, 3),
     # Slip gaji mengikuti tangga level seperti modul lain.

@@ -104,19 +104,24 @@ DEPARTMENT_MODULES: dict[str, set[str]] = {
         # levelnya tinggi.
         "hr_recruitment",
     },
-    # Divisinya sudah ada, modulnya belum.
+    # Divisi ini akhirnya punya modulnya sendiri.
     #
-    # Sengaja dibiarkan kosong: pekerjaan engineering — metode kerja, volume
-    # per titik, progres lapangan, data hasil uji — belum ada satu pun di
-    # sistem ini. Mengisinya dengan modul alat dan pembelian hanya membuat
-    # peta wilayah ini terbaca seolah sudah benar, padahal isinya logistik
-    # milik divisi lain.
+    # Sebelumnya sengaja dibiarkan kosong — pekerjaan engineering (metode
+    # kerja, volume per titik, progres lapangan, data hasil uji) belum ada
+    # satu pun di sistem — dengan peringatan agar tidak menempatkan siapa pun
+    # di sini. Certificate of Payment adalah yang pertama: progres lapangan
+    # yang dicatat orang lapangan, diperiksa engineering, lalu disetujui.
     #
-    # PERHATIAN: selama masih kosong, jangan tempatkan siapa pun di divisi
-    # ini. Yang punya divisi dibatasi wilayahnya, sehingga orangnya hanya
-    # akan melihat beranda dan kalender. Biarkan tanpa divisi dahulu — tanpa
-    # divisi berarti tidak dibatasi, dan aksesnya mengikuti levelnya.
-    "engineering": set(UMUM),
+    # `purchase_order` ikut, HANYA-BACA (lihat `DEPARTMENT_READ_ONLY`).
+    # CoP dibuat di atas SPK: yang mengisinya harus dapat membuka SPK-nya
+    # untuk memilih baris pekerjaan yang dikerjakan minggu itu. Tanpa itu ia
+    # hanya melihat daftar kosong. Membuat dan mengubah PO tetap wilayah
+    # procurement — di sini benar-benar hanya membaca.
+    "engineering": UMUM
+    | {
+        "certificate_of_payment",
+        "purchase_order",
+    },
     "procurement": UMUM
     | {
         "purchase_order",
@@ -154,6 +159,9 @@ DEPARTMENT_MODULES: dict[str, set[str]] = {
 # memang perlu mencatat dapat diberi haknya tanpa mengubah kebijakan.
 DEPARTMENT_READ_ONLY: dict[str, set[str]] = {
     "procurement": {"asset"},
+    # Engineering membuka SPK untuk memilih baris pekerjaan yang di-CoP-kan,
+    # tetapi tidak menerbitkan maupun mengubahnya — itu tetap procurement.
+    "engineering": {"purchase_order"},
 }
 
 
