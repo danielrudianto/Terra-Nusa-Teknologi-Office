@@ -59,6 +59,79 @@ class CertificateOfPaymentController:
     """Aturan Certificate of Payment."""
 
     # ------------------------------------------------------------------
+    # Jenis dokumen
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def adalah_spk(po: Dict[str, Any]) -> bool:
+        """
+        Dokumen ini terbit sebagai SURAT PERINTAH KERJA?
+
+        Memakai `_awalan_dokumen` milik purchase order — SATU-SATUNYA tempat
+        jenis dokumen ditentukan. Menyalin daftarnya ke sini akan membuat
+        keduanya berselisih pada jenis berikutnya yang ditambahkan, dan yang
+        tertinggal tidak menimbulkan galat: hanya CoP yang diam-diam menolak
+        SPK yang sah, atau menerima purchase order yang bukan haknya.
+        """
+        import json
+
+        from controllers.purchase_order_controller import PurchaseOrderController
+
+        custom = po.get("customData")
+        if isinstance(custom, str):
+            try:
+                custom = json.loads(custom or "{}")
+            except Exception:
+                custom = {}
+
+        awalan = PurchaseOrderController._awalan_dokumen(
+            po.get("purchaseType") or "", custom or {}
+        )
+        return awalan == "SPK"
+
+    @staticmethod
+    async def spk_kandidat(
+        project_name: str | None = None,
+        keyword: str | None = None,
+        user_level: int = 1,
+    ):
+        """
+        Daftar SPK yang dapat dijadikan dasar CoP.
+
+        Penyaring SPK-vs-PO dijalankan DI SINI, bukan di SQL: jenis dokumen
+        ditentukan `_awalan_dokumen` yang membaca `customData`.
+
+        Nilai `dpp` ikut disaring seperti tempat lain — daftar pilihan pun
+        tidak boleh membocorkan nilai kontrak kepada lapangan.
+        """
+        try:
+            baris = await CertificateOfPaymentRepository.spk_kandidat(
+                project_name, keyword
+            )
+            if isinstance(baris, dict) and "error" in baris:
+                return baris
+
+            hasil = []
+            for po in baris:
+                if not CertificateOfPaymentController.adalah_spk(po):
+                    continue
+                keluar = {
+                    "id": po["id"],
+                    "name": po["name"],
+                    "projectName": po["projectName"],
+                    "purchaseType": po["purchaseType"],
+                    "supplierName": po.get("supplierName"),
+                    "date": po.get("date"),
+                }
+                if boleh_melihat_nilai_cop(user_level):
+                    keluar["dpp"] = float(po["dpp"] or 0)
+                hasil.append(keluar)
+            return hasil
+        except Exception as e:
+            log_error(f"Gagal membaca kandidat SPK: {str(e)}")
+            return internal_error()
+
+    # ------------------------------------------------------------------
     # Penyaringan nilai
     # ------------------------------------------------------------------
 
@@ -119,6 +192,17 @@ class CertificateOfPaymentController:
             if not spk or (isinstance(spk, dict) and "error" in spk):
                 return app_error(ErrorCode.NOT_FOUND, "SPK tidak ditemukan", 404)
 
+            # Dijaga di sini JUGA, bukan hanya saat menyimpan: layar yang
+            # memuat baris purchase order pembelian sudah menyesatkan yang
+            # mengisinya sebelum ia sempat menekan simpan.
+            if not CertificateOfPaymentController.adalah_spk(spk):
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "Dokumen ini purchase order pembelian, bukan SPK. "
+                    "Certificate of payment hanya dibuat atas SPK.",
+                    400,
+                )
+
             baris = await CertificateOfPaymentRepository.pagu(purchase_order_id)
             # Decimal tidak dapat dikirim apa adanya sebagai JSON.
             keluar = [
@@ -178,6 +262,27 @@ class CertificateOfPaymentController:
                     ErrorCode.VALIDATION,
                     "SPK belum disetujui. Certificate of payment hanya dapat "
                     "dibuat atas SPK yang sudah terbit.",
+                    400,
+                )
+
+            # Dokumennya harus benar-benar SPK, bukan PURCHASE ORDER.
+            #
+            # CoP mensertifikasi PEKERJAAN yang terlaksana bertahap — itulah
+            # yang diperintahkan sebuah surat perintah kerja. Purchase order
+            # adalah pembelian barang: ia diterima sekali, dan progres
+            # mingguan atasnya tidak berarti apa-apa.
+            #
+            # Diperiksa dengan fungsi yang SAMA dengan yang menyusun nomornya,
+            # bukan dengan membaca teks "SPK" pada namanya. Jenis dokumen di
+            # sini bergantung isian (PO-F jasa uji terbit sebagai SPK, PO-F
+            # material sebagai PO), dan menebaknya dari teks membuat keduanya
+            # tertukar tanpa galat apa pun.
+            if not CertificateOfPaymentController.adalah_spk(spk):
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "Certificate of payment hanya dapat dibuat atas SPK "
+                    "(surat perintah kerja), bukan atas purchase order "
+                    "pembelian barang.",
                     400,
                 )
 

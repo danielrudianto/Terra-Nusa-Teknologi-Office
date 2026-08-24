@@ -35,6 +35,27 @@ def _lempar_bila_galat(hasil):
     return hasil
 
 
+@router.get("/spk")
+async def daftar_spk(
+    current_user: Annotated[User, Depends(require("certificate_of_payment", "read"))],
+    projectName: Optional[str] = None,
+    keyword: Optional[str] = None,
+):
+    """
+    SPK yang dapat dijadikan dasar CoP.
+
+    Layar TIDAK menyaring sendiri jenis dokumennya: purchase order pembelian
+    tidak boleh sampai ke daftar pilihan sama sekali. Menyaringnya di layar
+    berarti aturan yang sama ditulis dua kali, dan yang tertinggal saat
+    jenisnya bertambah tidak menimbulkan galat apa pun.
+    """
+    return _lempar_bila_galat(
+        await CertificateOfPaymentController.spk_kandidat(
+            projectName, keyword, _level(current_user)
+        )
+    )
+
+
 @router.get("/pagu/{purchase_order_id}")
 async def pagu_spk(
     purchase_order_id: int,

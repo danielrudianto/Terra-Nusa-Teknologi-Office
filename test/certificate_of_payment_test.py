@@ -84,6 +84,9 @@ def repo(monkeypatch):
             "projectName": "MICZ",
             "isApproved": True,
             "parentPurchaseOrderID": None,
+            # Jenis B = penyewaan alat kerja, terbit sebagai SPK.
+            "purchaseType": "B",
+            "customData": None,
         },
         "dibuat": None,
         "items_disimpan": None,
@@ -516,4 +519,77 @@ class TestHapus:
             modul.CertificateOfPaymentRepository, "soft_delete", staticmethod(_hapus)
         )
         hasil = await CoP.delete(9, user_id=4, user_level=4)
+        assert "error" not in hasil
+
+
+# =====================================================================
+# 8. Hanya SPK, bukan purchase order pembelian
+# =====================================================================
+
+
+class TestHanyaSPK:
+    """
+    CoP mensertifikasi PEKERJAAN yang terlaksana bertahap — itu yang
+    diperintahkan surat perintah kerja. Purchase order pembelian barang
+    diterima sekali; progres mingguan atasnya tidak berarti apa pun, dan
+    membiarkannya membuat dua jenis dokumen yang alurnya berbeda bercampur.
+    """
+
+    @pytest.mark.asyncio
+    async def test_purchase_order_pembelian_ditolak(self, repo):
+        # Jenis G = pengadaan barang, terbit sebagai PURCHASE ORDER.
+        repo["spk"]["purchaseType"] = "G"
+        repo["spk"]["name"] = "013-PO-MICZ-G"
+        hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
+                                 departments={"engineering"})
+        assert hasil["status"] == 400
+        assert "SPK" in hasil["error"]
+        assert repo["items_disimpan"] is None
+
+    @pytest.mark.asyncio
+    async def test_pagu_purchase_order_pembelian_ditolak(self, repo):
+        """Ditolak SEBELUM layarnya sempat memuat baris yang salah."""
+        repo["spk"]["purchaseType"] = "G"
+        hasil = await CoP.pagu_spk(5, user_level=1)
+        assert isinstance(hasil, dict)
+        assert hasil["status"] == 400
+
+    @pytest.mark.asyncio
+    async def test_jenis_spk_diterima(self, repo):
+        for jenis in ("A", "B", "D", "H", "H1", "6.4.1"):
+            repo["spk"]["purchaseType"] = jenis
+            repo["items_disimpan"] = None
+            hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
+                                     departments={"engineering"})
+            assert "error" not in hasil, f"jenis {jenis} seharusnya SPK"
+
+    @pytest.mark.asyncio
+    async def test_po_f_jasa_uji_adalah_spk(self, repo):
+        """
+        PO-F bentuknya bergantung isian: jasa pengujian terbit sebagai SPK,
+        pengadaan materialnya sebagai PO. Keduanya harus dibedakan dengan
+        benar — inilah alasan jenis dokumen tidak boleh ditebak dari teks
+        namanya.
+        """
+        repo["spk"]["purchaseType"] = "F"
+        repo["spk"]["customData"] = {"materialType": "ujitekan"}
+        hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
+                                 departments={"engineering"})
+        assert "error" not in hasil
+
+    @pytest.mark.asyncio
+    async def test_po_f_material_bukan_spk(self, repo):
+        repo["spk"]["purchaseType"] = "F"
+        repo["spk"]["customData"] = {"materialType": "beton"}
+        hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
+                                 departments={"engineering"})
+        assert hasil["status"] == 400
+
+    @pytest.mark.asyncio
+    async def test_custom_data_berupa_teks_json_tetap_terbaca(self, repo):
+        """Basis data mengembalikan JSON sebagai teks pada sebagian jalur."""
+        repo["spk"]["purchaseType"] = "F"
+        repo["spk"]["customData"] = '{"materialType": "ujitanah"}'
+        hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
+                                 departments={"engineering"})
         assert "error" not in hasil

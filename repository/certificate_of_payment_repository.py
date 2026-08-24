@@ -483,3 +483,55 @@ class CertificateOfPaymentRepository:
         except Exception as e:
             log_error(f"Gagal membaca daftar CoP: {str(e)}")
             return internal_error()
+
+    @staticmethod
+    async def spk_kandidat(
+        project_name: str | None = None,
+        keyword: str | None = None,
+        batas: int = 50,
+    ):
+        """
+        Purchase order yang MUNGKIN menjadi dasar CoP.
+
+        Disaring di SQL hanya sejauh yang dapat dinyatakan SQL: sudah
+        disetujui, belum dihapus, dan bukan adendum (adendum menambah pagu
+        pada rantai induknya, bukan membuka rangkaian CoP tersendiri).
+
+        Penyaringan SPK-vs-PO TIDAK dilakukan di sini: jenis dokumen
+        ditentukan `_awalan_dokumen`, yang membaca `customData` — logika
+        Python yang tidak dapat dipindahkan ke SQL tanpa menyalinnya, dan
+        salinan yang tertinggal akan berselisih diam-diam. Controller yang
+        menyaringnya.
+        """
+        try:
+            syarat = [
+                "po.isDelete = 0",
+                "po.isApproved = 1",
+                "po.parentPurchaseOrderID IS NULL",
+            ]
+            params: Dict[str, Any] = {}
+            if project_name:
+                syarat.append("po.projectName = :proyek")
+                params["proyek"] = project_name
+            if keyword:
+                syarat.append("(po.name LIKE :kata OR po.projectName LIKE :kata)")
+                params["kata"] = f"%{keyword}%"
+
+            params["limit"] = max(1, int(batas))
+            baris = await database.fetch_all(
+                f"""
+                SELECT po.id, po.name, po.projectName, po.purchaseType,
+                       po.customData, po.date, po.dpp,
+                       s.name AS supplierName
+                FROM purchase_orders po
+                LEFT JOIN suppliers s ON s.id = po.supplierID
+                WHERE {' AND '.join(syarat)}
+                ORDER BY po.date DESC, po.id DESC
+                LIMIT :limit
+                """,
+                params,
+            )
+            return [dict(r) for r in baris]
+        except Exception as e:
+            log_error(f"Gagal membaca kandidat SPK: {str(e)}")
+            return internal_error()
