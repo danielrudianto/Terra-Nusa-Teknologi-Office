@@ -6,7 +6,16 @@ reimbursements_table = Table(
     "reimbursements",
     metadata,
     Column("id", Integer, primary_key=True),
-    Column("name", String(100), nullable=False),
+    # Nama reimbursement UNIK.
+    #
+    # Ia dipakai sebagai penyebut pada dokumen pembayaran dan rekap; dua
+    # reimbursement bernama sama membuat yang menyetujui tidak dapat
+    # memastikan mana yang sedang dibayarnya.
+    #
+    # Dinyatakan DI SINI, bukan hanya di basis data: tanpa itu, nama yang
+    # sudah terpakai ditolak MySQL dengan galat 500 yang tidak menyebut
+    # sebabnya, dan yang mengisinya menyimpulkan sistemnya rusak.
+    Column("name", String(100), nullable=False, unique=True),
     Column("date", Date(), nullable=False),
     Column("dueDate", Date(), nullable=True),
     Column("projectName", String(100), nullable=False),

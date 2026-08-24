@@ -4,8 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from datetime import datetime as dt
 from repository.loan_repository import LoanRepository
-# Assuming you have a PaymentOutgoing repository for payments
-# from repository.payment_outgoing_repository import PaymentOutgoingRepository
+from repository.payment_income_repository import PaymentIncomingRepository
 
 class LoanController:
     @staticmethod 
@@ -23,8 +22,33 @@ class LoanController:
                 log_error(f"Error creating loan: {result['error']}")
                 raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
 
-            log_info(f"Loan created successfully with ID: {result['loan_id']}")
-            return {"message": "Loan created successfully", "loan_id": result['loan_id']}
+            loan_id = result["loan_id"]
+            log_info(f"Loan created successfully with ID: {loan_id}")
+
+            # Otomatis catat dana yang DITERIMA (received) sebagai payment_incoming,
+            # terhubung ke loan ini, dengan tanggal sesuai tanggal loan.
+            try:
+                payment_data = {
+                    "date": loan_data["date"],
+                    "amount": loan_data.get("received", 0) or 0,
+                    "loanID": loan_id,
+                    "bankAccountID": loan_data.get("bankAccountID"),
+                    "createdBy": user_id,
+                    "createdAt": dt.now(),
+                    "isApprove": True,
+                }
+                payment_result = await PaymentIncomingRepository.create(payment_data)
+                if "error" in payment_result:
+                    # Loan tetap berhasil; kegagalan payment_incoming hanya dicatat.
+                    log_error(
+                        f"Loan {loan_id} created but auto payment_incoming failed: {payment_result['error']}"
+                    )
+            except Exception as pay_err:
+                log_error(
+                    f"Loan {loan_id} created but auto payment_incoming raised: {str(pay_err)}"
+                )
+
+            return {"message": "Loan created successfully", "loan_id": loan_id}
         except IntegrityError as e:
             log_error(f"Integrity error: {str(e)}")
             raise HTTPException(status_code=400, detail="Loan already exists.")
@@ -37,8 +61,8 @@ class LoanController:
         """Get a loan by its ID."""
         try:
             result = await LoanRepository.get_loan_by_id(loan_id)
-            if "error" in result:
-                raise HTTPException(status_code=result["status"], detail=result["error"])
+            if isinstance(result, dict) and "error" in result:
+                raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
             return result
         except HTTPException as e:
             raise e
@@ -48,15 +72,11 @@ class LoanController:
     
     @staticmethod
     async def get_payments_by_loan_id(loan_id: int):
-        """Get payments for a specific loan."""
+        """Get active outgoing payments for a specific loan."""
         try:
-            # This would come from your PaymentOutgoing repository
-            # For now, returning empty list as placeholder
-            # result = await PaymentOutgoingRepository.get_payments_by_loan_id(loan_id)
-            result = []  # Placeholder - replace with actual repository call
-            
-            # if "error" in result:
-            #     raise HTTPException(status_code=result["status"], detail=result["error"])
+            result = await LoanRepository.get_payments_by_loan_id(loan_id)
+            if isinstance(result, dict) and "error" in result:
+                raise HTTPException(status_code=result.get("status", 500), detail=result["error"])
             return result
         except HTTPException as e:
             raise e
@@ -76,6 +96,60 @@ class LoanController:
             raise e
         except Exception as e:
             log_error(f"Unexpected error getting loans: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error")
+
+    @staticmethod
+    async def update_loan(loan_id: int, loan_data: Dict, user_id: int) -> Dict:
+        """
+        Perbarui data pinjaman.
+
+        Nilai utang boleh diubah, tetapi TIDAK BOLEH turun di bawah jumlah yang
+        sudah dibayarkan. Utang 100 juta yang sudah dibayar 80 juta lalu diubah
+        menjadi 50 juta berarti pinjaman itu terbayar lebih — dan tidak ada
+        tempat di sistem yang mencatat kelebihannya, sehingga selisih 30 juta
+        menghilang tanpa jejak.
+
+        Ambangnya memakai toleransi lima rupiah, sama seperti pada persetujuan
+        pembayaran: nilai disimpan sebagai desimal sementara pembayaran
+        dijumlahkan sebagai pecahan, dan selisih pembulatan beberapa rupiah
+        bukan tanda kelebihan bayar.
+        """
+        try:
+            if "debt" in loan_data and loan_data["debt"] is not None:
+                lama_ = await LoanRepository.get_loan_by_id(loan_id)
+                if isinstance(lama_, dict) and "error" in lama_:
+                    raise HTTPException(status_code=404, detail="Loan not found")
+
+                dibayar = await LoanRepository.total_dibayar(loan_id)
+                baru_ = float(loan_data["debt"])
+                if baru_ + 5 < dibayar:
+                    log_error(
+                        f"Perubahan utang pinjaman {loan_id} ditolak: "
+                        f"nilai baru {baru_} di bawah yang sudah dibayar {dibayar}."
+                    )
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "LOAN_BELOW_PAID",
+                            "message": "Loan value cannot be lower than the amount already paid.",
+                            "paid": dibayar,
+                        },
+                    )
+
+            result = await LoanRepository.update(loan_id, loan_data, user_id)
+            if "error" in result:
+                raise HTTPException(status_code=result["status"], detail=result["error"])
+
+            # Status lunas dihitung ulang setiap kali nilainya berubah, ke dua
+            # arah: yang tadinya belum lunas bisa menjadi lunas, dan sebaliknya.
+            if any(k in loan_data for k in ("debt", "received")):
+                await LoanRepository.hitung_ulang_lunas(loan_id, user_id)
+
+            return result
+        except HTTPException as e:
+            raise e
+        except Exception as e:
+            log_error(f"Unexpected error updating loan: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error")
 
     @staticmethod

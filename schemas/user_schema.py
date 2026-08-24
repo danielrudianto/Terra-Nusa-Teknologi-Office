@@ -6,10 +6,35 @@ from datetime import datetime
 class UserBase(BaseModel):
     name: str
     email: str
+    # Jabatan; dicetak di bawah nama pada blok tanda tangan dokumen.
+    # Opsional karena pengguna lama belum mengisinya.
+    position: Optional[str] = Field(default=None, max_length=100)
     authenticationLevel: Optional[int] = Field(default=1, ge=1, le=5, description="Authentication level of the user, between 1 and 5")
 
 class UserCreate(UserBase):
     password: str
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    position: Optional[str] = Field(default=None, max_length=100)
+    authenticationLevel: Optional[int] = Field(default=None, ge=1, le=5)
+    isActive: Optional[bool] = None
+    password: Optional[str] = None
+
+class PasswordChange(BaseModel):
+    """
+    Ganti sandi sendiri.
+
+    Sandi lama ikut diminta walaupun pengguna sudah membawa token yang sah:
+    token bisa saja tertinggal di perangkat yang tidak terkunci, dan tanpa
+    verifikasi ini siapa pun yang menemukannya bisa mengunci pemilik akun
+    keluar dari akunnya sendiri.
+    """
+
+    currentPassword: str = Field(min_length=1)
+    newPassword: str = Field(min_length=6)
+
 
 class UserLogin(BaseModel):
     email: str

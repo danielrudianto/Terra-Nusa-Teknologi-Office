@@ -5,6 +5,7 @@ from models.income_model import income_table
 from models.expense_opponent_model import expense_opponents_table
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime as dt
+from utils.errors import internal_error
 
 class IncomeRepository:
     @staticmethod
@@ -26,6 +27,14 @@ class IncomeRepository:
                 deletedBy=income_data.get('deletedBy')
             )
             result = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="income",
+                entityID=result,
+                action="create",
+            )
             return {"message": "Income created successfully", "incomeID": result}
         except IntegrityError as e:
             log_error(f"Integrity error while creating income data: {str(e.orig)}")
@@ -116,7 +125,7 @@ class IncomeRepository:
             }
         except Exception as e:
             log_error(f"Error fetching incomes: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_id(income_id: int):
@@ -152,7 +161,7 @@ class IncomeRepository:
             return income_dict
         except Exception as e:
             log_error(f"Error fetching income by ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def update(income_id: int, income_data: dict):
@@ -160,6 +169,11 @@ class IncomeRepository:
         Update an income in the database.
         """
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(income_table).where(income_table.c.id == income_id)
+            )
             # Remove None values
             update_data = {k: v for k, v in income_data.items() if v is not None}
             
@@ -176,10 +190,29 @@ class IncomeRepository:
             if result == 0:
                 return {"error": "Income not found", "status": 404}
                 
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="income",
+                entityID=income_id,
+                action="update",
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(income_table).where(
+                                income_table.c.id == income_id
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+
             return {"message": "Income updated successfully"}
         except Exception as e:
             log_error(f"Error updating income: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def delete(income_id: int, user_id: int):
@@ -201,7 +234,16 @@ class IncomeRepository:
             if result == 0:
                 return {"error": "Income not found", "status": 404}
                 
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="income",
+                entityID=income_id,
+                action="delete",
+                userID=user_id,
+            )
+            
             return {"message": "Income deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting income: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

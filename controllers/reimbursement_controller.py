@@ -1,9 +1,11 @@
 from repository.reimbursement_repository import ReimbursementRepository
 from models.payment_outgoing_model import PaymentOutgoing
+from repository.payment_outgoing_repository import PaymentOutgoingRepository
 from schemas.reimbursement_schema import ReimbursementCreate, ReimbursementResponse
 from utils.logger_utils import log_error, log_info
 from datetime import datetime
 from fastapi import HTTPException
+from utils.errors import internal_error
 
 class ReimbursementController:
 
@@ -52,7 +54,7 @@ class ReimbursementController:
             )
         except Exception as e:
             log_error(f"Error creating reimbursement: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_reimbursements(page: int, pageSize: int, filterObject: dict, sortBy: str, sortByDirection: str, keyword: str | None):
@@ -78,7 +80,7 @@ class ReimbursementController:
             return reimbursement_items
         
         # Note: You'll need to implement PaymentOutgoing repository similarly
-        payments = await PaymentOutgoing.get_payments_by_reimbursement_id(reimbursementID)
+        payments = await PaymentOutgoingRepository.get_payments_by_reimbursement_id(reimbursementID)
         if "error" in payments:
             log_error(f"Error getting payments: {payments['error']}")
             return payments
@@ -91,7 +93,7 @@ class ReimbursementController:
         }
 
     @staticmethod
-    async def approve_reimbursement(reimbursementID: int, userID: int):
+    async def approve_reimbursement(reimbursementID: int, userID: int, user_level: int | None = None):
         log_info(f"Approving reimbursement with ID: {reimbursementID}")
         try:
             reimbursement = await ReimbursementRepository.get_reimbursement_by_id(reimbursementID)
@@ -105,7 +107,7 @@ class ReimbursementController:
             if reimbursement["isDelete"]:
                 return {"message": "Reimbursement is deleted and cannot be approved", "status": 400}
         
-            result = await ReimbursementRepository.approve_reimbursement_by_id(reimbursementID, userID)
+            result = await ReimbursementRepository.approve_reimbursement_by_id(reimbursementID, userID, user_level)
             if "error" in result:
                 log_error(f"Error approving reimbursement: {result['error']}")
                 return result
@@ -114,7 +116,7 @@ class ReimbursementController:
             return {"message": "Reimbursement approved successfully", "reimbursementID": reimbursementID}
         except Exception as e:
             log_error(f"Error approving reimbursement: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def reject_reimbursement(reimbursementID: int, userID: int):
@@ -137,4 +139,4 @@ class ReimbursementController:
             return {"message": "Reimbursement rejected successfully", "reimbursementID": reimbursementID}
         except Exception as e:
             log_error(f"Error rejecting reimbursement: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

@@ -15,12 +15,18 @@ purchases_table = Table(
     Column("projectName", String(100), nullable=False),
     Column("purchaseType", String(100), nullable=False),
     Column("procurementType", String(100), nullable=False, default="goods"),
+    # DECIMAL(17,4) di basis data, bukan FLOAT — `Float()` di sini warisan
+    # dan sengaja dibiarkan: menggantinya membuat `databases` mengembalikan
+    # `Decimal`, dan `float * Decimal` melempar TypeError di repository.
     Column("dpp", Float(), nullable=False),
+    # DECIMAL(12,2). Tarif, tetap dua desimal.
     Column("ppn", Float(), nullable=False),
+    # DECIMAL(17,4).
     Column("pbbkb", Float(), nullable=False),
     Column("pphCode", String(100), nullable=True),
     Column("pphTaxObject", String(500), nullable=True),
     Column("pphPercentage", Float(), nullable=False),
+    # DECIMAL(14,4).
     Column("otherValue", Float(), nullable=True),
     Column("otherValueNote", String(255), nullable=True),
     Column("isInvoiceAttached", Boolean(), nullable=False),

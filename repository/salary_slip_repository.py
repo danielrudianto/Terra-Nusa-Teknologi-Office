@@ -1,4 +1,5 @@
 from sqlalchemy import select, func, update
+from utils.errors import ErrorCode, app_error, internal_error
 from utils.database import database
 from utils.logger_utils import log_error
 from models.salary_slip_model import salary_slips_table, salary_slips_allowance_table, salary_slips_deduction_table
@@ -16,7 +17,7 @@ class SalarySlipRepository:
         )
         existing_slip = await database.fetch_one(query)
         if existing_slip:
-            return {"error": "Salary slip already exists for this user, month, and year.", "status": 400}
+            return app_error(ErrorCode.SALARY_SLIP_EXISTS, "Salary slip already exists for this user, month, and year.", 400)
         return {"message": "Validation successful."}
 
     @staticmethod
@@ -24,13 +25,53 @@ class SalarySlipRepository:
         query = salary_slips_table.insert().values(salary_slip_data)
         try:
             result = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="salary_slips",
+                entityID=result,
+                action="create",
+            )
             return result
         except Exception as e:
             log_error(f"Error creating salary slip: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
-    async def fetch(page: int, pageSize: int, keyword: str, month: int, year: int):
+    async def fetch(
+        page: int,
+        pageSize: int,
+        keyword: str,
+        month: int,
+        year: int,
+        sortBy: str = None,
+        sortByDirection: str = "asc",
+    ):
+        # Kolom yang boleh dipakai mengurutkan; daftar putih mencegah nama
+        # kolom sembarang ikut masuk ke query.
+        SORTABLE = {
+            "name": employees_table.c.name,
+            "basicSalary": salary_slips_table.c.basicSalary,
+            "isPaid": salary_slips_table.c.isPaid,
+            "department": salary_slips_table.c.department,
+            "position": salary_slips_table.c.position,
+        }
+        if sortBy in SORTABLE:
+            _kolom = SORTABLE[sortBy]
+            _urut = [
+                _kolom.desc()
+                if str(sortByDirection).lower() == "desc"
+                else _kolom.asc()
+            ]
+        else:
+            # Bawaan: periode terbaru lebih dulu, lalu nama karyawan.
+            _urut = [
+                salary_slips_table.c.year.desc(),
+                salary_slips_table.c.month.desc(),
+                employees_table.c.name.asc(),
+            ]
+
         allowance_subq = (
             select(
                 salary_slips_allowance_table.c.salarySlipID,
@@ -65,6 +106,12 @@ class SalarySlipRepository:
             salary_slips_table.c.isDelete,
             salary_slips_table.c.isPaid,
             employees_table.c.name,
+            # Alamat surel ikut diambil.
+            #
+            # Layar memakainya untuk menentukan slip mana yang dapat
+            # dikirim; tanpa kolom ini, seluruh slip tampak tidak punya
+            # alamat dan tombol kirim tidak pernah menyala.
+            employees_table.c.email,
         ).join(
             employees_table, salary_slips_table.c.userID == employees_table.c.id
         ).outerjoin(
@@ -75,9 +122,7 @@ class SalarySlipRepository:
             employees_table.c.name.ilike(f"%{keyword}%"),
             salary_slips_table.c.month == month,
             salary_slips_table.c.year == year
-        ).order_by(
-            salary_slips_table.c.year.desc(), salary_slips_table.c.month.desc(), employees_table.c.name.asc()
-        ).offset((page - 1) * pageSize).limit(pageSize)
+        ).order_by(*_urut).offset((page - 1) * pageSize).limit(pageSize)
         
         try:
             result = await database.fetch_all(query)
@@ -100,7 +145,7 @@ class SalarySlipRepository:
             }
         except Exception as e:
             log_error(f"Error fetching salary slips: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_id(id: int):
@@ -139,7 +184,7 @@ class SalarySlipRepository:
             return dict(result)
         except Exception as e:
             log_error(f"Error fetching salary slip by ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def delete_by_id(id: int, userID: int):
@@ -157,10 +202,26 @@ class SalarySlipRepository:
         if result == 0:
             return {"error": "Update failed or salary slip not found", "status": 404}
         
+        from repository.audit_log_repository import AuditLogRepository
+
+        await AuditLogRepository.record(
+            entity="salary_slips",
+            # entityID adalah id slip gaji. Kolom `userID` pada tabel ini
+            # merujuk ke employees.id, sedangkan parameter userID di sini
+            # adalah pelaku penghapusan — keduanya berbeda.
+            entityID=id,
+            action="delete",
+            userID=userID,
+        )
+
         return {"message": "Salary slip updated successfully"}
 
     @staticmethod
     async def update_payment_status(id: int, isPaid: bool, userID: int):
+        # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut terekam.
+        _sebelum = await database.fetch_one(
+            select(salary_slips_table).where(salary_slips_table.c.id == id)
+        )
         query = (
             update(salary_slips_table)
             .where(salary_slips_table.c.id == id)
@@ -175,6 +236,27 @@ class SalarySlipRepository:
         if result == 0:
             return {"error": "Update failed or salary slip not found", "status": 404}
         
+        from repository.audit_log_repository import AuditLogRepository
+
+        await AuditLogRepository.record(
+            entity="salary_slips",
+            # entityID adalah id slip gaji, bukan id pengguna yang mengubah.
+            entityID=id,
+            action="update_payment_status",
+            userID=userID,
+            changes=AuditLogRepository.diff(
+                dict(_sebelum) if _sebelum else {},
+                dict(
+                    await database.fetch_one(
+                        select(salary_slips_table).where(
+                            salary_slips_table.c.id == id
+                        )
+                    )
+                    or {}
+                ),
+            ),
+        )
+
         return {"message": "Salary slip updated successfully"}
 
     @staticmethod
@@ -187,7 +269,7 @@ class SalarySlipRepository:
             return [dict(row) for row in result]
         except Exception as e:
             log_error(f"Error fetching allowances: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_deductions_by_salary_slip_id(salary_slip_id: int):
@@ -199,7 +281,7 @@ class SalarySlipRepository:
             return [dict(row) for row in result]
         except Exception as e:
             log_error(f"Error fetching deductions: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_pph_report(month: int, year: int):
@@ -287,12 +369,22 @@ class SalarySlipRepository:
 
         except Exception as e:
             log_error(f"Error fetching PPH report: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
 class SalarySlipAllowanceRepository:
     @staticmethod
     async def create_allowances(salarySlipID: int, allowances: list):
         if not allowances:
+            from repository.audit_log_repository import AuditLogRepository
+
+            # Baris turunan dicatat pada dokumen induknya: riwayat dibaca
+            # per dokumen, sehingga catatan terpisah tidak akan terlihat.
+            await AuditLogRepository.record(
+                entity="salary_slips",
+                entityID=salarySlipID,
+                action="create_allowances",
+            )
+
             return {"message": "No allowances to create."}
         
         query = salary_slips_allowance_table.insert().values([
@@ -310,7 +402,7 @@ class SalarySlipAllowanceRepository:
             return {"message": "Salary slip allowances created successfully."}
         except Exception as e:
             log_error(f"Error creating salary slip allowance: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def get_by_salary_slip_id(salarySlipID: int):
@@ -320,12 +412,22 @@ class SalarySlipAllowanceRepository:
             return [dict(row) for row in result]
         except Exception as e:
             log_error(f"Error fetching allowances: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
 class SalarySlipDeductionRepository:
     @staticmethod
     async def create_deductions(salarySlipID: int, deductions: list):
         if not deductions:
+            from repository.audit_log_repository import AuditLogRepository
+
+            # Baris turunan dicatat pada dokumen induknya: riwayat dibaca
+            # per dokumen, sehingga catatan terpisah tidak akan terlihat.
+            await AuditLogRepository.record(
+                entity="salary_slips",
+                entityID=salarySlipID,
+                action="create_deductions",
+            )
+
             return {"message": "No deductions to create."}
         
         query = salary_slips_deduction_table.insert().values([
@@ -343,7 +445,7 @@ class SalarySlipDeductionRepository:
             return {"message": "Salary slip deductions created successfully."}
         except Exception as e:
             log_error(f"Error creating salary slip deduction: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def get_by_salary_slip_id(salarySlipID: int):
@@ -353,4 +455,4 @@ class SalarySlipDeductionRepository:
             return [dict(row) for row in result]
         except Exception as e:
             log_error(f"Error fetching deductions: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

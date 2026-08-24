@@ -8,6 +8,7 @@ from models.payment_outgoing_model import payments_outgoing_table
 from models.payment_incoming_model import payment_incoming_table
 from utils.logger_utils import log_error
 from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, select, func
+from utils.errors import internal_error
 
 # Define the Purchase model
 class BankAccount(BaseModel):
@@ -51,6 +52,14 @@ class BankAccount(BaseModel):
                 isDelete=self.isDelete,
             )
             result = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="bank_accounts",
+                entityID=result,
+                action="create",
+            )
             return {"message": "Bank account created successfully", "bank_account_id": result}
         except IntegrityError as e:
             # Handle integrity errors, such as unique constraint violations
@@ -62,7 +71,12 @@ class BankAccount(BaseModel):
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
-    async def get_banks(page: int = 1, pageSize: int = 10) -> dict:
+    async def get_banks(
+        page: int = 1,
+        pageSize: int = 10,
+        sortBy: str = None,
+        sortByDirection: str = "asc",
+    ) -> dict:
         """
         Retrieve all bank accounts from the database with pagination.
         
@@ -77,7 +91,27 @@ class BankAccount(BaseModel):
         ba = bank_accounts_table
 
         offset = (page - 1) * pageSize
-        query = bank_accounts_table.select().order_by(bank_accounts_table.c.isDelete, bank_accounts_table.c.bankAccountNumber).limit(pageSize).offset(offset)
+        # Kolom yang boleh dipakai mengurutkan; daftar putih mencegah nama
+        # kolom sembarang ikut masuk ke query.
+        SORTABLE = {
+            "bankName": bank_accounts_table.c.bankName,
+            "bankAccountName": bank_accounts_table.c.bankAccountName,
+            "bankAccountNumber": bank_accounts_table.c.bankAccountNumber,
+        }
+        _kolom = SORTABLE.get(sortBy, bank_accounts_table.c.bankAccountNumber)
+        _urut = (
+            _kolom.desc()
+            if str(sortByDirection).lower() == "desc"
+            else _kolom.asc()
+        )
+
+        # Rekening terhapus tetap ditaruh di bawah, apa pun kolom pengurutnya.
+        query = (
+            bank_accounts_table.select()
+            .order_by(bank_accounts_table.c.isDelete, _urut)
+            .limit(pageSize)
+            .offset(offset)
+        )
         try:
             query = (
                 select(
@@ -117,7 +151,7 @@ class BankAccount(BaseModel):
             return {"data": response, "count": count if count is not None else 0}
         except Exception as e:
             log_error(f"Error fetching bank accounts: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_bank_account_by_id(id: int) -> dict:
@@ -154,7 +188,7 @@ class BankAccount(BaseModel):
                 return None
         except Exception as e:
             log_error(f"Error fetching bank account by ID {id}: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
     
     @staticmethod
     async def get_bank_accounts_by_ids(ids: list[int] | None):
@@ -214,4 +248,4 @@ class BankAccount(BaseModel):
                 return {"error": "Bank account not found.", "status": 404}
         except Exception as e:
             log_error(f"Error deleting bank account with ID {id}: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

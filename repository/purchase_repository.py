@@ -1,10 +1,11 @@
-from sqlalchemy import select, func, or_, insert, update
+from sqlalchemy import select, func, or_, and_, insert, update
 from utils.database import database
 from utils.logger_utils import log_error
 from models.purchase_model import purchases_table, purchase_status_table
+from models.purchase_order_model import purchase_orders_table
 from models.supplier_model import suppliers_table
 from models.payment_outgoing_model import payments_outgoing_table
-from datetime import datetime as dt
+from datetime import date, datetime as dt
 
 class PurchaseRepository:
     @staticmethod
@@ -15,10 +16,18 @@ class PurchaseRepository:
         try:
             query = insert(purchases_table).values(purchase_data)
             purchase_id = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="purchases",
+                entityID=purchase_id,
+                action="create",
+            )
             return purchase_id
         except Exception as e:
             log_error(f"Error creating purchase: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_all(page: int, pageSize: int, filterObject: dict, sortBy: str, sortByDirection: str, keyword: str | None):
@@ -102,9 +111,23 @@ class PurchaseRepository:
             else:
                 order_by = purchases_table.c.date.desc()
 
+            # Tabel purchases hanya menyimpan NAMA purchase order, bukan
+            # id-nya. Id diambil lewat sambungan nama agar dokumennya dapat
+            # dibuka langsung dari daftar pembelian — tanpa ini, pengguna
+            # harus menyalin nomornya lalu mencarinya di halaman lain.
             query = (
-                select(*purchases_table.c, *supplier_columns)
+                select(
+                    *purchases_table.c,
+                    *supplier_columns,
+                    purchase_orders_table.c.id.label("purchase_order_id"),
+                )
                 .join(suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id)
+                .join(
+                    purchase_orders_table,
+                    purchases_table.c.purchaseOrderName
+                    == purchase_orders_table.c.name,
+                    isouter=True,
+                )
                 .where(*conditions)
                 .order_by(order_by)
                 .offset(offset)
@@ -140,7 +163,7 @@ class PurchaseRepository:
             return {"data": purchase_result, "count": count}
         except Exception as e:
             log_error(f"Error fetching purchases: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def check_exists(invoiceName: str, purchaseOrderName: str):
@@ -163,7 +186,7 @@ class PurchaseRepository:
             return {"exists": count > 0}
         except Exception as e:
             log_error(f"Error checking purchase: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_by_id(purchaseID: int):
@@ -179,9 +202,38 @@ class PurchaseRepository:
                 suppliers_table.c.province.label("supplier_province"),
                 suppliers_table.c.prefix.label("supplier_prefix"),
             ]
+            # Nama pembuat ikut diambil agar tampilan detail bisa
+            # menampilkannya tanpa permintaan tambahan.
+            #
+            # Impor ditaruh di dalam fungsi: menaruhnya di kepala berkas
+            # menambah ketergantungan saat modul dimuat, dan pada sebagian
+            # susunan proyek itu memicu impor melingkar sehingga
+            # PurchaseRepository gagal terbaca.
+            from models.user_model import users_table
+
             query = (
-                select(*purchases_table.c, *supplier_columns)
-                .join(suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id)
+                select(
+                    *purchases_table.c,
+                    *supplier_columns,
+                    users_table.c.name.label("createdByName"),
+                    # Id purchase order disambungkan lewat namanya, sama
+                    # seperti pada daftar: tabel purchases hanya menyimpan
+                    # nomornya sebagai teks.
+                    purchase_orders_table.c.id.label("purchase_order_id"),
+                )
+                .select_from(
+                    purchases_table.join(
+                        suppliers_table,
+                        purchases_table.c.supplierID == suppliers_table.c.id,
+                    ).outerjoin(
+                        users_table,
+                        purchases_table.c.createdBy == users_table.c.id,
+                    ).outerjoin(
+                        purchase_orders_table,
+                        purchases_table.c.purchaseOrderName
+                        == purchase_orders_table.c.name,
+                    )
+                )
                 .where(purchases_table.c.id == purchaseID)
             )
             purchase = await database.fetch_one(query)
@@ -205,7 +257,7 @@ class PurchaseRepository:
             return purchase_dict
         except Exception as e:
             log_error(f"Error fetching purchase by ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_purchases_by_purchase_order_name(purchase_order_name: str):
@@ -238,7 +290,45 @@ class PurchaseRepository:
             return {"data": purchases}
         except Exception as e:
             log_error(f"Error fetching purchases: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def get_drafts_by_project(projectName: str):
+        """
+        Draft pembelian satu proyek, untuk laporan.
+
+        Draft IKUT dihitung sebagai biaya. Ia belum tentu menjadi pembelian,
+        tetapi biaya yang belum tercatat justru yang paling berbahaya di
+        sini: tanpanya proyek tampak untung padahal tagihannya belum masuk
+        semua.
+
+        Aturan yang sama sudah berlaku pada ikhtisar margin seluruh proyek;
+        keduanya harus sepakat, karena dua laporan yang memberi angka berbeda
+        untuk proyek yang sama merusak kepercayaan pada dua-duanya.
+
+        Draft yang SUDAH DIKONVERSI tidak ikut — pembeliannya sudah terhitung
+        sendiri, dan menghitung keduanya berarti biayanya dobel.
+        """
+        try:
+            if not projectName:
+                return {"error": "Project name is required", "status": 400}
+
+            rows = await database.fetch_all(
+                """
+                SELECT d.*, s.name AS supplier_name, s.prefix AS supplier_prefix
+                FROM purchase_draft d
+                LEFT JOIN suppliers s ON s.id = d.supplierID
+                WHERE d.projectName = :proyek
+                  AND d.isDelete = 0
+                  AND d.purchaseID IS NULL
+                ORDER BY d.date DESC
+                """,
+                {"proyek": projectName},
+            )
+            return [dict(r) for r in rows]
+        except Exception as e:
+            log_error(f"Error fetching drafts for project {projectName}: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_by_project(projectName: str):
@@ -294,7 +384,7 @@ class PurchaseRepository:
             return purchase_list
         except Exception as e:
             log_error(f"Error fetching purchase report by project: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_ppn_report(month: int, year: int):
@@ -352,7 +442,48 @@ class PurchaseRepository:
             return purchase_list
         except Exception as e:
             log_error(f"Error fetching PPN report: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def get_ppn_masukan_kreditable_bulanan(until_year: int, until_month: int):
+        """
+        Total PPN masukan pembelian yang DAPAT dikreditkan, per bulan.
+
+        Hanya baris ber-PPN, bukan internal, sudah ada nomor faktur pajak —
+        sebab yang belum ada fakturnya tidak boleh mengurangi setoran, jadi
+        tidak ikut kompensasi antar masa. Dipakai laporan posisi PPN untuk
+        menghitung lebih bayar yang berjalan dari masa ke masa.
+        """
+        try:
+            end_date = (
+                dt(until_year + 1, 1, 1)
+                if until_month == 12
+                else dt(until_year, until_month + 1, 1)
+            )
+            p = purchases_table.c
+            # Tanpa `.label()`: kolom agregat ini murni internal, dan uji skema
+            # menolak label pada repository ini yang tidak ada di
+            # `PurchaseResponse`. Nilainya dibaca lewat posisi kolom.
+            y = func.extract("year", p.date)
+            m = func.extract("month", p.date)
+            total = func.coalesce(func.sum(p.dpp * p.ppn / 100), 0)
+            query = (
+                select(y, m, total)
+                .where(
+                    p.isDelete == False,
+                    p.isInternal == False,
+                    p.ppn > 0,
+                    p.taxInvoiceName.isnot(None),
+                    func.trim(p.taxInvoiceName) != "",
+                    p.date < end_date,
+                )
+                .group_by(y, m)
+            )
+            rows = await database.fetch_all(query)
+            return {(int(r[0]), int(r[1])): float(r[2] or 0) for r in rows}
+        except Exception as e:
+            log_error(f"Error fetching monthly creditable PPN (purchase): {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_monthly_recap(month: int, year: int):
@@ -382,7 +513,7 @@ class PurchaseRepository:
             return results
         except Exception as e:
             log_error(f"Error fetching monthly purchase report: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
         
     @staticmethod
     async def get_monthly_ap(month: int, year: int):
@@ -520,7 +651,77 @@ class PurchaseRepository:
             }
         except Exception as e:
             log_error(f"Error fetching frequent payment by supplier ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def update(purchase_id: int, data: dict, userID: int):
+        """
+        Ubah isi pembelian.
+
+        Kolom yang boleh diubah DIDAFTAR di sini, bukan diambil apa adanya
+        dari muatan permintaan. Menyalin seluruh isi muatan membuat klien
+        dapat menulis `isDelete`, `isPaid`, `createdBy`, bahkan `id` —
+        cukup dengan menambahkan satu field pada permintaannya.
+
+        `supplierName` dan `supplierAddress` yang ikut dikirim layar sengaja
+        TIDAK ada di daftar: keduanya bukan kolom tabel ini, melainkan hasil
+        join ke `suppliers` yang dipakai untuk ditampilkan.
+        """
+        BOLEH = {
+            "invoiceName", "receiptName", "taxInvoiceName", "purchaseOrderName",
+            "projectName", "purchaseType", "supplierID", "procurementType",
+            "date", "dueDate",
+            "isInvoiceAttached", "isReceiptAttached", "isTaxInvoiceAttached",
+            "isCopAttached", "isCopyPurchaseOrderAttached",
+            "dpp", "ppn", "pbbkb", "otherValue", "otherValueNote",
+            "pphCode", "pphTaxObject", "pphPercentage",
+            "bankName", "bankAccountName", "bankAccountNumber",
+            "paymentMethod", "lastStatus", "lastStatusDescription",
+        }
+
+        try:
+            nilai = {k: v for k, v in (data or {}).items() if k in BOLEH}
+            if not nilai:
+                return {"error": "No editable field supplied.", "status": 400}
+
+            _sebelum = await database.fetch_one(
+                select(purchases_table).where(purchases_table.c.id == purchase_id)
+            )
+            if not _sebelum:
+                return {"error": "Purchase not found", "status": 404}
+            if _sebelum["isDelete"]:
+                # Dokumen terhapus tidak diubah diam-diam: yang terlihat di
+                # layar adalah daftar aktif, jadi perubahan pada baris
+                # terhapus tidak akan pernah terlihat siapa pun.
+                return {"error": "Purchase already deleted", "status": 400}
+
+            nilai["updatedAt"] = dt.now()
+            nilai["updatedBy"] = userID
+
+            await database.execute(
+                update(purchases_table)
+                .where(purchases_table.c.id == purchase_id)
+                .values(**nilai)
+            )
+
+            from repository.audit_log_repository import AuditLogRepository
+
+            _sesudah = await database.fetch_one(
+                select(purchases_table).where(purchases_table.c.id == purchase_id)
+            )
+            await AuditLogRepository.record(
+                entity="purchases",
+                entityID=purchase_id,
+                action="update",
+                userID=userID,
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum), dict(_sesudah or {})
+                ),
+            )
+            return {"message": "Purchase updated successfully"}
+        except Exception as e:
+            log_error(f"Error updating purchase {purchase_id}: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def update_status(purchase_id: int, status_data: dict, userID: int):
@@ -528,6 +729,11 @@ class PurchaseRepository:
         Update purchase status and details.
         """
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(purchases_table).where(purchases_table.c.id == purchase_id)
+            )
             update_query = (
                 update(purchases_table)
                 .where(purchases_table.c.id == purchase_id)
@@ -552,17 +758,137 @@ class PurchaseRepository:
             if result == 0:
                 return {"error": "Purchase not found", "status": 404}
             
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="purchases",
+                entityID=purchase_id,
+                action="update_status",
+                userID=userID,
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(purchases_table).where(
+                                purchases_table.c.id == purchase_id
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+            
             return {"message": "Purchase status updated successfully"}
         except Exception as e:
             log_error(f"Error updating purchase status: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
+
+    @staticmethod
+    async def belum_dibayar(project_name: str = ""):
+        """
+        Tagihan pembelian yang belum lunas.
+
+        Kelalaian yang paling mahal di sini bukan salah angka, melainkan
+        tagihan yang tidak pernah dibuka sama sekali: pemasok menagih, tidak
+        ada yang menindaklanjuti, dan yang menemukannya kemudian adalah
+        pemasoknya sendiri.
+
+        Yang dihitung SISA, bukan hanya `isPaid`: pembayaran sebagian membuat
+        `isPaid` tetap salah tetapi sisanya sudah jauh lebih kecil, dan
+        keduanya perlu dibedakan saat menilai mana yang mendesak.
+
+        Toleransi 5 rupiah, sama seperti pada persetujuan pembayaran —
+        pembulatan sen membuat sisa satu-dua rupiah yang bukan utang.
+        """
+        try:
+            bayar = (
+                select(
+                    payments_outgoing_table.c.purchaseID.label("purchase_id"),
+                    func.coalesce(
+                        func.sum(payments_outgoing_table.c.amount), 0
+                    ).label("total_paid"),
+                )
+                .where(
+                    payments_outgoing_table.c.isDelete == False,  # noqa: E712
+                    payments_outgoing_table.c.isApprove == True,  # noqa: E712
+                )
+                .group_by(payments_outgoing_table.c.purchaseID)
+                .subquery()
+            )
+
+            nilai = (
+                purchases_table.c.ppn * purchases_table.c.dpp / 100
+                + purchases_table.c.dpp
+                + purchases_table.c.pbbkb
+                + purchases_table.c.otherValue
+                - purchases_table.c.pphPercentage * purchases_table.c.dpp / 100
+            )
+            sisa = nilai - func.coalesce(bayar.c.total_paid, 0)
+
+            syarat = [
+                purchases_table.c.isDelete == False,  # noqa: E712
+                sisa > 5,
+            ]
+            if project_name:
+                syarat.append(purchases_table.c.projectName == project_name)
+
+            rows = await database.fetch_all(
+                select(
+                    purchases_table.c.id,
+                    purchases_table.c.invoiceName,
+                    purchases_table.c.purchaseOrderName,
+                    purchases_table.c.projectName,
+                    purchases_table.c.date,
+                    purchases_table.c.dueDate,
+                    suppliers_table.c.name.label("supplierName"),
+                    nilai.label("nilai"),
+                    func.coalesce(bayar.c.total_paid, 0).label("dibayar"),
+                    sisa.label("sisa"),
+                )
+                .select_from(
+                    purchases_table.outerjoin(
+                        bayar, purchases_table.c.id == bayar.c.purchase_id
+                    ).outerjoin(
+                        suppliers_table,
+                        purchases_table.c.supplierID == suppliers_table.c.id,
+                    )
+                )
+                .where(and_(*syarat))
+                .order_by(purchases_table.c.dueDate.asc().nullslast())
+            )
+
+            hari_ini = date.today()
+            hasil = []
+            for r in rows:
+                d = dict(r)
+                jatuh = d.get("dueDate")
+                # Sudah lewat tempo DITANDAI di sini, bukan dihitung layar:
+                # jam peramban dapat meleset, dan daftar yang menuntut
+                # tindakan tidak boleh bergantung padanya.
+                d["lewatTempo"] = bool(jatuh and jatuh < hari_ini)
+                d["hariTerlambat"] = (
+                    (hari_ini - jatuh).days if jatuh and jatuh < hari_ini else 0
+                )
+                # Dibayar sebagian dibedakan dari yang belum sama sekali:
+                # yang pertama sudah ditangani seseorang, yang kedua belum.
+                d["sebagian"] = float(d.get("dibayar") or 0) > 0
+                hasil.append(d)
+            return hasil
+        except Exception as e:
+            log_error(f"Error listing unpaid purchases: {str(e)}")
+            return []
     @staticmethod
     async def update_payment_status(purchaseID: int, isPaid: bool):
         """
         Update the payment status of a purchase.
         """
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(purchases_table).where(purchases_table.c.id == purchaseID)
+            )
             query = (
                 update(purchases_table)
                 .where(purchases_table.c.id == purchaseID)
@@ -571,10 +897,29 @@ class PurchaseRepository:
             result = await database.execute(query)
             if result == 0:
                 return {"error": "Purchase not found", "status": 404}
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="purchases",
+                entityID=purchaseID,
+                action="update_payment_status",
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(purchases_table).where(
+                                purchases_table.c.id == purchaseID
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+
             return {"message": "Payment status updated successfully"}
         except Exception as e:
             log_error(f"Error updating payment status: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def delete(purchaseID: int, userID: int):
@@ -590,10 +935,19 @@ class PurchaseRepository:
             result = await database.execute(query)
             if result == 0:
                 return {"error": "Purchase not found", "status": 404}
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="purchases",
+                entityID=purchaseID,
+                action="delete",
+                userID=userID,
+            )
+
             return {"message": "Purchase deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting purchase: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
 class PurchaseStatusRepository:
     @staticmethod
@@ -604,10 +958,18 @@ class PurchaseStatusRepository:
         try:
             query = insert(purchase_status_table).values(status_data)
             purchase_status_id = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="purchases",
+                entityID=purchase_status_id,
+                action="create",
+            )
             return purchase_status_id
         except Exception as e:
             log_error(f"Error creating purchase status: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_by_purchase_id(purchaseID: int):
@@ -624,4 +986,4 @@ class PurchaseStatusRepository:
             return [dict(status) for status in statuses]
         except Exception as e:
             log_error(f"Error fetching purchase statuses: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}

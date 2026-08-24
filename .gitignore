@@ -1,22 +1,66 @@
-# Python
-__pycache__/
-*.py[cod]
+# Rahasia
+#
+# `.env` memuat SECRET_KEY yang menandatangani seluruh token login, sandi
+# basis data, dan kredensial O365. Yang bocor darinya tidak dapat ditarik
+# kembali — ia harus dicabut dan dibuat ulang.
+.env
+.env.*
+!.env.example
+
+# Token O365.
+#
+# Berisi kredensial hidup ke kotak surel perusahaan. Pernah nyaris ikut
+# ter-commit; GitHub yang menolaknya, bukan pemeriksaan kita sendiri.
+storage/tokens/
+
+# Berkas yang DIHASILKAN aplikasi, bukan bagian dari kodenya.
+#
+# Slip gaji memuat nama, NIK, dan besaran gaji tiap karyawan. Ia dihasilkan
+# ulang kapan saja dari basis data, sehingga tidak ada alasan menyimpannya di
+# riwayat git — tempat yang tidak dapat dihapus tanpa menulis ulang seluruh
+# riwayat.
+storage/salary_slips/
+storage/reimbursements/
+reimbursements/*
+
+# Virtual environment.
+#
+# Terikat pada jalur tempat ia dibuat: dipindah atau di-clone ke mesin lain,
+# skrip di dalamnya menunjuk ke Python yang tidak ada. Tiap mesin membuat
+# miliknya sendiri lewat `python3 -m venv env`.
 env/
 venv/
+.venv/
 
-# Rahasia & data lokal
-.env
-storage/
+# Basis data Meilisearch.
+#
+# Dibangun ulang dari MySQL lewat `sync_master_item_meilisearch()`.
 data.ms/
-app.log
-*.backup
 
-# Sisa migrasi Bun - jangan pernah masuk git
-node_modules/
-src/
-prisma/
-bun.lock
-bun.lockb
-package.json
-package-lock.json
+# Hasil kompilasi Python.
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Sisa percobaan Prisma yang tidak dipakai aplikasi ini.
+prisma/generated/
 tsconfig.json
+
+# Cadangan basis data.
+#
+# Isinya seluruh data perusahaan. Disimpan di luar repo — dan sebaiknya di
+# luar server ini juga.
+*.sql
+*.sql.gz
+!sql/*.sql
+
+# Log
+*.log
+logs/
+
+# Sistem dan editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/settings.json

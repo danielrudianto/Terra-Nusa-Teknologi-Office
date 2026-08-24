@@ -27,12 +27,24 @@ class EmployeeController:
                 log_error(f"Error creating employee: {result['error']}")
                 raise HTTPException(status_code=result["status"], detail=result["error"])
             
+            # Data karyawan dicatat: NIK, jabatan, dan kategori pajaknya
+            # ikut menentukan isi slip gaji, sehingga perubahannya perlu
+            # dapat ditelusuri sampai ke orangnya.
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="employees",
+                entityID=int(result.get("employee_id") or 0) or None,
+                action="create",
+                userID=userID,
+            )
+
             return result
         except Exception as e:
             log_error(f"Unexpected error: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error.")
         
-    async def get_employees(keyword: str, page: int, pageSize: int = 10, sortBy: str = None, sortByDirection: str = "asc") -> Dict:
+    async def get_employees(keyword: str, page: int, pageSize: int = 10, sortBy: str = None, sortByDirection: str = "asc", status: str = None) -> Dict:
         """
         Retrieve a list of employees from the database.
 
@@ -56,7 +68,7 @@ class EmployeeController:
             sortBy = "name"
             sortByDirection = "asc"
 
-        employees = await Employee.get_employees(keyword, page, pageSize, sortBy, sortByDirection)
+        employees = await Employee.get_employees(keyword, page, pageSize, sortBy, sortByDirection, status)
         if "error" in employees:
             log_error(f"Error retrieving employees: {employees['error']}")
             raise HTTPException(status_code=employees["status"], detail=employees["error"])
@@ -105,11 +117,53 @@ class EmployeeController:
                 log_error("Cannot update a deleted employee.")
                 return {"error": "Cannot update a deleted employee.", "status": 400}
             
+            # Bidang yang BUKAN lagi milik layar ini dipertahankan dari
+            # data yang tersimpan, bukan diambil dari muatan.
+            #
+            # Kategori pajak, alamat, telepon, dan email kini berasal dari
+            # formulir pembaruan data — satu sumber, dengan riwayat siapa
+            # mengubah kapan. Membiarkan layar ini menulisnya berarti dua
+            # jalur menuju satu kolom, dan yang terakhir menang tanpa jejak.
+            #
+            # Dijaga di SERVER, bukan cukup dengan menyembunyikan isiannya:
+            # muatan permintaan dapat disusun sendiri oleh siapa pun yang
+            # membuka Network tab.
+            DIKUNCI = ("taxCategory", "address", "phoneNumber", "email")
+            for kolom in DIKUNCI:
+                try:
+                    employee_data[kolom] = getattr(existing_employee_data, kolom)
+                except AttributeError:
+                    employee_data.pop(kolom, None)
+
             updated_employee_data = Employee(**employee_data)
             updated_employee_data.updatedBy = userID
             updated_employee_data.updatedAt = dt.now()
 
             result = await updated_employee_data.update_employee()
+
+            # Dicatat SEBELUM galat diperiksa? Tidak — hanya bila berhasil.
+            #
+            # Jejak yang mencatat percobaan yang gagal membuat riwayat penuh
+            # baris yang tidak pernah mengubah apa pun, dan yang menelusuri
+            # harus memilah sendiri mana yang benar-benar terjadi.
+            if "error" not in result:
+                from repository.audit_log_repository import AuditLogRepository
+
+                await AuditLogRepository.record(
+                    entity="employees",
+                    entityID=int(employee_data["id"]),
+                    action="update",
+                    userID=userID,
+                    changes=AuditLogRepository.diff(
+                        {
+                            k: getattr(existing_employee_data, k, None)
+                            for k in employee_data
+                            if k != "id"
+                        },
+                        {k: v for k, v in employee_data.items() if k != "id"},
+                    ),
+                )
+
             if "error" in result:
                 log_error(f"Error updating employee: {result['error']}")
                 return {"error": result["error"], "status": result["status"]}
@@ -118,3 +172,8 @@ class EmployeeController:
         except Exception as e:
             log_error(f"Unexpected error: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error.")
+
+    @staticmethod
+    async def pilihan_pic(keyword: str = None):
+        """Nama dan telepon karyawan aktif, untuk pemilih penanggung jawab."""
+        return await Employee.pilihan_pic(keyword)

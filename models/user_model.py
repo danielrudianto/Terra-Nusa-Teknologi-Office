@@ -10,6 +10,13 @@ users_table = Table(
     Column("name", String(100), nullable=False),
     Column("password", String(255)),
     Column("email", String(100), unique=True),
+    # Jabatan, dicetak di bawah nama pada blok tanda tangan dokumen.
+    #
+    # Tidak diturunkan dari level akses: level menentukan APA yang boleh
+    # dilakukan, bukan apa jabatannya. Seorang General Manager dan seorang
+    # Direktur bisa sama-sama level 4, dan menebak dari level membuat dokumen
+    # menyebut jabatan yang salah.
+    Column("position", String(100), nullable=True),
     Column("isActive", Boolean, default=True),
     Column("isDeleted", Boolean, default=False),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=True),

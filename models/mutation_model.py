@@ -3,6 +3,7 @@ from datetime import datetime as dt, date as d
 from sqlalchemy import Table, Column, Integer, ForeignKey, Float, Date, String, select, func, and_
 from utils.database import metadata, database, engine
 from utils.logger_utils import log_error
+from utils.errors import internal_error
 
 class Mutation(BaseModel):
     bankAccountID: int = Field(..., title="ID of the bank account", ge=1)
@@ -24,7 +25,7 @@ class Mutation(BaseModel):
             return {"data": result, "count": count if count is not None else 0}
         except Exception as e:
             log_error(f"Error fetching bank accounts: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     async def download_mutation(bankAccountID: int, month: int, year: int):
         try:
@@ -33,7 +34,7 @@ class Mutation(BaseModel):
             return result
         except Exception as e:
             log_error(f"Error downloading bank account mutation: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def fetch_by_month_year(month: int, year: int, bank_account_ids: list[int] = None):
@@ -55,7 +56,7 @@ class Mutation(BaseModel):
                         bankaccountid,
                         MAX(CONCAT(date,'-',LPAD(sortorder,2,'0'),'-',LPAD(tiebreaker,10,'0'))) AS max_key
                     FROM mutation
-                    WHERE date <= :start_date
+                    WHERE date < :start_date
                     GROUP BY bankaccountid
                 ) last_row 
                 ON m.bankaccountid = last_row.bankaccountid
@@ -65,15 +66,18 @@ class Mutation(BaseModel):
                 params = {"start_date": start_of_month}
             else:
                 sql = """
-                SELECT bankAccountID, balance
-                FROM (
+                SELECT m.bankaccountid, m.balance
+                FROM mutation m
+                JOIN (
                     SELECT 
-                        bankAccountID, 
-                        balance,
-                        date,
-                    FROM mutation 
-                    WHERE date < :start_date AND bankAccountID IN :bank_account_ids
-                ) ranked
+                        bankaccountid,
+                        MAX(CONCAT(date,'-',LPAD(sortorder,2,'0'),'-',LPAD(tiebreaker,10,'0'))) AS max_key
+                    FROM mutation
+                    WHERE date < :start_date AND bankaccountid IN :bank_account_ids
+                    GROUP BY bankaccountid
+                ) last_row 
+                ON m.bankaccountid = last_row.bankaccountid
+                AND CONCAT(m.date,'-',LPAD(m.sortorder,2,'0'),'-',LPAD(m.tiebreaker,10,'0')) = last_row.max_key;
                 """
                 params = {"start_date": start_of_month, "bank_account_ids": tuple(bank_account_ids)}
                 
@@ -88,7 +92,7 @@ class Mutation(BaseModel):
             
         except Exception as e:
             log_error(f"Error fetching bank account balances: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def download_calendar_data(month: int, year: int, bank_account_ids: list[int] = None):
@@ -133,7 +137,7 @@ class Mutation(BaseModel):
 
         except Exception as e:
             log_error(f"Error fetching bank account balances: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
 mutation_view = Table(
     "mutation",

@@ -39,4 +39,6 @@ async def sync_redis():
     
     except Exception as e:
         log_error(f"Error during synchronization: {e}")
-        return {"error": str(e)}
+        # Sebab aslinya dicatat log, bukan dikirim ke pemanggil: pesan
+        # pengecualian Redis memuat host dan porta.
+        return {"error": "CACHE_ERROR"}

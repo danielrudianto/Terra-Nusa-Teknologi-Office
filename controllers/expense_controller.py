@@ -1,8 +1,10 @@
 from repository.expense_repository import ExpenseRepository
 from models.payment_outgoing_model import PaymentOutgoing
+from repository.payment_outgoing_repository import PaymentOutgoingRepository
 from utils.logger_utils import log_error, log_info
 from fastapi import HTTPException
 from datetime import datetime as dt
+from utils.errors import internal_error
 
 class ExpenseController:
     @staticmethod
@@ -96,7 +98,7 @@ class ExpenseController:
                 log_error(f"Error retrieving expense: {expense['error']}")
                 raise HTTPException(status_code=expense["status"], detail=expense["error"])
         
-            payments = await PaymentOutgoing.get_payments_by_expense_id(id)
+            payments = await PaymentOutgoingRepository.get_payments_by_expense_id(id)
             if "error" in payments:
                 log_error(f"Error retrieving payments for expense ID {id}: {payments['error']}")
                 raise HTTPException(status_code=payments["status"], detail=payments["error"])
@@ -125,7 +127,7 @@ class ExpenseController:
         log_info(f"Retrieving payments for expense ID: {expense_id}")
         
         try:
-            payments = await PaymentOutgoing.get_payments_by_expense_id(expense_id)
+            payments = await PaymentOutgoingRepository.get_payments_by_expense_id(expense_id)
             if "error" in payments:
                 log_error(f"Error fetching payments for expense ID {expense_id}: {payments['error']}")
                 return {"error": payments["error"], "status": payments.get("status", 500)}
@@ -134,10 +136,10 @@ class ExpenseController:
             return payments
         except Exception as e:
             log_error(f"Error retrieving payments: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
-    async def approve_expense_by_id(expense_id: int, userID: int):
+    async def approve_expense_by_id(expense_id: int, userID: int, user_level: int | None = None):
         """
         Approve an expense by ID.
         """
@@ -151,7 +153,7 @@ class ExpenseController:
             if expense.get("isDelete") is True:
                 return {"error": "Expense not found", "status": 404}
 
-            result = await ExpenseRepository.approve_by_id(expense_id, userID)
+            result = await ExpenseRepository.approve_by_id(expense_id, userID, user_level)
             if "error" in result:
                 log_error(f"Error approving expense: {result['error']}")
                 raise HTTPException(status_code=result["status"], detail=result["error"])
@@ -164,7 +166,7 @@ class ExpenseController:
             raise
         except Exception as e:
             log_error(f"Error approving expense: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def update_expense(expense_id: int, expense_data: dict, userID: int):

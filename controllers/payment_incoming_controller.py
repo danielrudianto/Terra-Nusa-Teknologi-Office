@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from typing import List
 from functools import reduce
 from datetime import date
+from utils.errors import internal_error
 
 class PaymentIncomingController:
     @staticmethod
@@ -34,4 +35,4 @@ class PaymentIncomingController:
             return payment
         except Exception as e:
             log_error(f"Error creating payment: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

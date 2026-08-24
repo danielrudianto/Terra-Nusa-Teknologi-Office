@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, Query
+from utils.errors import ErrorCode, error_detail
 from utils.logger_utils import log_error, log_info
 from utils.auth_utils import get_current_user
+from utils.permission import require
 from typing import Annotated
 from repository.user_repository import UserRepository
 from controllers.salary_slip_controller import SalarySlipController
@@ -10,29 +12,40 @@ from utils.auth_utils import User
 router = APIRouter()
 
 @router.get("/print/{salary_slip_id}")
-async def print(salary_slip_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+async def print(salary_slip_id: int, current_user: Annotated[User, Depends(require("salary_slip", "read"))]):
     """
     Print a salary slip by ID.
     """
     try:
         result = await SalarySlipController.print(salary_slip_id)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
-        
-        return result
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
+
+        # Kirim PDF sebagai file biner (bukan JSON) agar tidak kena UnicodeDecodeError.
+        return Response(
+            content=result["pdf_bytes"],
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'inline; filename="{result["filename"]}"'
+            },
+        )
     except HTTPException as e:
         log_error(f"HTTPException during print: {str(e.detail)}")
         raise e
 
 @router.get("/{salary_slip_id}")
-async def fetch(salary_slip_id: int, current_user: Annotated[User, Depends(get_current_user)]):
+async def fetch(salary_slip_id: int, current_user: Annotated[User, Depends(require("salary_slip", "read"))]):
     """
     Fetch salary slip by ID.
     """
     try:
         result = await SalarySlipController.fetchByID(salary_slip_id)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         
         return result
     except HTTPException as e:
@@ -40,14 +53,25 @@ async def fetch(salary_slip_id: int, current_user: Annotated[User, Depends(get_c
         raise e
 
 @router.get("/")
-async def fetch(page: int, pageSize: int, keyword: str, month: int, year: int, current_user: Annotated[User, Depends(get_current_user)]):
+async def fetch(
+    page: int,
+    pageSize: int,
+    keyword: str,
+    month: int,
+    year: int,
+    current_user: Annotated[User, Depends(require("salary_slip", "read"))],
+    sortBy: str = Query(None, description="Kolom: name, basicSalary, isPaid, department, position"),
+    sortByDirection: str = Query("asc", description="asc atau desc"),
+):
     """
     Fetch salary slips with pagination and optional keyword filtering.
     """
     try:
-        result = await SalarySlipController.fetch(page, pageSize, keyword, month, year)
+        result = await SalarySlipController.fetch(page, pageSize, keyword, month, year, sortBy, sortByDirection)
         if "error" in result:
-            raise HTTPException(status_code=result["status"], detail=result["error"])
+            raise HTTPException(
+            status_code=result["status"], detail=error_detail(result)
+        )
         
         return result
     except HTTPException as e:
@@ -55,7 +79,7 @@ async def fetch(page: int, pageSize: int, keyword: str, month: int, year: int, c
         raise e
 
 @router.post("/check")
-async def check(salarySlipCheck: SalarySlipCheck, current_user: Annotated[User, Depends(get_current_user)]):
+async def check(salarySlipCheck: SalarySlipCheck, current_user: Annotated[User, Depends(require("salary_slip", "create"))]):
     """
     Check if a salary slip exists for the given user, month, and year.
     """
@@ -73,7 +97,7 @@ async def check(salarySlipCheck: SalarySlipCheck, current_user: Annotated[User, 
         raise e
 
 @router.post("/send")
-async def send_salary_slip(salarySlipSend: dict, current_user: Annotated[User, Depends(get_current_user)]):
+async def send_salary_slip(salarySlipSend: dict, current_user: Annotated[User, Depends(require("salary_slip", "create"))]):
     """
     Send a salary slip.
     """
@@ -89,8 +113,38 @@ async def send_salary_slip(salarySlipSend: dict, current_user: Annotated[User, D
         log_error(f"HTTPException during send: {str(e.detail)}")
         raise e
 
+@router.post("/send-bulk")
+async def send_salary_slips_bulk(
+    body: dict,
+    current_user: Annotated[User, Depends(require("salary_slip", "create"))],
+):
+    """
+    Kirim beberapa slip gaji sekaligus.
+
+    Menerima `{"ids": [1, 2, 3]}`. Batasnya 200 agar satu permintaan tidak
+    menahan proses terlalu lama — jumlah karyawan sebulan masih jauh di
+    bawahnya.
+    """
+    ids = body.get("ids") or []
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": ErrorCode.VALIDATION, "message": "No salary slip selected."},
+        )
+    if len(ids) > 200:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": ErrorCode.VALIDATION,
+                "message": "Too many salary slips in one request.",
+            },
+        )
+
+    return await SalarySlipController.send_many([int(x) for x in ids])
+
+
 @router.post("/")
-async def create_salary_slip(salarySlip: dict, current_user: Annotated[User, Depends(get_current_user)]):
+async def create_salary_slip(salarySlip: dict, current_user: Annotated[User, Depends(require("salary_slip", "create"))]):
     """
     Create a new salary slip.
     
@@ -113,7 +167,7 @@ async def create_salary_slip(salarySlip: dict, current_user: Annotated[User, Dep
         raise e 
     
 @router.delete("/{id}")
-async def delete_salary_slip(id: int, current_user: Annotated[User, Depends(get_current_user)]):
+async def delete_salary_slip(id: int, current_user: Annotated[User, Depends(require("salary_slip", "delete"))]):
     try:
         userID = current_user.id
         deleteResult = await SalarySlipController.delete(id, userID)

@@ -14,7 +14,18 @@ from utils.database import database
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
-ACCESS_TOKEN_EXPIRE_MINUTES = 1
+# Masa berlaku token, dapat diatur lewat variabel lingkungan.
+#
+# Sebelumnya access token hanya 1 menit sementara pemanggilan dari halaman
+# login memakai 12 jam — dua angka berbeda untuk hal yang sama. Nilai di sini
+# dijadikan satu-satunya acuan.
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
+
+# Refresh token harus LEBIH PANJANG dari access token; kalau lebih pendek,
+# pengguna tetap terlempar keluar meski access token-nya masih berlaku.
+REFRESH_TOKEN_EXPIRE_MINUTES = int(
+    os.getenv("REFRESH_TOKEN_EXPIRE_MINUTES", str(60 * 24 * 7))
+)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 class Token(BaseModel):
@@ -42,6 +53,17 @@ def get_password_hash(password):
     return pwd_context.hash(password)
 
 def authenticate_user(username: str, password: str):
+    """
+    TIDAK DIPAKAI — jangan dipanggil sebelum diperbaiki.
+
+    Sisa dari kerangka awal: memakai kolom `username` dan `hashed_password`
+    yang tidak ada pada tabel users (kolomnya `email` dan `password`), serta
+    `.first()` yang bukan cara pustaka ini membaca baris.
+
+    Autentikasi yang sebenarnya ada di `routes/auth_routes.py`. Fungsi ini
+    dibiarkan agar tidak menghapus sesuatu yang mungkin dirujuk dari luar,
+    tetapi memanggilnya akan gagal.
+    """
     user = users_table.select().where(users_table.c.username == username).first()    
     if not user:
         return False
@@ -55,7 +77,19 @@ def validate_token(token: str):
         userID = payload.get("user_id")
         if userID is None:
             raise HTTPException(status_code=401, detail="Invalid authentication credentials 1")
-        token_data = create_access_token(data={"user_id": userID, "iat": datetime.now(timezone.utc)})
+
+        # Nama ikut dibawa ke token baru.
+        #
+        # Jejak aktivitas mengambil nama pelaku dari token, tanpa kueri
+        # tambahan. Bila nama tidak ikut, seluruh catatan yang dibuat setelah
+        # penyegaran pertama kehilangan pelakunya — dan itu tidak terlihat
+        # sebagai galat, hanya sebagai kolom yang berisi tanda hubung.
+        data = {"user_id": userID, "iat": datetime.now(timezone.utc)}
+        nama = payload.get("name") or payload.get("sub")
+        if nama:
+            data["name"] = nama
+
+        token_data = create_access_token(data=data)
         return token_data
     except InvalidTokenError:
         return {"error": "Invalid authentication credentials", "status": 401}
@@ -71,6 +105,30 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
         user = await database.fetch_one(query)
         if user is None:
             raise HTTPException(status_code=401, detail="Invalid authentication credentials 2")
+
+        # Pengguna yang DINONAKTIFKAN atau DIHAPUS ditolak di sini.
+        #
+        # Tanpa pemeriksaan ini, menonaktifkan seseorang tidak berpengaruh
+        # apa pun sampai tokennya kedaluwarsa — dan masa berlaku refresh
+        # token adalah tujuh hari. Orang yang baru saja dikeluarkan tetap
+        # dapat menyetujui pembayaran selama seminggu penuh.
+        #
+        # Diperiksa di sini, bukan pada tiap rute: ini satu-satunya pintu
+        # yang dilewati SELURUH permintaan bertoken, sehingga tidak ada rute
+        # yang dapat lupa memeriksanya.
+        try:
+            if not user["isActive"] or user["isDeleted"]:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Akun tidak aktif. Hubungi administrator.",
+                )
+        except KeyError:
+            # Kolomnya seharusnya selalu ada; bila tidak, jangan diam-diam
+            # meloloskan — perlakukan sebagai tidak sah.
+            raise HTTPException(
+                status_code=401, detail="Invalid authentication credentials"
+            )
+
         return user
     except InvalidTokenError as e:
         print(e)

@@ -7,8 +7,10 @@ from models.expense_opponent_model import expense_opponents_table
 from models.sales_invoice_model import sales_invoice_tables
 from models.income_model import income_table
 from models.loans_model import loans_table
+from models.bank_model import bank_accounts_table
 from utils.logger_utils import log_error, log_info
 from datetime import datetime
+from utils.errors import internal_error
 
 class PaymentIncomingRepository:
     @staticmethod
@@ -23,11 +25,19 @@ class PaymentIncomingRepository:
             query = insert(payment_incoming_table).values(**payment_data)
             result = await database.execute(query)
             
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="payment_incoming",
+                entityID=result,
+                action="create",
+            )
+            
             log_info(f"Payment incoming created with ID: {result}")
             return {"payment_id": result}
         except Exception as e:
             log_error(f"Error creating payment incoming: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_sales_invoice_id(sales_invoice_id: int):
@@ -35,7 +45,9 @@ class PaymentIncomingRepository:
         try:
             log_info(f"Retrieving payments for sales invoice ID: {sales_invoice_id}")
             
-            query = select(payment_incoming_table).where(
+            query = select(payment_incoming_table.c, bank_accounts_table.c["bankAccountName"], bank_accounts_table.c['bankAccountNumber'], bank_accounts_table.c['bankName']).join(
+                bank_accounts_table, payment_incoming_table.c.bankAccountID == bank_accounts_table.c.id
+            ).where(
                 payment_incoming_table.c.salesInvoiceID == sales_invoice_id,
                 payment_incoming_table.c.isDelete == False
             )
@@ -44,7 +56,7 @@ class PaymentIncomingRepository:
             return [dict(payment) for payment in payments]
         except Exception as e:
             log_error(f"Error getting payments by sales invoice ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_income_id(income_id: int):
@@ -61,7 +73,7 @@ class PaymentIncomingRepository:
             return [dict(payment) for payment in payments]
         except Exception as e:
             log_error(f"Error getting payments by income ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_calendar_data(month: int, year: int, bank_accounts: Optional[List[int]] = None):
@@ -120,7 +132,7 @@ class PaymentIncomingRepository:
             ]
         except Exception as e:
             log_error(f"Error retrieving calendar data: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_loan_id(loan_id: int):
@@ -137,7 +149,7 @@ class PaymentIncomingRepository:
             return [dict(payment) for payment in payments]
         except Exception as e:
             log_error(f"Error getting payments by loan ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_id(payment_id: int):
@@ -152,13 +164,20 @@ class PaymentIncomingRepository:
             return dict(payment) if payment else None
         except Exception as e:
             log_error(f"Error getting payment by ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def update(payment_id: int, update_data: dict):
         """Update a payment incoming."""
         try:
             from sqlalchemy import update
+
+            # Keadaan lama dibaca lebih dulu agar nilai sebelumnya terekam.
+            _sebelum = await database.fetch_one(
+                select(payment_incoming_table).where(
+                    payment_incoming_table.c.id == payment_id
+                )
+            )
             
             update_data["updatedAt"] = datetime.now()
             
@@ -169,11 +188,31 @@ class PaymentIncomingRepository:
             )
             
             result = await database.execute(query)
+
+            
+            from repository.audit_log_repository import AuditLogRepository
+
+            
+            await AuditLogRepository.record(
+            
+                entity="payment_incoming",
+            
+                entityID=payment_id,
+            
+                action="update",
+            
+                changes=AuditLogRepository.diff(
+            
+                    dict(_sebelum) if _sebelum else {}, update_data
+            
+                ),
+            
+            )
             log_info(f"Payment incoming updated: {payment_id}")
             return {"affected_rows": result}
         except Exception as e:
             log_error(f"Error updating payment incoming: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def soft_delete(payment_id: int, user_id: int):
@@ -193,10 +232,19 @@ class PaymentIncomingRepository:
             
             await database.execute(query)
             log_info(f"Payment incoming soft deleted: {payment_id}")
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="payment_incoming",
+                entityID=payment_id,
+                action="delete",
+                userID=user_id,
+            )
+            
             return {"message": "Payment deleted successfully"}
         except Exception as e:
             log_error(f"Error soft deleting payment incoming: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_total_by_sales_invoice_id(sales_invoice_id: int):
@@ -213,4 +261,4 @@ class PaymentIncomingRepository:
             return result or 0
         except Exception as e:
             log_error(f"Error getting total payment by sales invoice ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

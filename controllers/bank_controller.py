@@ -12,6 +12,7 @@ import json
 from models.bank_model import bank_accounts_table
 from models.balance_model import Balance
 from functools import reduce
+from utils.errors import internal_error
 
 class BankController:
     @staticmethod 
@@ -48,6 +49,18 @@ class BankController:
                 "bankName": bank_data["bankName"],
             }))
 
+            # Rekening bank dicatat: nomor rekening menentukan ke mana uang
+            # perusahaan berpindah, dan perubahannya perlu dapat ditelusuri
+            # sampai ke orangnya.
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="bank_accounts",
+                entityID=int(bank_id),
+                action="create",
+                userID=userID,
+            )
+
             log_info(f"Bank account created successfully with ID: {result['bank_account_id']}")
             return {"message": "Bank account created successfully", "bank_id": result['bank_account_id']}
         except IntegrityError as e:
@@ -58,12 +71,16 @@ class BankController:
             raise HTTPException(status_code=500, detail="Internal server error.")
 
     @staticmethod
-    async def get_bank_accounts(page: int) -> Dict:
+    async def get_bank_accounts(
+        page: int,
+        sortBy: str = None,
+        sortByDirection: str = "asc",
+    ) -> Dict:
         """
         Retrieve all bank accounts from the database.
         
         Args:
-            page (int): The page number for pagination.
+            page (int, sortBy: str = None, sortByDirection: str = "asc"): The page number for pagination.
         
         Returns:
             Dict: A list of all bank accounts.
@@ -73,7 +90,12 @@ class BankController:
             return {"error": "Page number must be greater than 0", "status": 400}
         
         try:
-            result = await BankAccount.get_banks(page=page, pageSize = 10)
+            result = await BankAccount.get_banks(
+                page=page,
+                pageSize=10,
+                sortBy=sortBy,
+                sortByDirection=sortByDirection,
+            )
             if "error" in result:
                 log_error(f"Error retrieving bank accounts: {result['error']}")
                 return {"error": result["error"], "status": result["status"]}
@@ -91,7 +113,7 @@ class BankController:
             }
         except Exception as e:
             log_error(f"Error retrieving bank accounts: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_all_bank_accounts() -> List[Dict]:
@@ -111,7 +133,7 @@ class BankController:
             return accounts
         except Exception as e:
             log_error(f"Error retrieving top bank accounts: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
     @staticmethod
     async def get_bank_account_by_id(bank_id: int) -> Optional[Dict]:
         """
@@ -168,13 +190,37 @@ class BankController:
                 .where(bank_accounts_table.c.id == bank_id)
                 .values(**update_fields)
             )
+            # Keadaan SEBELUM diubah diambil lebih dulu.
+            #
+            # Setelah `execute`, nilai lamanya sudah tertimpa dan tidak dapat
+            # direkam lagi — jejak yang hanya menyebut "diubah" tanpa
+            # menyebut dari apa menjadi apa tidak menjawab pertanyaan yang
+            # membuatnya diperlukan.
+            sebelum = await database.fetch_one(
+                select(bank_accounts_table).where(
+                    bank_accounts_table.c.id == bank_id
+                )
+            )
+
             result = await database.execute(query)
             if result == 0:  # Check if any rows were affected
                 return {"error": "Update failed or bank account not found", "status": 404}
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="bank_accounts",
+                entityID=int(bank_id),
+                action="update",
+                userID=userID,
+                changes=AuditLogRepository.diff(
+                    dict(sebelum) if sebelum else {}, bank_data
+                ),
+            )
+
             return {"message": "Bank account updated successfully"}
         except Exception as e:
             log_error(f"Error updating bank account with ID {bank_id}: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def delete_bank_account(bankID: int, userID: int):
@@ -202,10 +248,19 @@ class BankController:
                     account_data["isDelete"] = True
                     r.lset("bank_account", index, json.dumps(account_data))
                     break
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="bank_accounts",
+                entityID=int(bankID),
+                action="delete",
+                userID=userID,
+            )
+
             return {"message": "Bank account deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting bank account with ID {bankID}: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def fetch_mutation(bankAccountID: int, page: int, pageSize: int, startDate: str, endDate: str):
@@ -225,5 +280,5 @@ class BankController:
             return result
         except Exception as e:
             log_error(f"Error retrieving bank account mutation: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         

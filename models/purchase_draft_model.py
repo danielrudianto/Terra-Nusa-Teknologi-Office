@@ -1,11 +1,12 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Annotated
-from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, ForeignKey, or_, select, func, insert
+from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, ForeignKey, or_, select, func, insert, update
 from utils.database import metadata
 from datetime import datetime as d
 from utils.logger_utils import log_error, log_info
 from models.supplier_model import suppliers_table
 from utils.database import database
+from utils.errors import internal_error
 
 # Define the Purchase model
 class PurchaseDraft(BaseModel):
@@ -31,7 +32,7 @@ class PurchaseDraft(BaseModel):
             return purchase_id
         except Exception as e:
             log_error(f"Error creating purchase: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
         
     @staticmethod
     async def delete_purcase_draft(purchase_data_id: int, userID: int):
@@ -41,7 +42,7 @@ class PurchaseDraft(BaseModel):
             return True
         except Exception as e:
             log_error(f"Error deleting purchase: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
     
     @staticmethod
     async def get_purchase_draft(page: int, pageSize: int, isPending: bool, isApproved: bool,sortBy: str, sortByDirection: str, keyword: str):
@@ -73,6 +74,16 @@ class PurchaseDraft(BaseModel):
 
         conditions.append(or_(*or_conditions))
         conditions.append(or_(*status_conditions))
+
+        # Draft yang sudah menjadi pembelian tidak lagi menunggu apa pun,
+        # jadi tidak ditampilkan di daftar tertunda. Tanpa ini, draft yang
+        # sudah dikonversi tetap duduk di daftar dan mengundang konversi
+        # kedua — yang kini ditolak server, tetapi tetap membingungkan.
+        #
+        # Ditambahkan sebagai syarat AND tersendiri, bukan disisipkan ke
+        # rangkaian OR di atas, agar tidak ikut melonggarkan penyaring lain.
+        if isPending:
+            conditions.append(purchase_draft_table.c.convertedAt.is_(None))
 
         # Sort by, using switch case
         if sortBy == "date":
@@ -130,7 +141,7 @@ class PurchaseDraft(BaseModel):
             return {"data": purchase_result, "count": count}
         except Exception as e:
             log_error(f"Error fetching purchases: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_project(projectName: str):
@@ -189,6 +200,55 @@ class PurchaseDraft(BaseModel):
         purchases = await database.fetch_one(query)
         return purchases
 
+    @staticmethod
+    async def tandai_terkonversi(draft_id: int, purchase_id: int, user_id: int):
+        """
+        Tandai draft sudah menjadi pembelian.
+
+        Penandaannya BERSYARAT: hanya mengenai baris yang belum terkonversi
+        dan belum dihapus. Bila dua permintaan tiba bersamaan, hanya satu
+        yang mengubah baris — yang kedua mendapat 0 dan konversinya ditolak.
+        Memeriksa lebih dulu lalu menulis belakangan tidak cukup, karena di
+        antara keduanya masih ada celah.
+        """
+        nilai = {"convertedAt": d.now(), "convertedBy": user_id}
+        if purchase_id is not None:
+            nilai["purchaseID"] = purchase_id
+
+        return await database.execute(
+            update(purchase_draft_table)
+            .where(
+                purchase_draft_table.c.id == draft_id,
+                purchase_draft_table.c.isDelete == False,  # noqa: E712
+                purchase_draft_table.c.convertedAt.is_(None),
+            )
+            .values(**nilai)
+        )
+
+    @staticmethod
+    async def catat_purchase_id(draft_id: int, purchase_id: int):
+        """Lengkapi tautan ke pembelian setelah nomornya diketahui."""
+        return await database.execute(
+            update(purchase_draft_table)
+            .where(purchase_draft_table.c.id == draft_id)
+            .values(purchaseID=purchase_id)
+        )
+
+    @staticmethod
+    async def batalkan_konversi(draft_id: int):
+        """
+        Cabut penandaan konversi.
+
+        Dipakai bila pembelian gagal dibuat setelah draftnya ditandai —
+        tanpa ini draft itu terkunci selamanya: tidak bisa dikonversi lagi,
+        padahal pembeliannya tidak pernah jadi.
+        """
+        return await database.execute(
+            update(purchase_draft_table)
+            .where(purchase_draft_table.c.id == draft_id)
+            .values(convertedAt=None, convertedBy=None, purchaseID=None)
+        )
+
 # Define the SQLAlchemy table
 purchase_draft_table = Table(
     "purchase_draft",
@@ -208,4 +268,18 @@ purchase_draft_table = Table(
     Column("deletedAt", DateTime(), nullable=True, default=None),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
     Column("deletedBy", Integer, ForeignKey("users.id"), nullable=True),
+    #
+    # Penanda draft yang sudah menjadi pembelian.
+    #
+    # Sebelum ini, konversi hanya membuat pembelian baru dan draftnya tetap
+    # utuh di daftar tanpa tanda apa pun — sehingga draft yang sama bisa
+    # dikonversi berkali-kali dan menghasilkan pembelian ganda. Kekeliruan
+    # semacam itu baru ketahuan saat rekonsiliasi, ketika tagihan yang sama
+    # sudah terhitung dua kali.
+    #
+    # Menyimpan `purchaseID` sekaligus membuat jejaknya dapat ditelusuri:
+    # draft ini menjadi pembelian yang mana.
+    Column("convertedAt", DateTime(), nullable=True, default=None),
+    Column("convertedBy", Integer, ForeignKey("users.id"), nullable=True),
+    Column("purchaseID", Integer, nullable=True, default=None),
 )

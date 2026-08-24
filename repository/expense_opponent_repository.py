@@ -16,10 +16,18 @@ class ExpenseOpponentRepository:
             
             query = insert(expense_opponents_table).values(opponent_data)
             opponent_id = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="expense_opponents",
+                entityID=opponent_id,
+                action="create",
+            )
             return {"message": "Expense opponent created successfully", "opponent_id": opponent_id}
         except Exception as e:
             log_error(f"Error creating expense opponent: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_all(page: int, pageSize: int, sortBy: str | None, sortByDirection: str | None, keyword: str | None):
@@ -72,7 +80,7 @@ class ExpenseOpponentRepository:
             }
         except Exception as e:
             log_error(f"Error retrieving expense opponents: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_by_id(opponent_id: int):
@@ -95,7 +103,7 @@ class ExpenseOpponentRepository:
             return dict(opponent)
         except Exception as e:
             log_error(f"Error retrieving expense opponent by ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def update(opponent_id: int, opponent_data: dict):
@@ -103,6 +111,11 @@ class ExpenseOpponentRepository:
         Update an expense opponent in the database.
         """
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(expense_opponents_table).where(expense_opponents_table.c.id == opponent_id)
+            )
             query = (
                 update(expense_opponents_table)
                 .where(
@@ -116,10 +129,29 @@ class ExpenseOpponentRepository:
             if result == 0:
                 return {"error": "Expense opponent not found", "status": 404}
             
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="expense_opponents",
+                entityID=opponent_id,
+                action="update",
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(expense_opponents_table).where(
+                                expense_opponents_table.c.id == opponent_id
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+
             return {"message": "Expense opponent updated successfully"}
         except Exception as e:
             log_error(f"Error updating expense opponent: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def delete(opponent_id: int, user_id: int):
@@ -144,10 +176,19 @@ class ExpenseOpponentRepository:
             if result == 0:
                 return {"error": "Expense opponent not found", "status": 404}
             
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="expense_opponents",
+                entityID=opponent_id,
+                action="delete",
+                userID=user_id,
+            )
+            
             return {"message": "Expense opponent deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting expense opponent: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def search_by_name(keyword: str, limit: int = 10):
@@ -168,4 +209,4 @@ class ExpenseOpponentRepository:
             return [dict(opponent) for opponent in opponents]
         except Exception as e:
             log_error(f"Error searching expense opponents: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}

@@ -122,7 +122,7 @@ class AssetController:
 
             # Try cache first
             cache_key = f"asset:{asset_id}"
-            cached_data = await r.get(cache_key)
+            cached_data = r.get(cache_key)
             
             if cached_data:
                 log_info(f"Returning cached asset data for ID: {asset_id}")
@@ -140,7 +140,7 @@ class AssetController:
 
             # Cache the result for 10 minutes
             asset_data = asset.model_dump()
-            await r.setex(cache_key, 600, json.dumps(asset_data))
+            r.setex(cache_key, 600, json.dumps(asset_data, default=str))
 
             log_info(f"Successfully fetched asset with ID: {asset_id}")
             return asset_data
@@ -285,12 +285,12 @@ class AssetController:
         """
         try:
             # Clear specific asset cache
-            await r.delete(f"asset:{asset_id}")
+            r.delete(f"asset:{asset_id}")
             
             # Clear paginated assets cache
-            keys = await r.keys("assets:page:*")
+            keys = r.keys("assets:page:*")
             if keys:
-                await r.delete(*keys)
+                r.delete(*keys)
                 
         except Exception as e:
             log_error(f"Error clearing cache for asset {asset_id}: {str(e)}")

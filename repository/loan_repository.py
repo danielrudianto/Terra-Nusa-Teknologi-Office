@@ -14,6 +14,14 @@ class LoanRepository:
         try:
             query = loans_table.insert().values(**loan_data)
             result = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="loans",
+                entityID=result,
+                action="create",
+            )
             return {"loan_id": result}
         except IntegrityError as e:
             log_error(f"Integrity error while creating loan data: {str(e.orig)}")
@@ -76,13 +84,91 @@ class LoanRepository:
             log_error(f"Unexpected error while fetching loan data: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
 
+    # Kolom yang boleh disunting setelah pinjaman tercatat.
+    #
+    # `received` dan `debt` termasuk, tetapi TIDAK bebas: controller menolak
+    # nilai utang yang lebih kecil daripada jumlah yang sudah dibayarkan, dan
+    # menghitung ulang status lunas setelah setiap perubahan.
+    #
+    # `isPaid` sengaja tidak ada di sini. Status itu adalah kesimpulan dari
+    # utang dan pembayaran, bukan sesuatu yang disetel tangan — membiarkannya
+    # disunting berarti pinjaman bisa ditandai lunas tanpa satu pembayaran pun.
+    EDITABLE_FIELDS = {
+        "creditorName",
+        "creditorAddress",
+        "creditorNPWP",
+        "description",
+        "bankAccountName",
+        "bankAccountNumber",
+        "bankName",
+        "bankAccountID",
+        "received",
+        "debt",
+    }
+
+    @staticmethod
+    async def update(loan_id: int, loan_data: dict, user_id: int):
+        """
+        Perbarui data pinjaman, terbatas pada kolom yang boleh disunting.
+
+        Nilai lama dicatat ke jejak audit agar perubahan rekening dapat
+        ditelusuri — justru kolom inilah yang paling perlu jejaknya, karena
+        menentukan ke mana uang dikirimkan.
+        """
+        try:
+            data = {
+                k: v
+                for k, v in (loan_data or {}).items()
+                if k in LoanRepository.EDITABLE_FIELDS
+            }
+            if not data:
+                return {"error": "Tidak ada kolom yang dapat diperbarui", "status": 400}
+
+            sebelum = await database.fetch_one(
+                select(loans_table).where(loans_table.c.id == loan_id)
+            )
+            if sebelum is None:
+                return {"error": "Data pinjaman tidak ditemukan", "status": 404}
+
+            data["updatedAt"] = dt.now()
+            data["updatedBy"] = user_id
+
+            await database.execute(
+                loans_table.update().where(loans_table.c.id == loan_id).values(**data)
+            )
+
+            from repository.audit_log_repository import AuditLogRepository
+
+            sesudah = await database.fetch_one(
+                select(loans_table).where(loans_table.c.id == loan_id)
+            )
+            await AuditLogRepository.record(
+                entity="loans",
+                entityID=loan_id,
+                action="update",
+                userID=user_id,
+                changes=AuditLogRepository.diff(
+                    dict(sebelum) if sebelum else {},
+                    dict(sesudah) if sesudah else {},
+                ),
+            )
+            return {"loan_id": loan_id}
+        except IntegrityError as e:
+            log_error(f"Integrity error while updating loan data: {str(e.orig)}")
+            return {"error": str(e.orig), "status": 400}
+        except Exception as e:
+            log_error(f"Unexpected error while updating loan data: {str(e)}")
+            return {"error": "Gagal memperbarui data pinjaman", "status": 500}
+
     @staticmethod
     async def get_loan_by_id(loan_id: int):
         """Get a single loan by ID."""
         try:
             query = select(loans_table).where(loans_table.c.id == loan_id)
             result = await database.fetch_one(query)
-            return result
+            if result is None:
+                return {"error": "Loan not found", "status": 404}
+            return dict(result)
         except IntegrityError as e:
             log_error(f"Integrity error while fetching loan data: {str(e.orig)}")
             return {"error": str(e.orig), "status": 400}
@@ -91,15 +177,112 @@ class LoanRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    async def get_payments_by_loan_id(loan_id: int):
+        """Get all active (non-deleted) outgoing payments for a loan, oldest first."""
+        try:
+            query = (
+                select(payments_outgoing_table)
+                .where(
+                    payments_outgoing_table.c.loanID == loan_id,
+                    payments_outgoing_table.c.isDelete == False,
+                )
+                .order_by(payments_outgoing_table.c.date.asc())
+            )
+            rows = await database.fetch_all(query)
+            return [dict(row) for row in rows]
+        except Exception as e:
+            log_error(f"Unexpected error while fetching payments for loan {loan_id}: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def total_dibayar(loan_id: int) -> float:
+        """
+        Jumlah pembayaran yang benar-benar melekat pada sebuah pinjaman.
+
+        Yang dihitung hanya pembayaran yang SUDAH DISETUJUI dan belum dihapus.
+        Pembayaran yang masih menunggu persetujuan belum tentu jadi — memasukkannya
+        akan membuat pinjaman tampak lebih lunas daripada kenyataannya, dan
+        menghalangi koreksi nilai yang sah.
+        """
+        from repository.payment_outgoing_repository import PaymentOutgoingRepository
+
+        pembayaran = await PaymentOutgoingRepository.get_payments_by_loan_id(loan_id)
+        if isinstance(pembayaran, dict) and "error" in pembayaran:
+            raise RuntimeError(pembayaran["error"])
+        return float(
+            sum(p.amount for p in pembayaran if p.isApprove and not p.isDelete)
+        )
+
+    @staticmethod
+    async def hitung_ulang_lunas(loan_id: int, user_id: int) -> dict:
+        """
+        Tetapkan ulang status lunas dari nilai utang dan pembayaran terkini.
+
+        Dipakai setelah nilai pinjaman diubah. Tanpa ini, menurunkan nilai utang
+        hingga sama dengan yang sudah dibayar meninggalkan pinjaman berstatus
+        belum lunas selamanya — dan menaikkannya kembali meninggalkan pinjaman
+        yang sudah ditandai lunas padahal masih bersisa.
+
+        Ambang lima rupiah dipakai sama seperti pada persetujuan pembayaran:
+        nilai disimpan sebagai desimal sementara pembayaran dijumlahkan sebagai
+        pecahan, sehingga selisih pembulatan beberapa rupiah bukan tanda kurang
+        bayar.
+        """
+        try:
+            baris = await database.fetch_one(
+                select(loans_table).where(loans_table.c.id == loan_id)
+            )
+            if not baris:
+                return {"error": "Loan not found", "status": 404}
+
+            utang = float(baris["debt"] or 0)
+            dibayar = await LoanRepository.total_dibayar(loan_id)
+            lunas = (utang - dibayar) < 5
+
+            if bool(baris["isPaid"]) == lunas:
+                return {"isPaid": lunas, "berubah": False}
+
+            await LoanRepository.update_payment_status(loan_id, lunas, user_id)
+            return {"isPaid": lunas, "berubah": True}
+        except Exception as e:
+            log_error(f"Error recalculating loan {loan_id} paid status: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def update_payment_status(loan_id: int, status: bool, user_id: int):
         """Update the payment status of a loan."""
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(loans_table).where(loans_table.c.id == loan_id)
+            )
             query = (
                 loans_table.update()
                 .where(loans_table.c.id == loan_id)
                 .values(isPaid=status, updatedBy=user_id, updatedAt=dt.now())
             )
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="loans",
+                entityID=loan_id,
+                action="update_payment_status",
+                userID=user_id,
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(loans_table).where(
+                                loans_table.c.id == loan_id
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+            
             return {"message": "Loan payment status updated successfully."}
         except IntegrityError as e:
             log_error(f"Integrity error while updating loan data: {str(e.orig)}")

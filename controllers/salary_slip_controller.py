@@ -1,11 +1,12 @@
 from services.user_service import UserService
 from utils.logger_utils import log_error, log_info
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 from schemas.salary_slip_schema import SalarySlipCreate
 from repository.salary_slip_repository import SalarySlipRepository, SalarySlipAllowanceRepository, SalarySlipDeductionRepository
 from datetime import datetime as dt
 from models.employee_model import Employee
 from models.payment_outgoing_model import PaymentOutgoing
+from repository.payment_outgoing_repository import PaymentOutgoingRepository
 from services.mail_service import MailService
 from services.pdf_service import PDFService
 import os
@@ -14,9 +15,9 @@ import os
 class SalarySlipController:
     
     @staticmethod
-    async def fetch(page: int, pageSize: int, keyword: str, month: int, year: int):
+    async def fetch(page: int, pageSize: int, keyword: str, month: int, year: int, sortBy: str = None, sortByDirection: str = "asc"):
         try:
-            result = await SalarySlipRepository.fetch(page, pageSize, keyword, month, year)
+            result = await SalarySlipRepository.fetch(page, pageSize, keyword, month, year, sortBy, sortByDirection)
             if "error" in result:
                 raise HTTPException(status_code=result["status"], detail=result["error"])
             
@@ -40,7 +41,7 @@ class SalarySlipController:
             if "error" in deductions:
                 raise HTTPException(status_code=deductions["status"], detail=deductions["error"])
 
-            payments = await PaymentOutgoing.get_payments_by_salary_slip_id(id)
+            payments = await PaymentOutgoingRepository.get_payments_by_salary_slip_id(id)
             if "error" in payments:
                 raise HTTPException(status_code=payments["status"], detail=payments["error"])
 
@@ -111,6 +112,40 @@ class SalarySlipController:
             raise HTTPException(status_code=500, detail="Failed to send salary slip")
 
     @staticmethod
+    async def send_many(salary_slip_ids: list[int]):
+        """
+        Kirim beberapa slip gaji sekaligus.
+
+        Dikirim satu per satu, dan kegagalan pada satu slip TIDAK
+        menghentikan sisanya: pada pengiriman sebulan penuh, satu alamat
+        surel yang keliru tidak boleh membuat puluhan karyawan lain tidak
+        menerima slipnya.
+
+        Yang dikembalikan menyebut satu per satu mana yang berhasil dan mana
+        yang gagal beserta sebabnya — tanpa itu, yang mengirim hanya tahu
+        "sebagian gagal" tanpa tahu siapa yang perlu dikirim ulang.
+        """
+        berhasil: list[int] = []
+        gagal: list[dict] = []
+
+        for slip_id in salary_slip_ids or []:
+            try:
+                await SalarySlipController.send(slip_id)
+                berhasil.append(slip_id)
+            except HTTPException as e:
+                gagal.append({"id": slip_id, "reason": str(e.detail)})
+            except Exception as e:
+                log_error(f"Gagal mengirim slip {slip_id}: {e}")
+                gagal.append({"id": slip_id, "reason": str(e)})
+
+        return {
+            "sent": len(berhasil),
+            "failed": len(gagal),
+            "sentIds": berhasil,
+            "failures": gagal,
+        }
+
+    @staticmethod
     async def print(salary_slip_id: int):
         try:
             salarySlip = await SalarySlipRepository.get_by_id(salary_slip_id)
@@ -124,14 +159,21 @@ class SalarySlipController:
             month_name = SalarySlipController.get_indonesian_month(salarySlip["month"])
             year = salarySlip['year']
 
-            #Send the pdf file to front end
+            # Baca PDF sebagai bytes, lalu hapus file temp.
             with open(pdf_path, "rb") as file:
                 file_data = file.read()
-                return {"file": file_data, "filename": f"Slip Gaji {month_name} {year}.pdf"}
+            try:
+                os.remove(pdf_path)
+            except Exception:
+                pass
+
+            filename = f"Slip Gaji {month_name} {year}.pdf"
+            # Kembalikan sebagai objek biner; route yang membungkus jadi Response PDF.
+            return {"pdf_bytes": file_data, "filename": filename}
 
         except Exception as e:
             log_error(str(e))
-            raise HTTPException(status_code=500, detail="Failed to send salary slip")
+            raise HTTPException(status_code=500, detail="Failed to print salary slip")
 
     @staticmethod
     async def delete(id: int, userID: int):

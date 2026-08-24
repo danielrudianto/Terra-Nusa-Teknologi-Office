@@ -1,4 +1,7 @@
 from sqlalchemy import select, insert, update, delete, func, or_, and_
+from sqlalchemy.exc import IntegrityError
+from utils.permission import boleh_menyetujui_sendiri
+from utils.errors import ErrorCode, app_error, internal_error
 from utils.database import database
 from models.reimbursement_model import reimbursements_table, reimbursement_items_table
 from utils.logger_utils import log_error, log_info
@@ -16,22 +19,55 @@ class ReimbursementRepository:
             return count if count is not None else 0
         except Exception as e:
             log_error(f"Error counting reimbursements by project name: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def create_reimbursement(reimbursement_data: dict):
         try:
             query = insert(reimbursements_table).values(**reimbursement_data)
             reimbursement_id = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="reimbursements",
+                entityID=reimbursement_id,
+                action="create",
+            )
             return reimbursement_id
+        except IntegrityError as e:
+            # Nama yang sudah terpakai ditolak basis data.
+            #
+            # Tanpa cabang ini, penolakannya jatuh ke galat 500 yang tidak
+            # menyebut sebabnya sama sekali — dan yang mengisinya menyimpulkan
+            # sistemnya rusak, lalu mencoba lagi dengan nama yang sama.
+            if "Duplicate entry" in str(e):
+                log_error(f"Nama reimbursement ganda: {str(e)}")
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "Nama reimbursement ini sudah dipakai. Gunakan nama lain.",
+                    400,
+                )
+            log_error(f"Error creating reimbursement: {str(e)}")
+            return internal_error()
         except Exception as e:
             log_error(f"Error creating reimbursement: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def create_reimbursement_items(reimbursement_items_data: list):
         try:
             if not reimbursement_items_data:
+                from repository.audit_log_repository import AuditLogRepository
+
+                # Baris turunan dicatat pada dokumen induknya: riwayat dibaca
+                # per dokumen, sehingga catatan terpisah tidak akan terlihat.
+                await AuditLogRepository.record(
+                    entity="reimbursements",
+                    entityID=reimbursement_items_data[0]["reimbursementID"],
+                    action="create_items",
+                )
+
                 return {"message": "No reimbursement items to create."}
             
             query = insert(reimbursement_items_table).values(reimbursement_items_data)
@@ -39,7 +75,7 @@ class ReimbursementRepository:
             return {"message": "Reimbursement items created successfully"}
         except Exception as e:
             log_error(f"Error creating reimbursement items: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_reimbursements(page: int, pageSize: int, filterObject: dict, sortBy: str, sortByDirection: str, keyword: str | None):
@@ -62,6 +98,24 @@ class ReimbursementRepository:
                 or_conditions.append(reimbursements_table.c.bankName.ilike(f"%{keyword}%"))
                 or_conditions.append(reimbursements_table.c.bankAccountName.ilike(f"%{keyword}%"))
                 or_conditions.append(reimbursements_table.c.bankAccountNumber.ilike(f"%{keyword}%"))
+                # NAMA BARANG ikut dicari.
+                #
+                # Nama pengajuan (`reimbursements.name`) kerap hanya nomor
+                # dokumen; yang diingat orang justru BARANGNYA — "tol",
+                # "parkir", "bensin" — dan itu tersimpan sebagai
+                # `reimbursement_items.description`, satu pengajuan banyak baris.
+                # Dicari lewat subkueri IN: satu baris yang cocok sudah cukup
+                # memunculkan pengajuannya, tanpa menggandakan barisnya pada
+                # hasil (yang terjadi bila di-join langsung).
+                or_conditions.append(
+                    reimbursements_table.c.id.in_(
+                        select(reimbursement_items_table.c.reimbursementID).where(
+                            reimbursement_items_table.c.description.ilike(
+                                f"%{keyword}%"
+                            )
+                        )
+                    )
+                )
 
             if or_conditions:
                 conditions.append(or_(*or_conditions))
@@ -122,7 +176,7 @@ class ReimbursementRepository:
             return {"data": reimbursements, "count": count}
         except Exception as e:
             log_error(f"Error getting reimbursements: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_reimbursement_by_id(reimbursementID: int):
@@ -136,7 +190,7 @@ class ReimbursementRepository:
             return reimbursement
         except Exception as e:
             log_error(f"Error getting reimbursement by ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_reimbursement_items_by_reimbursement_id(reimbursementID: int):
@@ -148,7 +202,7 @@ class ReimbursementRepository:
             return reimbursement_items
         except Exception as e:
             log_error(f"Error getting reimbursement items by ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_by_project(projectName: str):
@@ -178,11 +232,32 @@ class ReimbursementRepository:
             return [dict(record) for record in reimbursements]
         except Exception as e:
             log_error(f"Error getting reimbursement items by project: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
-    async def approve_reimbursement_by_id(reimbursementID: int, userID: int):
+    async def approve_reimbursement_by_id(
+        reimbursementID: int, userID: int, user_level: int | None = None
+    ):
         try:
+            # Yang membuat dokumen tidak boleh menyetujuinya sendiri.
+            #
+            # Dikecualikan untuk level 4 ke atas: keduanya memang berwenang atas
+            # seluruh dokumen, dan kerap merekalah satu-satunya yang hadir untuk
+            # menyetujui. Pengecualian itu tetap tercatat pada jejak aktivitas.
+            if not boleh_menyetujui_sendiri(user_level):
+                pembuat = await database.fetch_val(
+                    select(reimbursements_table.c.createdBy).where(
+                        reimbursements_table.c.id == reimbursementID
+                    )
+                )
+                if pembuat is not None and int(pembuat) == int(userID):
+                    return app_error(
+                        ErrorCode.SELF_APPROVAL_FORBIDDEN,
+                        "Dokumen tidak dapat disetujui oleh pembuatnya "
+                        "sendiri. Mintakan persetujuan kepada pengguna lain.",
+                        403,
+                    )
+
             query = (
                 reimbursements_table.update()
                 .where(
@@ -198,10 +273,19 @@ class ReimbursementRepository:
                 )
             )
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="reimbursements",
+                entityID=reimbursementID,
+                action="approve",
+                userID=userID,
+            )
+            
             return {"message": "Reimbursement approved successfully"}
         except Exception as e:
             log_error(f"Error approving reimbursement by ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def reject_reimbursement_by_id(reimbursementID: int, userID: int):
@@ -219,14 +303,28 @@ class ReimbursementRepository:
                 )
             )
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="reimbursements",
+                entityID=reimbursementID,
+                action="reject",
+                userID=userID,
+            )
+
             return {"message": "Reimbursement rejected successfully"}
         except Exception as e:
             log_error(f"Error rejecting reimbursement by ID: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def update_payment_status(reimbursementID: int, isPaid: bool, userID: int):
         try:
+            # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
+            # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
+            _sebelum = await database.fetch_one(
+                select(reimbursements_table).where(reimbursements_table.c.id == reimbursementID)
+            )
             query = (
                 reimbursements_table.update()
                 .where(
@@ -239,7 +337,27 @@ class ReimbursementRepository:
                 )
             )
             await database.execute(query)
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="reimbursements",
+                entityID=reimbursementID,
+                action="update_payment_status",
+                userID=userID,
+                changes=AuditLogRepository.diff(
+                    dict(_sebelum) if _sebelum else {},
+                    dict(
+                        await database.fetch_one(
+                            select(reimbursements_table).where(
+                                reimbursements_table.c.id == reimbursementID
+                            )
+                        )
+                        or {}
+                    ),
+                ),
+            )
+
             return {"message": f"Reimbursement payment status updated successfully"}
         except Exception as e:
             log_error(f"Error updating reimbursement payment status: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()

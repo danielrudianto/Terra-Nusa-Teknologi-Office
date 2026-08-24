@@ -11,7 +11,14 @@ from utils.logger_utils import log_error
 class BankAccount(BaseModel):
     id: Optional[int] = Field(default=None, title="ID of the bank account", ge=1)
     bankAccountID: int
-    amount: Float
+    # `float`, bukan `Float`.
+    #
+    # `Float` adalah tipe KOLOM SQLAlchemy, bukan tipe Python. Memakainya
+    # sebagai anotasi membuat Pydantic gagal menyusun skema dan berkas ini
+    # melempar galat begitu di-import. Saat ini tidak ada yang mengimpornya,
+    # sehingga kekeliruannya belum pernah terlihat — tetapi akan langsung
+    # menggagalkan siapa pun yang memakainya nanti.
+    amount: float
 
     # Initialize the model with default values
     def __init__(self, **data):

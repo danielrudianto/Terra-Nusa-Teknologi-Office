@@ -1,4 +1,4 @@
-from sqlalchemy import Table, Column, Integer, ForeignKey, Float, Date, String, Boolean, DateTime
+from sqlalchemy import UniqueConstraint, Table, Column, Integer, ForeignKey, Float, Date, String, Boolean, DateTime
 from utils.database import metadata
 from datetime import datetime as dt
 
@@ -10,20 +10,32 @@ sales_invoice_tables = Table(
     Column("date", Date, nullable=False),
     Column("projectName", String(10), nullable=False),
     Column("clientID", Integer, ForeignKey("clients.id"), nullable=False),
+    # DECIMAL(17,4) di basis data; lihat keterangan di purchase_model.
     Column("dpp", Float, nullable=False, default=0.0),
     Column("pphCode", String(100), nullable=True),
     Column("pphTaxObject", String(500), nullable=True),
     Column("pphPercentage", Float, nullable=False, default=0.0),
+    # DECIMAL(5,2). Dulu FLOAT sungguhan; lihat expense_model.
     Column("ppn", Float, nullable=False, default=0.0),
     Column("bpjs", Float, nullable=False, default=0.0),
     Column("spkNumber", String(100), nullable=False),
     Column("taxInvoiceName", String(100), nullable=True, default=None),
+    Column("incomeTaxInvoiceName", String(100), nullable=True, default=None),
     Column("description", String(100), nullable=True),
+    # Faktur dicetak terpisah dari lampirannya.
+    #
+    # Kolomnya sudah ada di basis data dan layar pembuatannya sudah punya
+    # isian untuk ini, tetapi tidak pernah didaftarkan di model — sehingga
+    # pilihan penggunanya tidak pernah tersimpan, dan tidak ada galat yang
+    # muncul karenanya.
+    Column('separatedInvoice', Boolean, nullable=True, default=False),
     Column("bankAccountID", Integer, ForeignKey("bank_accounts.id"), nullable=False),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False, default=1),
     Column("createdAt", Date, nullable=False, default=dt.utcnow().date()),
     Column("isApprove", Boolean, nullable=False, default=False),
     Column("isDelete", Boolean, nullable=False, default=False),
     Column("updatedBy", Integer, ForeignKey("users.id"), nullable=True),
-    Column("updatedAt", DateTime, nullable=True, default=None)
+    Column("updatedAt", DateTime, nullable=True, default=None),
+    # Nomor faktur; dipakai pelanggan merujuk tagihan.
+    UniqueConstraint("name", name="uq_sales_invoice_name"),
 )

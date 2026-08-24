@@ -1,5 +1,7 @@
 from typing import List, Optional, Dict, Any
-from sqlalchemy import select, func, or_, desc, asc, extract
+from utils.permission import boleh_menyetujui_sendiri
+from utils.errors import app_error, ErrorCode
+from sqlalchemy import select, func, or_, and_, desc, asc, extract
 from utils.database import database
 from utils.logger_utils import log_error
 from datetime import datetime as dt
@@ -9,6 +11,46 @@ from models.payment_incoming_model import payment_incoming_table
 from schemas.sales_invoice_schema import SalesInvoiceCreate, SalesInvoiceUpdate, SalesInvoiceWithClientResponse
 
 class SalesInvoiceRepository:
+    @staticmethod
+    def _enrich_with_status(row: dict) -> dict:
+        """
+        Tambahkan field turunan (computed) ke sebuah invoice:
+        - invoiceValue : nilai tagihan = dpp + ppn*dpp/100 - pph*dpp/100 - bpjs (BPJS = potongan)
+        - isPaid       : True jika total_paid >= invoiceValue (toleransi Rp 5)
+        - taxingStatus : status pajak berdasarkan PPN/PPh/pembayaran
+
+        Aturan taxingStatus:
+        1. Ada PPN & taxInvoiceName kosong                -> 'tax_invoice_not_published'
+        2. Ada PPh & incomeTaxInvoiceName kosong & sudah dibayar   -> 'income_tax_not_published'
+        3. Ada PPh & incomeTaxInvoiceName kosong & belum dibayar   -> 'waiting_for_payment'
+        4. Selain itu                                    -> 'fully_published'
+        """
+        dpp = row.get("dpp") or 0
+        ppn = row.get("ppn") or 0
+        pph = row.get("pphPercentage") or 0
+        bpjs = row.get("bpjs") or 0
+        total_paid = row.get("total_paid") or 0
+
+        invoice_value = dpp + (ppn * dpp) / 100 - (pph * dpp) / 100 - bpjs
+        is_paid = total_paid >= (invoice_value - 5)  # toleransi pembulatan Rp 5
+
+        has_ppn = ppn and ppn > 0
+        has_pph = pph and pph > 0
+        tax_invoice_empty = not (row.get("taxInvoiceName") or "").strip()
+        income_tax_empty = not (row.get("incomeTaxInvoiceName") or "").strip()
+
+        if has_ppn and tax_invoice_empty:
+            status = "tax_invoice_not_published"
+        elif has_pph and income_tax_empty:
+            status = "income_tax_not_published" if is_paid else "waiting_for_payment"
+        else:
+            status = "fully_published"
+
+        row["invoiceValue"] = invoice_value
+        row["isPaid"] = is_paid
+        row["taxingStatus"] = status
+        return row
+
     @staticmethod
     async def create(sales_invoice_data: SalesInvoiceCreate) -> Dict[str, Any]:
         """
@@ -20,10 +62,18 @@ class SalesInvoiceRepository:
                 createdAt=dt.now()
             )
             result = await database.execute(query)
+            
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="sales_invoices",
+                entityID=result,
+                action="create",
+            )
             return {"message": "Sales invoice created successfully", "sales_invoice_id": result}
         except Exception as e:
             log_error(f"Error creating sales invoice: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def get_by_project(projectName: str):
@@ -35,21 +85,47 @@ class SalesInvoiceRepository:
                 clients_table.c.city.label("client_city"),
                 clients_table.c.province.label("client_province"),
                 clients_table.c.prefix.label("client_prefix"),
+                # NPWP dipakai saat membuat faktur pajak dari layar konfirmasi
+                clients_table.c.npwp.label("client_npwp"),
             ]
-            
-            query = select(
-                *sales_invoice_tables.c,
-                *client_columns
-            ).join(
-                clients_table, 
-                sales_invoice_tables.c.clientID == clients_table.c.id
-            ).where(
-                sales_invoice_tables.c.projectName == projectName,
-                sales_invoice_tables.c.isDelete == False
+
+            # Subquery: total pembayaran yang sudah diterima per invoice (uang masuk)
+            payment_subquery = (
+                select(
+                    payment_incoming_table.c.salesInvoiceID.label("invoice_id"),
+                    func.coalesce(
+                        func.sum(payment_incoming_table.c.amount), 0
+                    ).label("total_paid"),
+                )
+                .group_by(payment_incoming_table.c.salesInvoiceID)
+                .subquery()
             )
-            
+
+            query = (
+                select(
+                    *sales_invoice_tables.c,
+                    *client_columns,
+                    func.coalesce(payment_subquery.c.total_paid, 0).label("total_paid"),
+                )
+                .join(
+                    clients_table,
+                    sales_invoice_tables.c.clientID == clients_table.c.id,
+                )
+                .outerjoin(
+                    payment_subquery,
+                    sales_invoice_tables.c.id == payment_subquery.c.invoice_id,
+                )
+                .where(
+                    sales_invoice_tables.c.projectName == projectName,
+                    sales_invoice_tables.c.isDelete == False,
+                )
+            )
+
             result = await database.fetch_all(query)
-            return [dict(row) for row in result]
+            return [
+                SalesInvoiceRepository._enrich_with_status(dict(row))
+                for row in result
+            ]
         except Exception as e:
             log_error(f"Error fetching sales invoice by name: {str(e)}")
             raise
@@ -67,11 +143,21 @@ class SalesInvoiceRepository:
                 clients_table.c.city.label("client_city"),
                 clients_table.c.province.label("client_province"),
                 clients_table.c.prefix.label("client_prefix"),
+                # NPWP dipakai saat membuat faktur pajak dari layar konfirmasi
+                clients_table.c.npwp.label("client_npwp"),
             ]
             
             query = select(
                 *sales_invoice_tables.c,
-                *client_columns
+                *client_columns,
+                func.coalesce(
+                    select(
+                        func.coalesce(func.sum(payment_incoming_table.c.amount), 0)
+                    )
+                    .where(payment_incoming_table.c.salesInvoiceID == sales_invoice_tables.c.id)
+                    .scalar_subquery(),
+                    0,
+                ).label("total_paid"),
             ).join(
                 clients_table, 
                 sales_invoice_tables.c.clientID == clients_table.c.id
@@ -80,7 +166,7 @@ class SalesInvoiceRepository:
             )
             
             result = await database.fetch_one(query)
-            return SalesInvoiceWithClientResponse.model_validate(dict(result)) if result else None
+            return SalesInvoiceRepository._enrich_with_status(dict(result)) if result else None
         except Exception as e:
             log_error(f"Error fetching sales invoice by ID: {str(e)}")
             raise
@@ -98,6 +184,8 @@ class SalesInvoiceRepository:
                 clients_table.c.city.label("client_city"),
                 clients_table.c.province.label("client_province"),
                 clients_table.c.prefix.label("client_prefix"),
+                # NPWP dipakai saat membuat faktur pajak dari layar konfirmasi
+                clients_table.c.npwp.label("client_npwp"),
             ]
             
             query = select(
@@ -122,7 +210,8 @@ class SalesInvoiceRepository:
         page_size: int = 10,
         sort_by: str = "date",
         sort_direction: str = "desc",
-        keyword: Optional[str] = None
+        keyword: Optional[str] = None,
+        filters: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Get paginated sales invoices with sorting and filtering.
@@ -137,6 +226,38 @@ class SalesInvoiceRepository:
                 clients_table.c.prefix.label("client_prefix"),
             ]
 
+            # Subquery: total pembayaran diterima per invoice (untuk isPaid & taxing status)
+            payment_subquery = (
+                select(
+                    payment_incoming_table.c.salesInvoiceID.label("invoice_id"),
+                    func.coalesce(
+                        func.sum(payment_incoming_table.c.amount), 0
+                    ).label("total_paid"),
+                )
+                .group_by(payment_incoming_table.c.salesInvoiceID)
+                .subquery()
+            )
+
+            # Expression nilai tagihan & total dibayar (untuk filter)
+            si = sales_invoice_tables.c
+            invoice_value_expr = (
+                si.dpp
+                + (si.ppn * si.dpp) / 100
+                - (si.pphPercentage * si.dpp) / 100
+                - si.bpjs
+            )
+            total_paid_expr = func.coalesce(payment_subquery.c.total_paid, 0)
+            is_paid_expr = total_paid_expr >= (invoice_value_expr - 5)
+            has_ppn_expr = si.ppn > 0
+            has_pph_expr = si.pphPercentage > 0
+            tax_invoice_empty_expr = or_(
+                si.taxInvoiceName.is_(None), func.trim(si.taxInvoiceName) == ""
+            )
+            income_tax_empty_expr = or_(
+                si.incomeTaxInvoiceName.is_(None),
+                func.trim(si.incomeTaxInvoiceName) == "",
+            )
+
             # Build conditions
             conditions = []
             if keyword:
@@ -147,6 +268,27 @@ class SalesInvoiceRepository:
                     clients_table.c.name.ilike(keyword_filter),
                 ]
                 conditions.append(or_(*search_conditions))
+
+            # Filter chip (multi-select -> OR antar chip yang dipilih)
+            if filters:
+                filter_map = {
+                    "paid": is_paid_expr,
+                    "unpaid": ~is_paid_expr,
+                    # Complete: fully_published -> tidak ada PPN nunggak & tidak ada PPh nunggak
+                    "complete": and_(
+                        ~and_(has_ppn_expr, tax_invoice_empty_expr),
+                        ~and_(has_pph_expr, income_tax_empty_expr),
+                    ),
+                    # No tax invoice: ada PPN tapi faktur kosong
+                    "no_tax_invoice": and_(has_ppn_expr, tax_invoice_empty_expr),
+                    # No withholding: ada PPh tapi bukti potong kosong
+                    "no_withholding": and_(has_pph_expr, income_tax_empty_expr),
+                }
+                chip_conditions = [
+                    filter_map[f] for f in filters if f in filter_map
+                ]
+                if chip_conditions:
+                    conditions.append(or_(*chip_conditions))
 
             # Determine order by
             if sort_by == "date":
@@ -174,9 +316,14 @@ class SalesInvoiceRepository:
             data_query = (
                 select(
                     *sales_invoice_tables.c,
-                    *client_columns
+                    *client_columns,
+                    func.coalesce(payment_subquery.c.total_paid, 0).label("total_paid"),
                 )
                 .join(clients_table, sales_invoice_tables.c.clientID == clients_table.c.id)
+                .outerjoin(
+                    payment_subquery,
+                    sales_invoice_tables.c.id == payment_subquery.c.invoice_id,
+                )
                 .where(*conditions)
                 .order_by(order_by)
                 .offset((page - 1) * page_size)
@@ -188,6 +335,10 @@ class SalesInvoiceRepository:
                 select(func.count())
                 .select_from(sales_invoice_tables)
                 .join(clients_table, sales_invoice_tables.c.clientID == clients_table.c.id)
+                .outerjoin(
+                    payment_subquery,
+                    sales_invoice_tables.c.id == payment_subquery.c.invoice_id,
+                )
                 .where(*conditions)
             )
 
@@ -196,7 +347,7 @@ class SalesInvoiceRepository:
             total_count = await database.fetch_val(count_query)
 
             sales_invoices = [
-                SalesInvoiceWithClientResponse.model_validate(dict(row)) 
+                SalesInvoiceRepository._enrich_with_status(dict(row))
                 for row in sales_invoices_data
             ]
 
@@ -214,6 +365,94 @@ class SalesInvoiceRepository:
             raise
 
     @staticmethod
+    async def get_ppn_keluaran(month: int, year: int):
+        """
+        PPN keluaran: faktur penjualan ber-PPN pada satu periode.
+
+        Bentuknya diselaraskan dengan baris PPN masukan (pembelian/beban) agar
+        laporan posisi PPN dapat menyandingkan keduanya: setiap baris membawa
+        `dpp`, `ppn` (PERSEN, sama seperti masukan), `taxInvoiceName`, tanggal,
+        proyek, dan nama klien.
+
+        Hanya faktur yang sudah disetujui dan belum dihapus yang dihitung —
+        draf faktur belum menimbulkan PPN terutang, jadi tidak boleh ikut
+        menaikkan estimasi kurang bayar.
+        """
+        try:
+            si = sales_invoice_tables.c
+            query = (
+                select(
+                    si.id,
+                    si.name,
+                    si.date,
+                    si.dpp,
+                    si.ppn,
+                    si.pphPercentage,
+                    si.taxInvoiceName,
+                    si.projectName,
+                    si.spkNumber,
+                    clients_table.c.name.label("client_name"),
+                    clients_table.c.npwp.label("client_npwp"),
+                )
+                .join(
+                    clients_table,
+                    sales_invoice_tables.c.clientID == clients_table.c.id,
+                )
+                .where(
+                    si.isDelete == False,
+                    si.isApprove == True,
+                    si.ppn > 0,
+                    func.extract("month", si.date) == month,
+                    func.extract("year", si.date) == year,
+                )
+                .order_by(si.date.asc())
+            )
+            rows = await database.fetch_all(query)
+            return [dict(row) for row in rows]
+        except Exception as e:
+            log_error(f"Error fetching PPN keluaran: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def get_ppn_keluaran_bulanan(until_year: int, until_month: int):
+        """
+        Total PPN keluaran per bulan, dari awal sampai akhir periode terpilih.
+
+        Dipakai untuk menghitung kompensasi lebih bayar yang berjalan antar
+        masa: laporan posisi tidak boleh berdiri sendiri per bulan, karena
+        lebih bayar satu masa dikreditkan ke masa berikutnya. Hanya total per
+        bulan yang dibutuhkan di sini — rinciannya diambil terpisah untuk masa
+        terpilih saja.
+        """
+        try:
+            end_date = (
+                dt(until_year + 1, 1, 1)
+                if until_month == 12
+                else dt(until_year, until_month + 1, 1)
+            )
+            si = sales_invoice_tables.c
+            # Tanpa `.label()`, dibaca lewat posisi kolom — seragam dengan
+            # laporan bulanan pembelian/beban.
+            y = func.extract("year", si.date)
+            m = func.extract("month", si.date)
+            total = func.coalesce(func.sum(si.dpp * si.ppn / 100), 0)
+            query = (
+                select(y, m, total)
+                .where(
+                    si.isDelete == False,
+                    si.isApprove == True,
+                    si.ppn > 0,
+                    si.date < end_date,
+                )
+                .group_by(y, m)
+            )
+            rows = await database.fetch_all(query)
+            return {(int(r[0]), int(r[1])): float(r[2] or 0) for r in rows}
+        except Exception as e:
+            log_error(f"Error fetching monthly PPN keluaran: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def get_monthly_recap(month: int, year: int):
         try:
             client_columns = [
@@ -223,6 +462,8 @@ class SalesInvoiceRepository:
                 clients_table.c.city.label("client_city"),
                 clients_table.c.province.label("client_province"),
                 clients_table.c.prefix.label("client_prefix"),
+                # NPWP dipakai saat membuat faktur pajak dari layar konfirmasi
+                clients_table.c.npwp.label("client_npwp"),
             ]
             
             query = select(
@@ -293,7 +534,7 @@ class SalesInvoiceRepository:
                     func.coalesce(payment_subquery.c.total_paid, 0).label("total_paid"),
 
                     (
-                        sales_invoice_tables.c.dpp + sales_invoice_tables.c.ppn * sales_invoice_tables.c.dpp / 100 - sales_invoice_tables.c.pphPercentage * sales_invoice_tables.c.dpp / 100 + sales_invoice_tables.c.bpjs -
+                        sales_invoice_tables.c.dpp + sales_invoice_tables.c.ppn * sales_invoice_tables.c.dpp / 100 - sales_invoice_tables.c.pphPercentage * sales_invoice_tables.c.dpp / 100 - sales_invoice_tables.c.bpjs -
                         func.coalesce(payment_subquery.c.total_paid, 0)
                     ).label("remaining")
                 )
@@ -371,21 +612,162 @@ class SalesInvoiceRepository:
             result = await database.execute(query)
             if result == 0:
                 return {"error": "Sales invoice not found", "status": 404}
+            from repository.audit_log_repository import AuditLogRepository
+            
+            await AuditLogRepository.record(
+                entity="sales_invoices",
+                entityID=sales_invoice_id,
+                action="reject",
+                userID=user_id,
+            )
+            
             return {"message": "Sales invoice rejected successfully"}
         except Exception as e:
             log_error(f"Error rejecting sales invoice: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def set_tax_invoice_name(
+        sales_invoice_id: int, tax_invoice_name: str, user_id: int
+    ) -> Dict[str, Any]:
+        """Set nomor faktur pajak PPN pada sebuah invoice."""
+        try:
+            lama = await database.fetch_val(
+                select(sales_invoice_tables.c.taxInvoiceName).where(
+                    sales_invoice_tables.c.id == sales_invoice_id
+                )
+            )
+
+            query = (
+                sales_invoice_tables.update()
+                .where(sales_invoice_tables.c.id == sales_invoice_id)
+                .values(
+                    taxInvoiceName=tax_invoice_name,
+                    updatedAt=dt.now(),
+                    updatedBy=user_id,
+                )
+            )
+            result = await database.execute(query)
+            if result == 0:
+                return {"error": "Sales invoice not found", "status": 404}
+
+            # Faktur pajak menyentuh dokumen pajak — perubahannya harus
+            # terekam, sama seperti bukti potong.
+            from repository.audit_log_repository import AuditLogRepository
+
+            mengubah = bool((lama or "").strip()) and (lama or "").strip() != (
+                tax_invoice_name or ""
+            ).strip()
+            await AuditLogRepository.record(
+                entity="sales_invoices",
+                entityID=sales_invoice_id,
+                action="update",
+                userID=user_id,
+                changes={"taxInvoiceName": {"from": lama, "to": tax_invoice_name}},
+                note="Koreksi faktur pajak" if mengubah else "Isi faktur pajak",
+            )
+            return {"message": "Tax invoice number saved successfully"}
+        except Exception as e:
+            log_error(f"Error setting tax invoice name: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def set_income_tax_name(
+        sales_invoice_id: int,
+        income_tax_name: str,
+        user_id: int,
+        user_level: int | None = None,
+    ) -> Dict[str, Any]:
+        """
+        Set nomor bukti potong PPh pada sebuah invoice.
+
+        Mengisi PERTAMA kali (dari kosong) bebas seperti biasa. MENGUBAH yang
+        sudah terisi hanya boleh oleh level 5 — koreksi nomor bukti potong yang
+        tertukar menyentuh dokumen pajak yang sudah dicatat, dan penjagaannya
+        di SINI, bukan sekadar menyembunyikan tombolnya.
+        """
+        from utils.permission import boleh_edit_bukti_potong
+
+        try:
+            lama = await database.fetch_val(
+                select(sales_invoice_tables.c.incomeTaxInvoiceName).where(
+                    sales_invoice_tables.c.id == sales_invoice_id
+                )
+            )
+            sudah_terisi = bool((lama or "").strip())
+            mengubah = sudah_terisi and (lama or "").strip() != income_tax_name.strip()
+
+            if mengubah and not boleh_edit_bukti_potong(user_level):
+                return app_error(
+                    ErrorCode.FORBIDDEN,
+                    "Bukti potong yang sudah terisi hanya dapat diubah oleh "
+                    "level 5.",
+                    403,
+                )
+
+            query = (
+                sales_invoice_tables.update()
+                .where(sales_invoice_tables.c.id == sales_invoice_id)
+                .values(
+                    incomeTaxInvoiceName=income_tax_name,
+                    updatedAt=dt.now(),
+                    updatedBy=user_id,
+                )
+            )
+            result = await database.execute(query)
+            if result == 0:
+                return {"error": "Sales invoice not found", "status": 404}
+
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="sales_invoices",
+                entityID=sales_invoice_id,
+                action="update",
+                userID=user_id,
+                changes={
+                    "incomeTaxInvoiceName": {
+                        "from": lama,
+                        "to": income_tax_name,
+                    }
+                },
+                note="Koreksi bukti potong" if mengubah else "Isi bukti potong",
+            )
+            return {"message": "Income tax slip number saved successfully"}
+        except Exception as e:
+            log_error(f"Error setting income tax name: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def approve(
         sales_invoice_id: int, 
         tax_invoice_name: Optional[str], 
-        user_id: int
+        user_id: int,
+        user_level: int | None = None,
     ) -> Dict[str, Any]:
         """
         Approve a sales invoice.
         """
         try:
+            # Yang membuat dokumen tidak boleh menyetujuinya sendiri.
+            #
+            # Dikecualikan untuk level 4 ke atas: keduanya memang berwenang atas
+            # seluruh dokumen, dan kerap merekalah satu-satunya yang hadir untuk
+            # menyetujui. Pengecualian itu tetap tercatat pada jejak aktivitas.
+            if not boleh_menyetujui_sendiri(user_level):
+                pembuat = await database.fetch_val(
+                    select(sales_invoice_tables.c.createdBy).where(
+                        sales_invoice_tables.c.id == sales_invoice_id
+                    )
+                )
+                if pembuat is not None and int(pembuat) == int(user_id):
+                    return app_error(
+                        ErrorCode.SELF_APPROVAL_FORBIDDEN,
+                        "Dokumen tidak dapat disetujui oleh pembuatnya "
+                        "sendiri. Mintakan persetujuan kepada pengguna lain.",
+                        403,
+                    )
+
             query = (
                 sales_invoice_tables.update()
                 .where(sales_invoice_tables.c.id == sales_invoice_id)
@@ -399,10 +781,19 @@ class SalesInvoiceRepository:
             result = await database.execute(query)
             if result == 0:
                 return {"error": "Sales invoice not found", "status": 404}
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="sales_invoices",
+                entityID=sales_invoice_id,
+                action="approve",
+                userID=user_id,
+            )
+
             return {"message": "Sales invoice approved successfully"}
         except Exception as e:
             log_error(f"Error approving sales invoice: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def exists(sales_invoice_id: int) -> bool:

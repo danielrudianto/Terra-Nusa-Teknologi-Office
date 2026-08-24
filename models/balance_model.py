@@ -3,6 +3,7 @@ from datetime import datetime as dt, date as d
 from sqlalchemy import Table, Column, Integer, ForeignKey, Float, Date, String, select, func
 from utils.database import metadata, database, engine
 from utils.logger_utils import log_error
+from utils.errors import internal_error
 
 class Balance(BaseModel):
     id: int = Field(..., title="ID of the bank account", ge=1)
@@ -20,7 +21,7 @@ class Balance(BaseModel):
             ]
         except Exception as e:
             log_error(f"Error fetching bank accounts: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
 balance_view = Table(
     "balance",

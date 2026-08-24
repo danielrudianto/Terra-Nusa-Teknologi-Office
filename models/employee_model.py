@@ -6,8 +6,49 @@ from datetime import date as d,datetime as dt
 from utils.database import database
 from utils.logger_utils import log_error
 from sqlalchemy.exc import IntegrityError
+from models.employee_profile_model import employee_profiles_table
+from models.employee_form_model import employee_form_submissions_table
+from utils.errors import internal_error
+
 
 # Define the Purchase model
+
+def _pembaruan_terakhir(row):
+    """
+    Tanggal pembaruan terakhir, atau None bila belum pernah.
+
+    Subkueri memakai `1000-01-01` sebagai nilai dasar agar `GREATEST` tetap
+    menghasilkan sesuatu ketika kedua sumbernya kosong. Tanggal itu bukan
+    keterangan bagi siapa pun; ia dikembalikan sebagai None supaya layar
+    menampilkan tanda hubung, bukan tahun seribu.
+    """
+    v = getattr(row, "lastDataUpdate", None)
+    if not v:
+        return None
+
+    # `GREATEST` pada MySQL mengembalikan TEKS, bukan objek tanggal.
+    #
+    # Penjaga sebelumnya membaca `v.year` dan membuang apa pun yang tidak
+    # memilikinya — sehingga seluruh tanggal nyata ikut terbuang, dan kolom
+    # ini selalu berisi "Belum pernah" walau datanya ada.
+    if isinstance(v, str):
+        for pola in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+            try:
+                v = dt.strptime(v[:19], pola)
+                break
+            except ValueError:
+                continue
+        else:
+            return None
+
+    try:
+        if v.year <= 1000:
+            return None
+    except AttributeError:
+        return None
+    return v
+
+
 class Employee(BaseModel):
     id: Optional[int] = None  # Unique ID for the employee, optional for creation
     name: str  # Name of the employee
@@ -27,6 +68,22 @@ class Employee(BaseModel):
     deletedAt: Optional[dt] = None  # Deletion date
     deletedBy: Optional[int] = None  # ID of the user who deleted the employee
     startDate: Optional[d] = None
+    endDate: Optional[d] = None
+
+    # Profil pribadinya sudah ada.
+    #
+    # Dihitung lewat subkueri pada `get_employees`, BUKAN kolom tabel. Harus
+    # disebut di sini dan disalin di bawah — hasil kueri disalin bidang per
+    # bidang ke kelas ini, sehingga apa pun yang tidak disebut akan dihitung
+    # basis data lalu dibuang tanpa satu pun galat.
+    hasProfile: Optional[int] = 0
+
+    # Kapan data ini terakhir diperbarui.
+    #
+    # Label subkueri, bukan kolom tabel — sama seperti `hasProfile`, harus
+    # disebut di sini DAN disalin di bawah, atau nilainya dihitung basis data
+    # lalu dibuang tanpa satu pun galat.
+    lastDataUpdate: Optional[dt] = None
 
     #Initialize the model
     def __init__(self, **data):
@@ -57,7 +114,8 @@ class Employee(BaseModel):
             taxCategory=self.taxCategory,
             createdAt=self.createdAt,
             createdBy=self.createdBy,
-            startDate=self.startDate
+            startDate=self.startDate,
+            endDate=self.endDate
         )
         try:
             employee_id = await database.execute(query)
@@ -90,6 +148,7 @@ class Employee(BaseModel):
                 updatedAt=dt.now(),
                 updatedBy=self.updatedBy,
                 startDate=self.startDate,
+                endDate=self.endDate,
             )
         )
         try:
@@ -122,7 +181,63 @@ class Employee(BaseModel):
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
-    async def get_employees(keyword: str, page: int, pageSize: int = 10, sortBy: str = None, sortByDirection: str = "asc"):
+    async def pilihan_pic(keyword: str = None):
+        """
+        Nama dan telepon karyawan AKTIF, untuk pemilih penanggung jawab.
+
+        Sengaja HANYA dua kolom itu. Tabel karyawan memuat susunan keluarga,
+        riwayat kesehatan, dan gaji — keterangan yang dilindungi
+        `MODUL_WILAYAH_MUTLAK` dan hanya terbuka bagi HRD.
+
+        Yang membuat purchase order tidak perlu melihat semua itu; ia hanya
+        perlu tahu siapa yang dapat dihubungi dan nomornya. Membuka rute
+        `employees` untuk keperluan ini berarti membuka seluruh isinya.
+
+        Yang sudah berhenti tidak ditampilkan: mencantumkannya pada dokumen
+        baru berarti vendor menghubungi orang yang tidak lagi bekerja di sini.
+        """
+        try:
+            hari_ini = dt.now().date()
+            syarat = [
+                employees_table.c.isDelete == False,  # noqa: E712
+                or_(
+                    employees_table.c.endDate.is_(None),
+                    employees_table.c.endDate >= hari_ini,
+                ),
+            ]
+            if keyword:
+                pola = f"%{keyword}%"
+                syarat.append(employees_table.c.name.ilike(pola))
+
+            baris = await database.fetch_all(
+                select(
+                    employees_table.c.id,
+                    employees_table.c.name,
+                    employees_table.c.phoneNumber,
+                    employees_table.c.position,
+                )
+                .where(*syarat)
+                .order_by(employees_table.c.name)
+                # Dibatasi: pemilih hanya menampilkan yang muat di layar, dan
+                # daftar tanpa batas membuat setiap ketukan huruf menarik
+                # seluruh karyawan.
+                .limit(50)
+            )
+            return [
+                {
+                    "id": r["id"],
+                    "name": r["name"],
+                    "phoneNumber": r["phoneNumber"],
+                    "position": r["position"],
+                }
+                for r in baris
+            ]
+        except Exception as e:
+            log_error(f"Error listing PIC options: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def get_employees(keyword: str, page: int, pageSize: int = 10, sortBy: str = None, sortByDirection: str = "asc", status: str = None):
         """
         Retrieve a list of employees from the database.
         """
@@ -132,16 +247,90 @@ class Employee(BaseModel):
         
         try:
             offset = (page - 1) * pageSize  # Assuming page size is 10
+            # Penanda "profil pribadinya sudah ada".
+            #
+            # Layar memakainya untuk memilih menu mana yang ditampilkan:
+            # sebelum profil terisi, yang berlaku hanya PENGISIAN PERTAMA;
+            # sesudahnya, pembaruan. Menampilkan keduanya sekaligus membuat
+            # dua jalur menulis kolom yang sama, dan yang satu diam-diam
+            # menimpa yang lain.
+            #
+            # Dihitung di basis data lewat subkueri, bukan dengan memuat
+            # seluruh profil: yang diperlukan hanya ada atau tidaknya.
+            punya_profil = (
+                select(func.count(employee_profiles_table.c.id))
+                .where(employee_profiles_table.c.employeeID == employees_table.c.id)
+                .correlate(employees_table)
+                .scalar_subquery()
+                .label("hasProfile")
+            )
+
+            # Kapan data karyawan ini TERAKHIR diperbarui.
+            #
+            # Diambil yang paling baru di antara dua sumber: penyuntingan
+            # profil pribadi, dan pengisian formulir pembaruan. Keduanya
+            # sama-sama peninjauan data, dan yang dicari orang adalah kapan
+            # terakhir kali datanya disentuh — bukan lewat jalur mana.
+            #
+            # Rumus yang sama dipakai `kedaluwarsa()` untuk menghitung batas
+            # dua belas bulan; memakai rumus berbeda di sini membuat kolom
+            # ini dan pengingat di Agenda dapat menunjuk tanggal yang tidak
+            # sama.
+            profil_terakhir = (
+                select(
+                    func.coalesce(
+                        employee_profiles_table.c.updatedAt,
+                        employee_profiles_table.c.createdAt,
+                    )
+                )
+                .where(employee_profiles_table.c.employeeID == employees_table.c.id)
+                .correlate(employees_table)
+                .scalar_subquery()
+            )
+            formulir_terakhir = (
+                select(func.max(employee_form_submissions_table.c.submittedAt))
+                .where(
+                    employee_form_submissions_table.c.employeeID
+                    == employees_table.c.id,
+                    employee_form_submissions_table.c.isDelete == False,
+                )
+                .correlate(employees_table)
+                .scalar_subquery()
+            )
+            pembaruan_terakhir = func.greatest(
+                func.coalesce(profil_terakhir, dt(1000, 1, 1)),
+                func.coalesce(formulir_terakhir, dt(1000, 1, 1)),
+            ).label("lastDataUpdate")
+
             query = select(
                 employees_table,
-                func.count(employees_table.c.id).over().label("total_count")
-            ).where(
-                or_(
-                    employees_table.c.name.ilike(f"%{keyword}%"),
-                    employees_table.c.nik.ilike(f"%{keyword}%"),
-                    employees_table.c.email.ilike(f"%{keyword}%")
+                punya_profil,
+                pembaruan_terakhir,
+                func.count(employees_table.c.id).over().label("total_count"),
+            )
+
+            # Kata kunci hanya dipakai bila memang ada.
+            #
+            # Sebelumnya nilainya selalu disisipkan ke dalam f-string,
+            # sehingga permintaan tanpa keyword menghasilkan pola "%None%" —
+            # yang tidak cocok dengan nama siapa pun, dan daftarnya kembali
+            # kosong tanpa satu pun galat.
+            if keyword:
+                query = query.where(
+                    or_(
+                        employees_table.c.name.ilike(f"%{keyword}%"),
+                        employees_table.c.nik.ilike(f"%{keyword}%"),
+                        employees_table.c.email.ilike(f"%{keyword}%"),
+                    )
                 )
-            ).offset(offset).limit(pageSize)
+
+            # filter by employment status via endDate
+            if status == "active":
+                query = query.where(employees_table.c.endDate.is_(None))
+            elif status == "inactive":
+                query = query.where(employees_table.c.endDate.isnot(None))
+
+            query = query.offset(offset).limit(pageSize)
 
             if sortBy == "name":
                 if sortByDirection == "desc":
@@ -171,24 +360,44 @@ class Employee(BaseModel):
                     updatedBy=row.updatedBy,
                     deletedAt=row.deletedAt,
                     deletedBy=row.deletedBy,
-                    startDate=row.startDate
+                    startDate=row.startDate,
+                    endDate=row.endDate,
+                    # Dibaca lewat `getattr`, BUKAN `.get()`.
+                    #
+                    # Baris yang dikembalikan `databases` adalah Record —
+                    # bukan dict, dan `_mapping`-nya pun bukan. Memanggil
+                    # `.get()` padanya membuat pustaka mencari KOLOM bernama
+                    # "get", lalu gagal dengan "Could not locate column in
+                    # row for column 'get'" — pesan yang sama sekali tidak
+                    # menyebut sebabnya.
+                    #
+                    # Nilai bawaan tetap diperlukan: `hasProfile` adalah label
+                    # subkueri, dan kueri lain di berkas ini tidak memuatnya.
+                    hasProfile=int(getattr(row, "hasProfile", 0) or 0),
+                    lastDataUpdate=_pembaruan_terakhir(row),
                 )
                 response.append(employee_data)
 
             # Get the count
-            total_count_query = select(func.count(employees_table.c.id)).where(
-                or_(
-                    employees_table.c.name.ilike(f"%{keyword}%"),
-                    employees_table.c.nik.ilike(f"%{keyword}%"),
-                    employees_table.c.email.ilike(f"%{keyword}%")
+            total_count_query = select(func.count(employees_table.c.id))
+            if keyword:
+                total_count_query = total_count_query.where(
+                    or_(
+                        employees_table.c.name.ilike(f"%{keyword}%"),
+                        employees_table.c.nik.ilike(f"%{keyword}%"),
+                        employees_table.c.email.ilike(f"%{keyword}%"),
+                    )
                 )
-            )
+            if status == "active":
+                total_count_query = total_count_query.where(employees_table.c.endDate.is_(None))
+            elif status == "inactive":
+                total_count_query = total_count_query.where(employees_table.c.endDate.isnot(None))
             total_count = await database.fetch_val(total_count_query)
 
             return {"data": response, "count": total_count}
         except Exception as e:
             log_error(f"Error fetching employees: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
     @staticmethod
     async def get_employee_by_id(employee_id: int) -> dict:
@@ -225,7 +434,7 @@ class Employee(BaseModel):
             )
         except Exception as e:
             log_error(f"Error fetching employee: {str(e)}")
-            return {"error": str(e), "status": 500}
+            return internal_error()
 
 employees_table = Table(
     "employees",

@@ -1,4 +1,6 @@
 from typing import Annotated, Optional
+from utils.logger_utils import log_error
+from utils.errors import ErrorCode, error_detail
 from fastapi import APIRouter, Depends, HTTPException, Query
 from controllers.purchase_order_controller import PurchaseOrderController
 from schemas.purchase_order_schema import (
@@ -9,13 +11,14 @@ from schemas.purchase_order_schema import (
     PurchaseOrderStatus
 )
 from utils.auth_utils import get_current_user, User
+from utils.permission import require
 
 router = APIRouter()
 
 @router.post("/", response_model=CreatePurchaseOrderResponse)
 async def create_purchase_order(
     purchase_order_data: PurchaseOrderCreate,
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("purchase_order", "create"))]
 ):
     """
     Create a new purchase order with auto-generated name.
@@ -24,26 +27,112 @@ async def create_purchase_order(
     try:
         user_id = current_user["id"]
         result = await PurchaseOrderController.create_purchase_order(
-            purchase_order_data.dict(), 
-            user_id
+            purchase_order_data.dict(),
+            user_id,
+            int(current_user["authenticationLevel"] or 1),
         )
         
         if "error" in result:
             raise HTTPException(
                 status_code=result.get("status", 500), 
-                detail=result["error"]
+                detail=error_detail(result)
             )
             
         return result
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        log_error(f"{__name__}: {e}")
+        # Galat asli hanya masuk log: isinya dapat memuat nama tabel,
+        # nama kolom, atau potongan SQL — keterangan yang berguna bagi
+        # penyerang dan tidak berarti bagi penggunanya.
+        raise HTTPException(
+            status_code=500,
+            detail={"code": ErrorCode.INTERNAL, "message": "Internal server error."},
+        )
     
+
+@router.get("/pemeriksaan")
+async def pemeriksaan_sebelum_terbit(
+    current_user: Annotated[User, Depends(require("purchase_order", "create"))],
+    supplierID: int,
+    projectName: str = "",
+    dpp: float = 0,
+    itemID: int = 0,
+    price: float = 0,
+    kecualiID: int = 0,
+):
+    """
+    Peringatan sebelum dokumen dibuat.
+
+    Dikembalikan sebagai satu jawaban agar layar cukup memanggil sekali.
+    """
+    return await PurchaseOrderController.pemeriksaan(
+        supplier_id=supplierID,
+        project_name=projectName,
+        dpp=dpp,
+        item_id=itemID,
+        price=price,
+        kecuali_id=kecualiID,
+    )
+
+
+@router.get("/rekap")
+async def rekap_proyek(
+    proyek: str,
+    user: Annotated[User, Depends(require("purchase_order", "read"))],
+    dari: str = None,
+    sampai: str = None,
+):
+    """
+    Rekap seluruh purchase order sebuah proyek, untuk diunduh sebagai Excel.
+
+    Ditaruh SEBELUM rute ber-parameter: FastAPI mencocokkan berurutan, dan
+    "rekap" akan tertangkap sebagai id dokumen bila di bawah.
+    """
+    hasil = await PurchaseOrderController.rekap_proyek(proyek, dari, sampai)
+    if isinstance(hasil, dict) and "error" in hasil:
+        raise HTTPException(status_code=hasil["status"], detail=error_detail(hasil))
+    return hasil
+
+
+@router.get("/{purchase_order_id}/rantai")
+async def get_rantai_dokumen(
+    purchase_order_id: int,
+    current_user: Annotated[User, Depends(require("purchase_order", "read"))],
+):
+    """
+    Dokumen ini beserta seluruh yang mendahuluinya, urut terbitnya.
+
+    Mencetak adendum harus menyertakan induk dan adendum sebelumnya: adendum
+    berisi SELISIH, sehingga dibaca sendirian ia tidak menyatakan keadaan
+    pekerjaannya.
+
+    Ditaruh SEBELUM `/{purchase_order_id}` — FastAPI mencocokkan berurutan,
+    dan "rantai" akan tertangkap sebagai bagian dari rute itu bila di bawah.
+
+    Tanpa `response_model`: yang dikembalikan daftar dokumen utuh, dan
+    penyaring bidang pernah membuang justru yang diperlukan.
+    """
+    ids = await PurchaseOrderController.rantai_dokumen(purchase_order_id)
+    if not ids:
+        raise HTTPException(
+            status_code=404, detail=error_detail({"error": "Purchase order not found"})
+        )
+
+    hasil = []
+    for x in ids:
+        d = await PurchaseOrderController.get_purchase_order_by_id(x)
+        if isinstance(d, dict) and "error" in d:
+            continue
+        hasil.append(d)
+    return hasil
+
+
 @router.get("/{purchase_order_id}", response_model=PurchaseOrderResponse)
 async def get_purchase_order_by_id(
     purchase_order_id: int,
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("purchase_order", "read"))]
 ):
     """
     Get a purchase order by its ID.
@@ -54,44 +143,118 @@ async def get_purchase_order_by_id(
         if "error" in result:
             raise HTTPException(
                 status_code=result.get("status", 500), 
-                detail=result["error"]
+                detail=error_detail(result)
             )
             
         return result
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        log_error(f"{__name__}: {e}")
+        # Galat asli hanya masuk log: isinya dapat memuat nama tabel,
+        # nama kolom, atau potongan SQL — keterangan yang berguna bagi
+        # penyerang dan tidak berarti bagi penggunanya.
+        raise HTTPException(
+            status_code=500,
+            detail={"code": ErrorCode.INTERNAL, "message": "Internal server error."},
+        )
 
 @router.get("/", response_model=PurchaseOrderListResponse)
 async def get_all_purchase_orders(
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require("purchase_order", "read"))],
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(10, ge=1, le=100, description="Items per page"),
+    keyword: str = Query(None, description="Search by PO number, project, or supplier"),
+    sortBy: str = Query(None, description="Sort column: date, value, supplier, project, name, status"),
+    sortByDirection: str = Query("desc", description="Sort direction: asc or desc"),
+    status: str = Query(None, description="draft | approved"),
+    purchase_type: str = Query(None, description="Kode tipe PO, dipisah koma"),
+    project_name: str = Query(None, description="Kode proyek, persis"),
+    date_from: str = Query(None, description="Tanggal dokumen sejak (YYYY-MM-DD)"),
+    date_to: str = Query(None, description="Tanggal dokumen sampai (YYYY-MM-DD)"),
+    checked: bool = Query(
+        None, description="true = sudah diperiksa (menunggu setuju); false = menunggu periksa"
+    ),
 ):
     """
     Get all purchase orders with pagination.
+
+    Seluruh penyaring OPSIONAL dan saling melengkapi. Yang kosong tidak
+    menambah kondisi apa pun, sehingga daftar tanpa penyaring menghasilkan
+    kueri yang sama seperti sebelum penyaring ini ada.
     """
     try:
-        result = await PurchaseOrderController.get_all_purchase_orders(page, page_size)
-        
+        result = await PurchaseOrderController.get_all_purchase_orders(
+            page,
+            page_size,
+            keyword,
+            sortBy,
+            sortByDirection,
+            status=status,
+            purchase_type=purchase_type,
+            project_name=project_name,
+            date_from=date_from,
+            date_to=date_to,
+            checked=checked,
+        )
+
         if "error" in result:
             raise HTTPException(
                 status_code=result.get("status", 500), 
-                detail=result["error"]
+                detail=error_detail(result)
             )
             
         return result
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        log_error(f"{__name__}: {e}")
+        # Galat asli hanya masuk log: isinya dapat memuat nama tabel,
+        # nama kolom, atau potongan SQL — keterangan yang berguna bagi
+        # penyerang dan tidak berarti bagi penggunanya.
+        raise HTTPException(
+            status_code=500,
+            detail={"code": ErrorCode.INTERNAL, "message": "Internal server error."},
+        )
+
+
+@router.patch("/{purchase_order_id}/checked")
+async def set_purchase_order_checked(
+    purchase_order_id: int,
+    checked: bool,
+    current_user: Annotated[User, Depends(require("purchase_order", "update"))],
+):
+    """
+    Tandai purchase order sudah atau belum diperiksa.
+
+    Tahap SEBELUM persetujuan. Pemeriksa membaca isinya — harga, volume,
+    spesifikasi; penyetuju memutuskan dokumen itu boleh terbit.
+
+    Dijaga izin `update`, bukan `approve`: memeriksa bukan menyetujui, dan
+    menyamakan izinnya berarti setiap pemeriksa otomatis dapat menerbitkan
+    dokumen tanpa seorang pun memutuskannya.
+    """
+    # Divisi TIDAK diambil dari sini.
+    #
+    # Objek yang dikembalikan `require()` tidak memuatnya sama sekali;
+    # repository membacanya sendiri dari basis data.
+    hasil = await PurchaseOrderController.set_checked(
+        purchase_order_id,
+        checked,
+        current_user["id"],
+        int(current_user["authenticationLevel"] or 1),
+    )
+    if "error" in hasil:
+        raise HTTPException(
+            status_code=hasil.get("status", 500), detail=error_detail(hasil)
+        )
+    return hasil
 
 @router.patch("/{purchase_order_id}/status")
 async def update_purchase_order_status(
     purchase_order_id: int,
     status: PurchaseOrderStatus,
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("purchase_order", "approve"))]
 ):
     """
     Update the status of a purchase order.
@@ -101,41 +264,99 @@ async def update_purchase_order_status(
         result = await PurchaseOrderController.update_purchase_order_status(
             purchase_order_id, 
             status.value, 
-            user_id
+            user_id,
+            int(current_user["authenticationLevel"] or 1),
         )
         
         if "error" in result:
             raise HTTPException(
                 status_code=result.get("status", 500), 
-                detail=result["error"]
+                detail=error_detail(result)
             )
             
         return result
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        log_error(f"{__name__}: {e}")
+        # Galat asli hanya masuk log: isinya dapat memuat nama tabel,
+        # nama kolom, atau potongan SQL — keterangan yang berguna bagi
+        # penyerang dan tidak berarti bagi penggunanya.
+        raise HTTPException(
+            status_code=500,
+            detail={"code": ErrorCode.INTERNAL, "message": "Internal server error."},
+        )
 
 @router.delete("/{purchase_order_id}")
 async def delete_purchase_order(
     purchase_order_id: int,
-    current_user: Annotated[User, Depends(get_current_user)]
+    current_user: Annotated[User, Depends(require("purchase_order", "delete"))]
 ):
     """
     Soft delete a purchase order.
     """
     try:
         user_id = current_user["id"]
-        result = await PurchaseOrderController.delete_purchase_order(purchase_order_id, user_id)
+        result = await PurchaseOrderController.delete_purchase_order(
+            purchase_order_id,
+            user_id,
+            int(current_user["authenticationLevel"] or 1),
+        )
         
         if "error" in result:
             raise HTTPException(
                 status_code=result.get("status", 500), 
-                detail=result["error"]
+                detail=error_detail(result)
             )
             
         return result
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        log_error(f"{__name__}: {e}")
+        # Galat asli hanya masuk log: isinya dapat memuat nama tabel,
+        # nama kolom, atau potongan SQL — keterangan yang berguna bagi
+        # penyerang dan tidak berarti bagi penggunanya.
+        raise HTTPException(
+            status_code=500,
+            detail={"code": ErrorCode.INTERNAL, "message": "Internal server error."},
+        )
+
+
+@router.put("/{purchase_order_id}")
+async def ubah_purchase_order(
+    purchase_order_id: int,
+    body: dict,
+    current_user: Annotated[User, Depends(require("purchase_order", "update"))],
+):
+    """
+    Ubah purchase order yang BELUM disetujui.
+
+    Dokumen yang sudah disetujui ditolak repository, bukan di sini: itu
+    aturan tentang dokumennya, bukan tentang rutenya, dan menaruhnya di satu
+    tempat membuat jalur lain tidak dapat melewatinya.
+
+    Nomor revisi dinaikkan setiap kali. Bila draf lama sempat tercetak dan
+    sampai ke vendor, nomor itulah yang membedakan mana yang lebih baru.
+    """
+    user_id = current_user["id"]
+    user_level = int(current_user["authenticationLevel"] or 1)
+
+    # Nama diambil dari token, bukan dikueri ulang.
+    #
+    # Jejak aktivitas menampilkan nama pelakunya; tanpa ini kolom itu berisi
+    # tanda hubung, dan riwayat perubahan menjadi daftar yang tidak menyebut
+    # siapa pun.
+    try:
+        nama_pengguna = current_user["name"]
+    except (KeyError, TypeError):
+        nama_pengguna = None
+
+    hasil = await PurchaseOrderController.update_purchase_order(
+        purchase_order_id, body, user_id, user_level, nama_pengguna
+    )
+    if isinstance(hasil, dict) and "error" in hasil:
+        raise HTTPException(
+            status_code=hasil.get("status", 500), detail=error_detail(hasil)
+        )
+    return hasil

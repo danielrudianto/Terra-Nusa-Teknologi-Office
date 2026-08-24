@@ -5,11 +5,16 @@ from typing import Optional
 class ExpenseBase(BaseModel):
     invoiceName: str = Field(..., description="Name of the invoice")
     receiptName: str = Field(..., description="Name of the receipt")
+    # Opsional: tidak semua beban ber-PPN, dan yang non-PKP tidak
+    # menerbitkan faktur pajak sama sekali.
+    taxInvoiceName: Optional[str] = Field(None, description="Tax invoice number")
     opponentID: Optional[int] = Field(None, description="ID of the opponent")
     date: d = Field(..., description="Date of the expense")
     dueDate: Optional[d] = Field(None, description="Due date of the expense")
     purchaseType: str = Field(..., description="Type of the purchase")
     dpp: float = Field(..., ge=0, description="DPP value")
+    # Boleh nol untuk pemasok non-PKP; yang penting ada tempatnya.
+    ppn: float = Field(0, ge=0, description="PPN value in rupiah")
     pbbkb: float = Field(..., ge=0, description="PBBKB value")
     pphCode: Optional[str] = Field(None, description="PPH code")
     pphTaxObject: Optional[str] = Field(None, description="PPH tax object")
@@ -26,11 +31,13 @@ class ExpenseCreate(ExpenseBase):
 class ExpenseUpdate(BaseModel):
     invoiceName: Optional[str] = None
     receiptName: Optional[str] = None
+    taxInvoiceName: Optional[str] = None
     opponentID: Optional[int] = None
     date: Optional[d] = None
     dueDate: Optional[d] = None
     purchaseType: Optional[str] = None
     dpp: Optional[float] = None
+    ppn: Optional[float] = None
     pbbkb: Optional[float] = None
     pphCode: Optional[str] = None
     pphTaxObject: Optional[str] = None
