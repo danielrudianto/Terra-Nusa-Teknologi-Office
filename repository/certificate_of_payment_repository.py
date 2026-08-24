@@ -25,6 +25,7 @@ from utils.logger_utils import log_error
 from models.certificate_of_payment_model import (
     certificate_of_payments_table,
     certificate_of_payment_items_table,
+    certificate_of_payment_adjustments_table,
 )
 from models.purchase_order_model import purchase_orders_table
 from models.purchase_order_item_model import purchase_order_items_table
@@ -242,6 +243,11 @@ class CertificateOfPaymentRepository:
                     userID=user_id,
                 )
 
+            # Ringkasan nilai disusun SESUDAH transaksinya selesai: yang
+            # dijumlahkan adalah baris yang benar-benar tersimpan, bukan yang
+            # baru diantre.
+            await CertificateOfPaymentRepository.hitung_ulang_total(cop_id)
+
             return {"certificateOfPaymentID": cop_id, "name": data["name"], "number": nomor}
         except Exception as e:
             log_error(f"Gagal membuat certificate of payment: {str(e)}")
@@ -270,6 +276,7 @@ class CertificateOfPaymentRepository:
                             remarks=it.get("remarks"),
                         )
                     )
+            await CertificateOfPaymentRepository.hitung_ulang_total(cop_id)
             return {"message": "Baris certificate of payment diperbarui"}
         except Exception as e:
             log_error(f"Gagal mengganti baris CoP: {str(e)}")
@@ -432,6 +439,9 @@ class CertificateOfPaymentRepository:
 
             hasil = dict(baris)
             hasil["items"] = [dict(i) for i in items]
+            hasil["adjustments"] = await CertificateOfPaymentRepository.ambil_penyesuaian(
+                cop_id
+            )
             return hasil
         except Exception as e:
             log_error(f"Gagal membaca CoP: {str(e)}")
@@ -534,4 +544,125 @@ class CertificateOfPaymentRepository:
             return [dict(r) for r in baris]
         except Exception as e:
             log_error(f"Gagal membaca kandidat SPK: {str(e)}")
+            return internal_error()
+
+    # ------------------------------------------------------------------
+    # Penyesuaian & ringkasan nilai
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def hitung_ulang_total(cop_id: int) -> Dict[str, Any]:
+        """
+        Susun ulang ringkasan nilai CoP dari barisnya sendiri.
+
+        DIJALANKAN SETIAP KALI baris atau penyesuaiannya berubah, dan
+        totalnya DISIMPAN — bukan dihitung saat dibaca. Angka inilah yang
+        diteruskan ke pembukuan; menghitungnya ulang saat dibaca membuat
+        dokumen yang sudah disetujui dapat berubah nilainya sendiri bila
+        harga baris SPK kelak berbeda.
+        """
+        try:
+            kotor = await database.fetch_val(
+                """
+                SELECT COALESCE(SUM(amount), 0)
+                FROM certificate_of_payment_items
+                WHERE certificateOfPaymentID = :id
+                """,
+                {"id": cop_id},
+            )
+            baris = await database.fetch_all(
+                """
+                SELECT kind, COALESCE(SUM(amount), 0) AS jumlah
+                FROM certificate_of_payment_adjustments
+                WHERE certificateOfPaymentID = :id
+                GROUP BY kind
+                """,
+                {"id": cop_id},
+            )
+            per_jenis = {r["kind"]: _d(r["jumlah"]) for r in baris}
+            potongan = per_jenis.get("deduction", Decimal("0"))
+            tambahan = per_jenis.get("addition", Decimal("0"))
+            kotor = _d(kotor)
+            bersih = kotor - potongan + tambahan
+
+            await database.execute(
+                update(certificate_of_payments_table)
+                .where(certificate_of_payments_table.c.id == cop_id)
+                .values(
+                    grossAmount=kotor,
+                    deductionTotal=potongan,
+                    additionTotal=tambahan,
+                    netAmount=bersih,
+                )
+            )
+            return {
+                "grossAmount": kotor,
+                "deductionTotal": potongan,
+                "additionTotal": tambahan,
+                "netAmount": bersih,
+            }
+        except Exception as e:
+            log_error(f"Gagal menghitung ulang total CoP: {str(e)}")
+            return internal_error()
+
+    @staticmethod
+    async def ambil_penyesuaian(cop_id: int) -> List[Dict[str, Any]]:
+        try:
+            baris = await database.fetch_all(
+                select(certificate_of_payment_adjustments_table)
+                .where(
+                    certificate_of_payment_adjustments_table.c.certificateOfPaymentID
+                    == cop_id
+                )
+                .order_by(certificate_of_payment_adjustments_table.c.id)
+            )
+            return [dict(r) for r in baris]
+        except Exception as e:
+            log_error(f"Gagal membaca penyesuaian CoP: {str(e)}")
+            return []
+
+    @staticmethod
+    async def ganti_penyesuaian(
+        cop_id: int, penyesuaian: List[Dict[str, Any]], user_id: int
+    ):
+        """
+        Ganti SELURUH penyesuaian CoP ini, lalu susun ulang totalnya.
+
+        Diganti seluruhnya, bukan ditambal per baris: layar mengirimkan
+        keadaan akhir yang dikehendaki, dan menyamakannya baris demi baris
+        di sini hanya menambah jalan bagi keduanya untuk berselisih.
+        """
+        try:
+            async with database.transaction():
+                await database.execute(
+                    """
+                    DELETE FROM certificate_of_payment_adjustments
+                    WHERE certificateOfPaymentID = :id
+                    """,
+                    {"id": cop_id},
+                )
+                for p in penyesuaian:
+                    await database.execute(
+                        insert(certificate_of_payment_adjustments_table).values(
+                            certificateOfPaymentID=cop_id,
+                            kind=p["kind"],
+                            category=p["category"],
+                            label=p.get("label"),
+                            amount=p["amount"],
+                            note=p.get("note"),
+                        )
+                    )
+
+                from repository.audit_log_repository import AuditLogRepository
+
+                await AuditLogRepository.record(
+                    entity="certificate_of_payments",
+                    entityID=cop_id,
+                    action="update_adjustments",
+                    userID=user_id,
+                )
+
+            return await CertificateOfPaymentRepository.hitung_ulang_total(cop_id)
+        except Exception as e:
+            log_error(f"Gagal menyimpan penyesuaian CoP: {str(e)}")
             return internal_error()

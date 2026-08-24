@@ -23,6 +23,10 @@ dan pagu baris barunya terbuka dengan sendirinya.
 from decimal import Decimal
 from typing import Any, Dict, List
 
+from models.certificate_of_payment_model import (
+    KATEGORI_POTONGAN,
+    KATEGORI_TAMBAHAN,
+)
 from repository.certificate_of_payment_repository import (
     CertificateOfPaymentRepository,
 )
@@ -52,7 +56,14 @@ def _d(nilai: Any) -> Decimal:
 #: setiap kali sebuah kolom ditambahkan — yang terlewat tidak menimbulkan
 #: galat apa pun, hanya harga yang diam-diam sampai ke lapangan.
 KOLOM_NILAI_ITEM = ("price", "amount")
-KOLOM_NILAI_HEADER = ("total", "totalAmount")
+KOLOM_NILAI_HEADER = (
+    "total",
+    "totalAmount",
+    "grossAmount",
+    "deductionTotal",
+    "additionTotal",
+    "netAmount",
+)
 
 
 class CertificateOfPaymentController:
@@ -162,6 +173,14 @@ class CertificateOfPaymentController:
             return data
 
         hasil = _bersih(data, KOLOM_NILAI_HEADER + KOLOM_NILAI_ITEM)
+
+        # Penyesuaian dibuang SELURUH BARISNYA, bukan hanya nominalnya.
+        #
+        # Sebuah baris "Potongan uang muka" tanpa angka pun sudah menceritakan
+        # susunan kesepakatan dengan pemasok — dan itu bukan bagian pekerjaan
+        # orang lapangan.
+        hasil.pop("adjustments", None)
+
         if isinstance(data.get("items"), list):
             hasil["items"] = [
                 _bersih(dict(i), KOLOM_NILAI_ITEM) for i in data["items"]
@@ -589,6 +608,161 @@ class CertificateOfPaymentController:
         except Exception as e:
             log_error(f"Gagal menyetujui CoP: {str(e)}")
             return internal_error()
+
+    # ------------------------------------------------------------------
+    # Penyesuaian: potongan & tambahan
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def set_penyesuaian(
+        cop_id: int,
+        penyesuaian: List[Dict[str, Any]],
+        user_id: int,
+        user_level: int = 1,
+        departments: set | None = None,
+    ):
+        """
+        Ganti seluruh potongan & tambahan sebuah CoP.
+
+        Yang mengisinya PEMERIKSA — di tahap inilah nilai rupiah mulai
+        terlihat, dan orang lapangan memang tidak pernah menerimanya.
+
+        Terkunci setelah DISETUJUI: nilai yang sudah disetujui adalah nilai
+        yang akan ditagihkan, dan mengubahnya sesudahnya membuat yang
+        menandatangani menyetujui angka yang bukan lagi yang dibacanya.
+        """
+        try:
+            if not boleh_memeriksa_cop(user_level, departments):
+                return app_error(
+                    ErrorCode.FORBIDDEN,
+                    "Potongan dan tambahan hanya dapat diisi pemeriksa "
+                    "(engineering level 2 ke atas).",
+                    403,
+                )
+
+            cop = await CertificateOfPaymentRepository.get_by_id(cop_id)
+            if isinstance(cop, dict) and "error" in cop:
+                return cop
+
+            if cop.get("isApproved"):
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "Certificate of payment ini sudah disetujui; potongan "
+                    "dan tambahannya tidak dapat diubah lagi.",
+                    409,
+                )
+
+            siap, galat = CertificateOfPaymentController._siapkan_penyesuaian(
+                penyesuaian, _d(cop.get("grossAmount"))
+            )
+            if galat:
+                return galat
+
+            hasil = await CertificateOfPaymentRepository.ganti_penyesuaian(
+                cop_id, siap, user_id
+            )
+            if isinstance(hasil, dict) and "error" in hasil:
+                return hasil
+
+            return {
+                "message": "Potongan dan tambahan diperbarui",
+                "grossAmount": float(hasil["grossAmount"]),
+                "deductionTotal": float(hasil["deductionTotal"]),
+                "additionTotal": float(hasil["additionTotal"]),
+                "netAmount": float(hasil["netAmount"]),
+            }
+        except Exception as e:
+            log_error(f"Gagal menyimpan penyesuaian CoP: {str(e)}")
+            return internal_error()
+
+    @staticmethod
+    def _siapkan_penyesuaian(
+        masuk: List[Dict[str, Any]], kotor: Decimal
+    ):
+        """
+        Periksa kiriman layar. Kembalikan (baris_siap, galat).
+
+        Empat penjagaan:
+
+          1. jenis & kategori harus dikenali — kategori karangan membuat
+             pembukuan tidak dapat memetakannya;
+          2. `lain_lain` WAJIB berlabel — tanpa itu barisnya tidak berarti
+             apa pun bagi yang membacanya bulan depan;
+          3. nominal harus positif — tanda ditentukan `kind`, dan nominal
+             minus adalah cara paling mudah membuat potongan terjumlah
+             sebagai tambahan tanpa ada yang menyadarinya;
+          4. nilai bersih tidak boleh negatif — CoP yang potongannya
+             melebihi nilai pekerjaannya berarti pemasok berutang kepada
+             perusahaan, dan itu bukan yang dinyatakan sebuah berita acara
+             progres.
+        """
+        siap: List[Dict[str, Any]] = []
+        potongan = Decimal("0")
+        tambahan = Decimal("0")
+
+        for p in masuk or []:
+            jenis = (p.get("kind") or "").strip()
+            if jenis not in ("deduction", "addition"):
+                return None, app_error(
+                    ErrorCode.VALIDATION,
+                    "Jenis penyesuaian tidak dikenali.",
+                    400,
+                )
+
+            kategori = (p.get("category") or "").strip()
+            sah = (
+                KATEGORI_POTONGAN if jenis == "deduction" else KATEGORI_TAMBAHAN
+            )
+            if kategori not in sah:
+                return None, app_error(
+                    ErrorCode.VALIDATION,
+                    f"Kategori '{kategori}' tidak berlaku untuk "
+                    + ("potongan." if jenis == "deduction" else "tambahan."),
+                    400,
+                )
+
+            label = (p.get("label") or "").strip()
+            if kategori == "lain_lain" and not label:
+                return None, app_error(
+                    ErrorCode.VALIDATION,
+                    "Baris lain-lain harus diberi keterangan.",
+                    400,
+                )
+
+            nominal = _d(p.get("amount"))
+            if nominal <= 0:
+                return None, app_error(
+                    ErrorCode.VALIDATION,
+                    "Nominal penyesuaian harus lebih dari nol.",
+                    400,
+                )
+
+            if jenis == "deduction":
+                potongan += nominal
+            else:
+                tambahan += nominal
+
+            siap.append(
+                {
+                    "kind": jenis,
+                    "category": kategori,
+                    "label": label or None,
+                    "amount": nominal,
+                    "note": p.get("note"),
+                }
+            )
+
+        bersih = kotor - potongan + tambahan
+        if bersih < 0:
+            return None, app_error(
+                ErrorCode.VALIDATION,
+                f"Potongan ({potongan:g}) melebihi nilai pekerjaan beserta "
+                f"tambahannya ({kotor + tambahan:g}). Nilai bersih certificate "
+                "of payment tidak boleh negatif.",
+                400,
+            )
+
+        return siap, None
 
     # ------------------------------------------------------------------
     # Hapus & baca

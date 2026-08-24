@@ -14,7 +14,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from controllers.certificate_of_payment_controller import (
     CertificateOfPaymentController,
 )
-from schemas.certificate_of_payment_schema import CoPCreate, CoPUpdate
+from schemas.certificate_of_payment_schema import (
+    CoPAdjustmentSet,
+    CoPCreate,
+    CoPUpdate,
+)
 from utils.auth_utils import User
 from utils.errors import ErrorCode, error_detail
 from utils.logger_utils import log_error
@@ -167,6 +171,31 @@ async def periksa_cop(
     return _lempar_bila_galat(
         await CertificateOfPaymentController.set_checked(
             cop_id, checked, current_user["id"], _level(current_user), divisi
+        )
+    )
+
+
+@router.put("/{cop_id}/adjustments")
+async def set_penyesuaian(
+    cop_id: int,
+    data: CoPAdjustmentSet,
+    current_user: Annotated[User, Depends(require("certificate_of_payment", "update"))],
+):
+    """
+    Ganti seluruh potongan & tambahan CoP.
+
+    Dijaga izin `update`, tetapi wewenang sebenarnya diperiksa controller:
+    hanya pemeriksa (engineering level 2 ke atas) yang boleh — orang lapangan
+    tidak pernah menerima angka rupiahnya sama sekali.
+    """
+    divisi = await _departments(current_user["id"])
+    return _lempar_bila_galat(
+        await CertificateOfPaymentController.set_penyesuaian(
+            cop_id,
+            [a.model_dump() for a in data.adjustments],
+            current_user["id"],
+            _level(current_user),
+            divisi,
         )
     )
 

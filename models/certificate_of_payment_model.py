@@ -96,6 +96,50 @@ certificate_of_payments_table = Table(
         nullable=False,
         server_default="draft",
     ),
+    # ---- ringkasan nilai ----
+    #
+    # DISIMPAN, bukan dihitung ulang tiap kali dibaca.
+    #
+    # Angka-angka inilah yang diteruskan ke pembukuan, dan yang tersimpan
+    # harus tetap terbaca sama di kemudian hari — sekalipun harga baris SPK
+    # kelak berbeda atau barisnya berpindah. Menghitungnya ulang saat dibaca
+    # membuat dokumen yang sudah disetujui dapat berubah nilainya sendiri.
+    #
+    # Ditulis ulang server setiap kali baris atau penyesuaiannya berubah;
+    # layar TIDAK pernah mengirimkannya.
+    Column(
+        "grossAmount",
+        DECIMAL(17, 4),
+        nullable=False,
+        server_default="0.0000",
+    ),
+    Column(
+        "deductionTotal",
+        DECIMAL(17, 4),
+        nullable=False,
+        server_default="0.0000",
+    ),
+    Column(
+        "additionTotal",
+        DECIMAL(17, 4),
+        nullable=False,
+        server_default="0.0000",
+    ),
+    # kotor - potongan + tambahan.
+    #
+    # Sekaligus DASAR PENGENAAN PAJAK yang diteruskan ke pembukuan: potongan
+    # di sini MENGURANGI DPP, bukan sekadar mengurangi transfer.
+    #
+    # Alasannya uang muka. Uang muka sudah difakturkan sendiri di awal
+    # beserta PPN-nya; bila CoP berikutnya tetap ber-DPP penuh, PPN atas
+    # bagian uang muka terhitung DUA KALI — sekali pada faktur uang muka,
+    # sekali lagi pada faktur progres.
+    Column(
+        "netAmount",
+        DECIMAL(17, 4),
+        nullable=False,
+        server_default="0.0000",
+    ),
     # ---- tiga lapis: dibuat -> diperiksa -> disetujui ----
     #
     # Sama seperti purchase order, dan disengaja: yang mencatat progres
@@ -164,4 +208,76 @@ certificate_of_payment_items_table = Table(
     Column("remarks", Text, nullable=True),
     Index("ix_cop_item_cop", "certificateOfPaymentID"),
     Index("ix_cop_item_po_item", "purchaseOrderItemID"),
+)
+
+
+# =====================================================================
+# Penyesuaian: potongan & tambahan
+# =====================================================================
+#
+# Yang mengisinya PEMERIKSA (level 2 ke atas), bukan orang lapangan — di
+# tahap inilah nilai rupiah mulai terlihat.
+#
+# KATEGORI BERNAMA, BUKAN LABEL BEBAS
+#
+# Pembukuan perlu memetakan tiap potongan ke perlakuannya sendiri. Dengan
+# label bebas, "Retensi", "retensi 5%", dan "Ret." menjadi tiga hal berbeda
+# yang harus dipilah tangan setiap bulan. Kategori bernama membuat pemetaan
+# itu tinggal dibaca.
+#
+# `lain_lain` tetap disediakan — yang tidak terduga selalu ada, dan tanpa
+# tempatnya orang akan menitipkannya pada kategori yang salah.
+#
+# TAMBAHAN TIDAK MENYENTUH PAGU SPK
+#
+# Ia BUKAN nilai pekerjaan, melainkan biaya di luar kontrak (penggantian
+# ongkos kirim, mobilisasi tak terduga). Pekerjaan yang volumenya bertambah
+# tetap wajib lewat adendum — bila tambahan boleh menampung volume, seluruh
+# penjagaan pagu dapat dilewati hanya dengan menuliskannya di sini.
+
+#: Kategori potongan.
+KATEGORI_POTONGAN = (
+    "uang_muka",   # amortisasi uang muka yang sudah dibayarkan di awal
+    "retensi",     # ditahan sampai masa pemeliharaan berakhir
+    "denda",       # keterlambatan atau mutu
+    "pph",         # potongan pajak penghasilan
+    "lain_lain",
+)
+
+#: Kategori tambahan.
+KATEGORI_TAMBAHAN = (
+    "biaya_luar_kontrak",
+    "lain_lain",
+)
+
+
+certificate_of_payment_adjustments_table = Table(
+    "certificate_of_payment_adjustments",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "certificateOfPaymentID",
+        Integer,
+        ForeignKey("certificate_of_payments.id"),
+        nullable=False,
+    ),
+    # 'deduction' mengurangi, 'addition' menambah.
+    #
+    # Dipisah dari kategorinya supaya tandanya tidak pernah bergantung pada
+    # nama: `amount` SELALU positif, dan yang menentukan arah hanya kolom ini.
+    # Nominal bertanda minus adalah cara paling mudah membuat laporan
+    # menjumlahkan potongan sebagai tambahan tanpa ada yang menyadarinya.
+    Column(
+        "kind",
+        Enum("deduction", "addition", name="cop_adjustment_kind"),
+        nullable=False,
+    ),
+    Column("category", String(40), nullable=False),
+    # Wajib diisi saat kategorinya `lain_lain`; ditegakkan di controller.
+    Column("label", String(255), nullable=True),
+    # SELALU positif — lihat catatan pada `kind`.
+    Column("amount", DECIMAL(17, 4), nullable=False, server_default="0.0000"),
+    Column("note", Text, nullable=True),
+    Index("ix_cop_adj_cop", "certificateOfPaymentID"),
+    Index("ix_cop_adj_kategori", "kind", "category"),
 )

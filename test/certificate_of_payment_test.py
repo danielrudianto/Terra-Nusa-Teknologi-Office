@@ -593,3 +593,236 @@ class TestHanyaSPK:
         hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
                                  departments={"engineering"})
         assert "error" not in hasil
+
+
+# =====================================================================
+# 9. Potongan & tambahan
+# =====================================================================
+
+
+@pytest.fixture
+def repo_penyesuaian(repo, monkeypatch):
+    """Tambahkan tiruan penyimpanan penyesuaian di atas fixture `repo`."""
+
+    async def _ganti(cop_id, penyesuaian, user_id):
+        repo["penyesuaian"] = [dict(p) for p in penyesuaian]
+        kotor = Decimal(str(repo["cop"].get("grossAmount") or 0))
+        potongan = sum(
+            (p["amount"] for p in penyesuaian if p["kind"] == "deduction"),
+            Decimal("0"),
+        )
+        tambahan = sum(
+            (p["amount"] for p in penyesuaian if p["kind"] == "addition"),
+            Decimal("0"),
+        )
+        return {
+            "grossAmount": kotor,
+            "deductionTotal": potongan,
+            "additionTotal": tambahan,
+            "netAmount": kotor - potongan + tambahan,
+        }
+
+    monkeypatch.setattr(
+        modul.CertificateOfPaymentRepository,
+        "ganti_penyesuaian",
+        staticmethod(_ganti),
+    )
+    repo["penyesuaian"] = None
+    repo["cop"] = {
+        "id": 9,
+        "createdBy": 1,
+        "isChecked": True,
+        "isApproved": False,
+        "checkedBy": 2,
+        "grossAmount": Decimal("10000000"),
+    }
+    return repo
+
+
+def _pot(kategori="uang_muka", nominal=1000000, **tambahan):
+    return {"kind": "deduction", "category": kategori, "amount": nominal, **tambahan}
+
+
+def _tam(kategori="biaya_luar_kontrak", nominal=500000, **tambahan):
+    return {"kind": "addition", "category": kategori, "amount": nominal, **tambahan}
+
+
+class TestPenyesuaian:
+    """
+    Potongan mengurangi DPP, tambahan menambahnya, dan keduanya hanya boleh
+    disentuh pemeriksa.
+    """
+
+    @pytest.mark.asyncio
+    async def test_potongan_mengurangi_nilai_bersih(self, repo_penyesuaian):
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot(nominal=2000000)], user_id=2, user_level=2,
+            departments={"engineering"},
+        )
+        assert "error" not in hasil
+        assert hasil["deductionTotal"] == 2000000
+        assert hasil["netAmount"] == 8000000
+
+    @pytest.mark.asyncio
+    async def test_tambahan_menambah_nilai_bersih(self, repo_penyesuaian):
+        hasil = await CoP.set_penyesuaian(
+            9, [_tam(nominal=500000)], user_id=2, user_level=2,
+            departments={"engineering"},
+        )
+        assert hasil["additionTotal"] == 500000
+        assert hasil["netAmount"] == 10500000
+
+    @pytest.mark.asyncio
+    async def test_potongan_dan_tambahan_bersamaan(self, repo_penyesuaian):
+        hasil = await CoP.set_penyesuaian(
+            9,
+            [
+                _pot("uang_muka", 2000000),
+                _pot("retensi", 500000),
+                _tam("biaya_luar_kontrak", 300000),
+            ],
+            user_id=2, user_level=2, departments={"engineering"},
+        )
+        assert hasil["deductionTotal"] == 2500000
+        assert hasil["additionTotal"] == 300000
+        assert hasil["netAmount"] == 7800000
+
+    @pytest.mark.asyncio
+    async def test_level_1_tidak_boleh_mengisi(self, repo_penyesuaian):
+        """Orang lapangan tidak pernah menyentuh rupiah — termasuk di sini."""
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot()], user_id=1, user_level=1, departments={"engineering"},
+        )
+        assert hasil["status"] == 403
+        assert repo_penyesuaian["penyesuaian"] is None
+
+    @pytest.mark.asyncio
+    async def test_terkunci_setelah_disetujui(self, repo_penyesuaian):
+        repo_penyesuaian["cop"]["isApproved"] = True
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot()], user_id=2, user_level=2, departments={"engineering"},
+        )
+        assert hasil["status"] == 409
+        assert repo_penyesuaian["penyesuaian"] is None
+
+    @pytest.mark.asyncio
+    async def test_nilai_bersih_negatif_ditolak(self, repo_penyesuaian):
+        """Potongan melebihi nilai pekerjaan berarti pemasok berutang — bukan progres."""
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot(nominal=12000000)], user_id=2, user_level=2,
+            departments={"engineering"},
+        )
+        assert hasil["status"] == 400
+        assert repo_penyesuaian["penyesuaian"] is None
+
+    @pytest.mark.asyncio
+    async def test_bersih_nol_masih_boleh(self, repo_penyesuaian):
+        """Batasnya inklusif: potongan yang PAS menghabiskan nilainya sah."""
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot(nominal=10000000)], user_id=2, user_level=2,
+            departments={"engineering"},
+        )
+        assert "error" not in hasil
+        assert hasil["netAmount"] == 0
+
+    @pytest.mark.asyncio
+    async def test_kategori_karangan_ditolak(self, repo_penyesuaian):
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot("potongan_rahasia")], user_id=2, user_level=2,
+            departments={"engineering"},
+        )
+        assert hasil["status"] == 400
+
+    @pytest.mark.asyncio
+    async def test_kategori_potongan_tidak_berlaku_untuk_tambahan(
+        self, repo_penyesuaian
+    ):
+        """`retensi` hanya berarti sebagai potongan; sebagai tambahan ia omong kosong."""
+        hasil = await CoP.set_penyesuaian(
+            9, [_tam("retensi")], user_id=2, user_level=2,
+            departments={"engineering"},
+        )
+        assert hasil["status"] == 400
+
+    @pytest.mark.asyncio
+    async def test_lain_lain_wajib_berlabel(self, repo_penyesuaian):
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot("lain_lain")], user_id=2, user_level=2,
+            departments={"engineering"},
+        )
+        assert hasil["status"] == 400
+
+    @pytest.mark.asyncio
+    async def test_lain_lain_berlabel_diterima(self, repo_penyesuaian):
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot("lain_lain", label="Potongan material dipinjam")],
+            user_id=2, user_level=2, departments={"engineering"},
+        )
+        assert "error" not in hasil
+        assert repo_penyesuaian["penyesuaian"][0]["label"] == "Potongan material dipinjam"
+
+    @pytest.mark.asyncio
+    async def test_nominal_negatif_ditolak(self, repo_penyesuaian):
+        """
+        Tanda ditentukan `kind`, bukan nilainya. Nominal minus pada sebuah
+        potongan justru MENAMBAH — pintu belakang yang tidak terlihat pada
+        laporan mana pun.
+        """
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot(nominal=-5000000)], user_id=2, user_level=2,
+            departments={"engineering"},
+        )
+        assert hasil["status"] == 400
+
+    @pytest.mark.asyncio
+    async def test_nominal_nol_ditolak(self, repo_penyesuaian):
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot(nominal=0)], user_id=2, user_level=2,
+            departments={"engineering"},
+        )
+        assert hasil["status"] == 400
+
+    @pytest.mark.asyncio
+    async def test_daftar_kosong_mengosongkan_penyesuaian(self, repo_penyesuaian):
+        """Mengirim daftar kosong berarti mencabut seluruhnya — bukan galat."""
+        hasil = await CoP.set_penyesuaian(
+            9, [], user_id=2, user_level=2, departments={"engineering"},
+        )
+        assert "error" not in hasil
+        assert hasil["netAmount"] == 10000000
+        assert repo_penyesuaian["penyesuaian"] == []
+
+
+class TestPenyaringanPenyesuaian:
+    """Level 1 tidak menerima ringkasan nilai MAUPUN baris penyesuaiannya."""
+
+    def test_level_1_tidak_menerima_ringkasan_dan_penyesuaian(self):
+        data = {
+            "id": 1,
+            "name": "CoP-001",
+            "grossAmount": 10000000,
+            "deductionTotal": 2000000,
+            "additionTotal": 0,
+            "netAmount": 8000000,
+            "adjustments": [
+                {"kind": "deduction", "category": "uang_muka", "amount": 2000000},
+            ],
+            "items": [{"quantity": 10, "price": 400000, "amount": 4000000}],
+        }
+        keluar = CoP.saring_nilai(data, user_level=1)
+        for k in ("grossAmount", "deductionTotal", "additionTotal", "netAmount"):
+            assert k not in keluar
+        # Barisnya dibuang SELURUHNYA: "Potongan uang muka" tanpa angka pun
+        # sudah menceritakan susunan kesepakatan dengan pemasok.
+        assert "adjustments" not in keluar
+        assert keluar["items"][0]["quantity"] == 10
+
+    def test_level_2_menerima_seluruhnya(self):
+        data = {
+            "grossAmount": 10000000,
+            "netAmount": 8000000,
+            "adjustments": [{"kind": "deduction", "amount": 2000000}],
+        }
+        keluar = CoP.saring_nilai(data, user_level=2)
+        assert keluar["netAmount"] == 8000000
+        assert len(keluar["adjustments"]) == 1

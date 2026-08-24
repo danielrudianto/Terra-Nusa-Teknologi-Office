@@ -45,3 +45,34 @@ class CoPUpdate(BaseModel):
     # `None` berarti "jangan sentuh barisnya"; daftar kosong ditolak
     # controller — CoP tanpa baris tidak menyatakan progres apa pun.
     items: Optional[List[CoPItemInput]] = None
+
+
+class CoPAdjustmentInput(BaseModel):
+    """
+    Satu baris potongan atau tambahan.
+
+    `amount` SELALU positif; arahnya ditentukan `kind`. Nominal bertanda
+    minus adalah cara paling mudah membuat potongan terjumlah sebagai
+    tambahan tanpa ada yang menyadarinya, jadi tandanya tidak pernah
+    diserahkan kepada nilainya.
+    """
+
+    kind: str = Field(pattern="^(deduction|addition)$")
+    category: str
+    # Wajib bila `category` = "lain_lain"; ditegakkan controller supaya
+    # pesannya dapat menyebut baris mana yang kosong.
+    label: Optional[str] = None
+    amount: float = Field(gt=0)
+    note: Optional[str] = None
+
+
+class CoPAdjustmentSet(BaseModel):
+    """
+    Keadaan AKHIR seluruh penyesuaian CoP.
+
+    Dikirim utuh, bukan per baris: layar mengirimkan susunan yang
+    dikehendaki, dan server menggantinya seluruhnya. Menyamakan baris demi
+    baris hanya menambah jalan bagi keduanya untuk berselisih.
+    """
+
+    adjustments: List[CoPAdjustmentInput] = Field(default_factory=list)
