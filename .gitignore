@@ -1,8 +1,14 @@
-reimbursements/*
-.env
-
-# Ignore pycache directories
-**/__pycache__/
-
-# Ignore node modules
 node_modules/
+venv/
+env/
+__pycache__/
+*.pyc
+storage/
+src/
+prisma/
+bun.lock
+package.json
+package-lock.json
+tsconfig.json
+data.ms/
+app.log
