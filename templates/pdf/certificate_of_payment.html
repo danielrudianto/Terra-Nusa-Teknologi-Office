@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ cop.name }}</title>
+    <style>
+      /*
+        DUA ORIENTASI DALAM SATU BERKAS.
+
+        CoP potret, BAP lanskap — persis seperti dua berkas Excel yang
+        selama ini dipakai. WeasyPrint mendukungnya lewat @page bernama,
+        sehingga keduanya tetap dapat digabung menjadi satu unduhan tanpa
+        memaksa BAP yang lebar ikut potret dan tercetak sekecil semut.
+      */
+      @page cop {
+        size: A4 portrait;
+        margin: 14mm 14mm 12mm;
+      }
+      @page bap {
+        size: A4 landscape;
+        margin: 10mm;
+      }
+
+      .halaman-cop { page: cop; }
+      .halaman-bap { page: bap; }
+      .putus { break-before: page; }
+
+      body {
+        font-family: "Helvetica", "Arial", sans-serif;
+        font-size: 9.5pt;
+        color: #000;
+        margin: 0;
+      }
+
+      h1 {
+        margin: 0 0 8pt;
+        font-size: 15pt;
+        text-align: center;
+        letter-spacing: 0.3pt;
+      }
+
+      .garis-judul {
+        border-bottom: 1.4pt solid #000;
+        margin-bottom: 9pt;
+      }
+
+      /* ---- kepala dokumen: dua kolom ---- */
+      table.kepala { width: 100%; border-collapse: collapse; margin-bottom: 9pt; }
+      table.kepala td { vertical-align: top; padding: 1pt 0; }
+      td.k-label { width: 27%; }
+      td.k-titik { width: 2%; }
+      td.k-isi { width: 26%; font-weight: bold; }
+      td.k-label2 { width: 17%; padding-left: 8pt; }
+      td.k-isi2 { width: 28%; font-weight: bold; }
+
+      /* ---- bagian bernama ---- */
+      .bagian {
+        margin-top: 9pt;
+        margin-bottom: 3pt;
+        font-weight: bold;
+        font-size: 9.5pt;
+        border-bottom: 0.8pt solid #000;
+        padding-bottom: 2pt;
+      }
+
+      /* ---- baris hitungan: label : % x dasar = hasil ---- */
+      table.hitung { width: 100%; border-collapse: collapse; }
+      table.hitung td { padding: 1.2pt 0; vertical-align: baseline; }
+      .h-label { width: 40%; }
+      .h-titik { width: 2%; }
+      .h-persen { width: 8%; text-align: right; }
+      .h-kali { width: 3%; text-align: center; }
+      .h-rp { width: 4%; }
+      .h-dasar { width: 18%; text-align: right; }
+      .h-sama { width: 3%; text-align: center; }
+      .h-rp2 { width: 4%; }
+      .h-hasil { width: 18%; text-align: right; }
+
+      tr.jumlah td {
+        border-top: 0.8pt solid #000;
+        font-weight: bold;
+        padding-top: 3pt;
+      }
+      tr.jumlah-tebal td {
+        border-top: 1.2pt solid #000;
+        border-bottom: 2.4pt double #000;
+        font-weight: bold;
+        padding: 4pt 0;
+      }
+
+      .tanda-tambah { text-align: center; font-weight: bold; }
+
+      /* ---- tabel BAP ---- */
+      table.bap {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 7.4pt;
+      }
+      table.bap th,
+      table.bap td {
+        border: 0.5pt solid #444;
+        padding: 3pt 4pt;
+      }
+      table.bap thead th {
+        background: #e9edf3;
+        font-weight: bold;
+        text-align: center;
+        vertical-align: middle;
+      }
+      table.bap td.angka { text-align: right; }
+      table.bap td.tengah { text-align: center; }
+      table.bap tfoot td {
+        font-weight: bold;
+        background: #f4f6f9;
+      }
+      .bap-pekerjaan { max-width: 150pt; }
+      .bap-ket { display: block; font-size: 6.6pt; color: #444; }
+
+      /* ---- tanda tangan ---- */
+      table.ttd {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 16pt;
+        break-inside: avoid;
+      }
+      table.ttd td {
+        width: 33.33%;
+        text-align: center;
+        vertical-align: top;
+        padding: 0 6pt;
+      }
+      .ttd-peran { font-size: 8.6pt; margin-bottom: 30pt; }
+      .ttd-nama {
+        border-top: 0.6pt solid #000;
+        padding-top: 3pt;
+        font-weight: bold;
+      }
+      .ttd-tanggal { font-size: 7.6pt; color: #444; }
+
+      .catatan-kaki { margin-top: 10pt; font-size: 8.6pt; }
+      .kecil { font-size: 8pt; color: #444; }
+    </style>
+  </head>
+  <body>
+    <!-- ================= HALAMAN 1 — CERTIFICATE OF PAYMENT ================= -->
+    <div class="halaman-cop">
+      <h1>Certificate of Payment</h1>
+      <div class="garis-judul"></div>
+
+      <table class="kepala">
+        <tr>
+          <td class="k-label">Proyek</td><td class="k-titik">:</td>
+          <td class="k-isi">{{ cop.projectName }}</td>
+          <td class="k-label2">Pembayaran ke</td><td class="k-titik">:</td>
+          <td class="k-isi2">{{ cop.number }}</td>
+        </tr>
+        <tr>
+          <td class="k-label">Penerima</td><td class="k-titik">:</td>
+          <td class="k-isi">{{ spk.supplierName or "-" }}</td>
+          <td class="k-label2">Tanggal</td><td class="k-titik">:</td>
+          <td class="k-isi2">{{ cop.date | tanggal }}</td>
+        </tr>
+        <tr>
+          <td class="k-label">Pekerjaan</td><td class="k-titik">:</td>
+          <td class="k-isi">{{ pekerjaanRingkas }}</td>
+          <td class="k-label2">No. BAP</td><td class="k-titik">:</td>
+          <td class="k-isi2">{{ nomorBap }}</td>
+        </tr>
+        <tr>
+          <td class="k-label">No. Kontrak Kerja</td><td class="k-titik">:</td>
+          <td class="k-isi">{{ spk.name }}</td>
+          <td class="k-label2">Tanggal</td><td class="k-titik">:</td>
+          <td class="k-isi2">{{ cop.date | tanggal }}</td>
+        </tr>
+        <tr>
+          <td class="k-label">No. Addendum</td><td class="k-titik">:</td>
+          <td class="k-isi">{{ "Ada" if kontrak.adaAdendum else "-" }}</td>
+          <td class="k-label2"></td><td class="k-titik"></td><td class="k-isi2"></td>
+        </tr>
+        {% if cop.periodStart or cop.periodEnd %}
+        <tr>
+          <td class="k-label">Periode</td><td class="k-titik">:</td>
+          <td class="k-isi" colspan="4">
+            {{ cop.periodStart | tanggal }} s.d. {{ cop.periodEnd | tanggal }}
+          </td>
+        </tr>
+        {% endif %}
+      </table>
+
+      <!-- ---- HARGA PEKERJAAN ---- -->
+      <div class="bagian">HARGA PEKERJAAN (DPP)</div>
+      <table class="hitung">
+        <tr>
+          <td class="h-label">Nilai Kontrak</td><td class="h-titik"></td>
+          <td class="h-persen"></td><td class="h-kali"></td>
+          <td class="h-rp"></td><td class="h-dasar"></td>
+          <td class="h-sama"></td>
+          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ kontrak.induk | rupiah }}</td>
+        </tr>
+        <tr>
+          <td class="h-label">Nilai Pekerjaan Tambah/Kurang</td><td></td>
+          <td></td><td></td><td></td><td></td><td></td>
+          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ kontrak.adendum | rupiah }}</td>
+        </tr>
+        <tr class="jumlah">
+          <td class="h-label">Total Nilai Kontrak</td><td></td>
+          <td></td><td></td><td></td><td></td><td></td>
+          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ kontrak.total | rupiah }}</td>
+        </tr>
+      </table>
+
+      <!--
+        Syarat kontrak, bukan angka periode ini.
+
+        Dicetak apa adanya dari SPK supaya lembar ini menyatakan dasar
+        perhitungannya sendiri — yang membacanya tidak perlu membuka kontrak
+        untuk mengetahui berapa uang muka dan retensi yang disepakati.
+      -->
+      <table class="hitung" style="margin-top: 6pt">
+        <tr>
+          <td class="h-label">Down Payment</td><td class="h-titik">:</td>
+          <td class="h-persen">{{ spk.dpPercentage | persen }}</td>
+          <td class="h-kali">x</td>
+          <td class="h-rp">Rp.</td><td class="h-dasar">{{ kontrak.total | rupiah }}</td>
+          <td class="h-sama">=</td>
+          <td class="h-rp2">Rp.</td>
+          <td class="h-hasil">{{ (kontrak.total * spk.dpPercentage / 100) | rupiah }}</td>
+        </tr>
+        <tr>
+          <td class="h-label">Retensi</td><td class="h-titik">:</td>
+          <td class="h-persen">{{ spk.retentionPercentage | persen }}</td>
+          <td class="h-kali">x</td>
+          <td class="h-rp">Rp.</td><td class="h-dasar">{{ kontrak.total | rupiah }}</td>
+          <td class="h-sama">=</td>
+          <td class="h-rp2">Rp.</td>
+          <td class="h-hasil">{{ (kontrak.total * spk.retentionPercentage / 100) | rupiah }}</td>
+        </tr>
+        <tr>
+          <td class="h-label">PPh</td><td class="h-titik">:</td>
+          <td class="h-persen">{{ spk.pphPercentage | persen }}</td>
+          <td class="h-kali">x</td>
+          <td class="h-rp">Rp.</td><td class="h-dasar">{{ kontrak.total | rupiah }}</td>
+          <td class="h-sama">=</td>
+          <td class="h-rp2">Rp.</td>
+          <td class="h-hasil">{{ (kontrak.total * spk.pphPercentage / 100) | rupiah }}</td>
+        </tr>
+      </table>
+
+      <!-- ---- PROGRESS ---- -->
+      <div class="bagian">PROGRESS YANG DIBAYARKAN (Lampiran BAP &amp; Copy Kontrak Kerja)</div>
+      <table class="hitung">
+        <tr>
+          <td class="h-label">Progress Kontrak</td><td class="h-titik">:</td>
+          <td class="h-persen">{{ nilai.persenProgres | persenPecahan }}</td>
+          <td class="h-kali">x</td>
+          <td class="h-rp">Rp.</td><td class="h-dasar">{{ kontrak.total | rupiah }}</td>
+          <td class="h-sama">=</td>
+          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ nilai.kotor | rupiah }}</td>
+        </tr>
+        <tr class="jumlah">
+          <td class="h-label">Sub-Total Progress Periode Ini</td><td></td>
+          <td></td><td></td><td></td><td></td><td></td>
+          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ nilai.kotor | rupiah }}</td>
+        </tr>
+      </table>
+
+      <!-- ---- PENGURANGAN ---- -->
+      <div class="bagian">PENGURANGAN</div>
+      <table class="hitung">
+        {% for p in penyesuaian if p.kind == "deduction" %}
+        <tr>
+          <td class="h-label">
+            {{ p.category | namaKategori }}{% if p.label %} — {{ p.label }}{% endif %}
+          </td>
+          <td class="h-titik">:</td>
+          <td class="h-persen">{{ p.persenDariKotor | persenPecahan }}</td>
+          <td class="h-kali">x</td>
+          <td class="h-rp">Rp.</td><td class="h-dasar">{{ nilai.kotor | rupiah }}</td>
+          <td class="h-sama">=</td>
+          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ p.amount | rupiah }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td class="h-label kecil" colspan="9">Tidak ada pengurangan pada periode ini.</td>
+        </tr>
+        {% endfor %}
+        <tr class="jumlah">
+          <td class="h-label">Sub-Total Pengurangan Periode Ini</td><td></td>
+          <td></td><td></td><td></td><td></td><td></td>
+          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ nilai.potongan | rupiah }}</td>
+        </tr>
+      </table>
+
+      {% if nilai.tambahan > 0 %}
+      <!--
+        Tambahan dicetak TERPISAH dari nilai pekerjaan.
+
+        Ia biaya di luar kontrak, bukan volume pekerjaan — dan menggabungnya
+        ke progres akan membuat persentase progres melebihi kenyataan.
+      -->
+      <div class="bagian">PENAMBAHAN (di luar nilai kontrak)</div>
+      <table class="hitung">
+        {% for p in penyesuaian if p.kind == "addition" %}
+        <tr>
+          <td class="h-label">
+            {{ p.category | namaKategori }}{% if p.label %} — {{ p.label }}{% endif %}
+          </td>
+          <td class="h-titik">:</td>
+          <td class="h-persen"></td><td class="h-kali"></td>
+          <td class="h-rp"></td><td class="h-dasar"></td><td class="h-sama"></td>
+          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ p.amount | rupiah }}</td>
+        </tr>
+        {% endfor %}
+        <tr class="jumlah">
+          <td class="h-label">Sub-Total Penambahan</td><td></td>
+          <td></td><td></td><td></td><td></td><td></td>
+          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ nilai.tambahan | rupiah }}</td>
+        </tr>
+      </table>
+      {% endif %}
+
+      <!-- ---- TOTAL ---- -->
+      <table class="hitung" style="margin-top: 10pt">
+        <tr class="jumlah">
+          <td class="h-label">Sub-Total Periode Ini (Progress − Pengurangan{% if nilai.tambahan > 0 %} + Penambahan{% endif %})</td>
+          <td></td><td></td><td></td><td></td><td></td><td></td>
+          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ nilai.bersih | rupiah }}</td>
+        </tr>
+        <tr>
+          <td class="h-label">PPN {{ nilai.tarifPpn | persen }}</td>
+          <td></td><td></td><td></td><td></td><td></td>
+          <td class="tanda-tambah">+</td>
+          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ nilai.ppn | rupiah }}</td>
+        </tr>
+        <tr class="jumlah-tebal">
+          <td class="h-label">Total Progress Periode Ini</td>
+          <td></td><td></td><td></td><td></td><td></td><td></td>
+          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ nilai.totalDibayar | rupiah }}</td>
+        </tr>
+      </table>
+
+      <!-- ---- AKUMULASI ---- -->
+      <div class="bagian">AKUMULASI PEMBAYARAN (DPP)</div>
+      <table class="hitung">
+        {% for r in riwayat %}
+        <tr>
+          <td class="h-label">
+            Pembayaran {{ r.number }}{% if r.iniSendiri %} <span class="kecil">(periode ini)</span>{% endif %}
+          </td>
+          <td class="h-titik"></td>
+          <td class="h-persen"></td><td class="h-kali"></td>
+          <td class="h-rp"></td><td class="h-dasar" style="text-align:left" class="kecil">{{ r.date | tanggal }}</td>
+          <td class="h-sama"></td>
+          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ r.net | rupiah }}</td>
+        </tr>
+        {% endfor %}
+        <tr class="jumlah">
+          <td class="h-label">Akumulasi s.d. pembayaran ke-{{ cop.number }}</td>
+          <td></td><td></td><td></td><td></td><td></td><td></td>
+          <td class="h-rp2">Rp.</td><td class="h-hasil">{{ riwayatTotal | rupiah }}</td>
+        </tr>
+      </table>
+
+      {% if cop.note %}
+      <div class="bagian">CATATAN</div>
+      <div>{{ cop.note }}</div>
+      {% endif %}
+
+      <p class="catatan-kaki">
+        Demikian sertifikat pembayaran ini dibuat dan ditandatangani untuk
+        dipergunakan sebagaimana mestinya.
+      </p>
+
+      <table class="ttd">
+        <tr>
+          <td>
+            <div class="ttd-peran">Dibuat oleh,</div>
+            <div class="ttd-nama">{{ cop.createdByName or "—" }}</div>
+          </td>
+          <td>
+            <div class="ttd-peran">Diperiksa oleh,</div>
+            <div class="ttd-nama">{{ cop.checkedByName or "—" }}</div>
+            {% if cop.checkedAt %}
+            <div class="ttd-tanggal">{{ cop.checkedAt | tanggal }}</div>
+            {% endif %}
+          </td>
+          <td>
+            <div class="ttd-peran">Disetujui oleh,</div>
+            <div class="ttd-nama">{{ cop.approvedByName or "—" }}</div>
+            {% if cop.approvedAt %}
+            <div class="ttd-tanggal">{{ cop.approvedAt | tanggal }}</div>
+            {% endif %}
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- ================= HALAMAN 2 — BERITA ACARA PEMERIKSAAN ================= -->
+    {% if sertakanBap %}
+    <div class="halaman-bap putus">{% include "cop_bap_isi.html" %}</div>
+    {% endif %}
+  </body>
+</html>

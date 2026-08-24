@@ -81,6 +81,21 @@ purchase_orders_table = Table(
     Column("pphCode", String(100), nullable=True),
     Column("pphTaxObject", String(500), nullable=True),
     Column("pphPercentage", Float(), nullable=True),
+    # ---- syarat pembayaran bertahap (dipakai Certificate of Payment) ----
+    #
+    # Persentase UANG MUKA dan RETENSI menurut kontrak. Dicatat SEKALI di
+    # sini, bukan diketik ulang pada tiap CoP: keduanya syarat kontrak, dan
+    # yang diketik ulang tiap periode akan berselisih pada periode kelima
+    # tanpa ada yang menyadarinya.
+    #
+    # Disimpan sebagai PERSEN — 5 berarti 5%, bukan 0,05. Begitulah ia
+    # ditulis pada kontraknya, dan berganti satuan di antara dokumen dan
+    # basis data adalah cara termudah menghasilkan angka seratus kali salah.
+    #
+    # NULL berarti tidak ada, sehingga seluruh SPK yang sudah terbit tidak
+    # berubah perilakunya sama sekali.
+    Column("dpPercentage", Float(), nullable=True),
+    Column("retentionPercentage", Float(), nullable=True),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
     Column("createdAt", DateTime, nullable=False, server_default=func.now(), default=dt.now),
     Column("isDelete", Boolean, server_default=text("0"), default=False),

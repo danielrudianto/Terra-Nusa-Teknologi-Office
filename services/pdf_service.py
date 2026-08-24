@@ -316,3 +316,152 @@ class PDFService:
         HTML(string=html_content).write_pdf(file_path)
 
         return file_path
+
+
+# =====================================================================
+# Certificate of Payment & Berita Acara Pemeriksaan
+# =====================================================================
+#
+# Dikembalikan sebagai BYTES, bukan disimpan sebagai berkas.
+#
+# Slip gaji disimpan karena ia dilampirkan pada surel; CoP diunduh langsung
+# oleh yang menekan tombolnya. Menyimpannya lebih dulu hanya menumpuk berkas
+# yang memuat nilai kontrak di dalam `storage/` — dan yang menumpuk di sana
+# tidak ada yang membersihkan.
+
+_BULAN_ID = {
+    1: "Januari", 2: "Februari", 3: "Maret", 4: "April",
+    5: "Mei", 6: "Juni", 7: "Juli", 8: "Agustus",
+    9: "September", 10: "Oktober", 11: "November", 12: "Desember",
+}
+
+_NAMA_KATEGORI = {
+    "uang_muka": "Pengembalian Down Payment",
+    "retensi": "Retensi",
+    "denda": "Denda",
+    "pph": "PPh",
+    "lain_lain": "Lain-lain",
+    "biaya_luar_kontrak": "Biaya di luar kontrak",
+}
+
+
+def _f_tanggal(nilai) -> str:
+    """Tanggal gaya Indonesia. Yang kosong menjadi tanda pisah, bukan 'None'."""
+    if not nilai:
+        return "—"
+    try:
+        return f"{nilai.day} {_BULAN_ID[nilai.month]} {nilai.year}"
+    except Exception:
+        return str(nilai)
+
+
+def _f_rupiah(nilai) -> str:
+    """
+    1.234.567,89 — titik ribuan, koma desimal.
+
+    Tanpa awalan "Rp": lembar aslinya menaruh "Rp." pada kolom tersendiri,
+    dan menempelkannya di sini membuat kolom itu tercetak dua kali.
+    """
+    try:
+        n = float(nilai or 0)
+    except (TypeError, ValueError):
+        return "0,00"
+    return f"{n:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _f_angka(nilai) -> str:
+    """Volume: dua desimal, tetapi bulat bila memang bulat."""
+    try:
+        n = float(nilai or 0)
+    except (TypeError, ValueError):
+        return "0"
+    teks = f"{n:,.2f}" if n % 1 else f"{n:,.0f}"
+    return teks.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _f_persen(nilai) -> str:
+    """Nilai yang SUDAH berupa persen (5 -> '5,00%')."""
+    try:
+        n = float(nilai or 0)
+    except (TypeError, ValueError):
+        n = 0.0
+    return f"{n:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") + "%"
+
+
+def _f_persen_pecahan(nilai) -> str:
+    """
+    Pecahan yang dijadikan persen (0,004747 -> '0,475%').
+
+    Tiga desimal, bukan dua: progres mingguan pada kontrak besar kerap
+    berada di bawah 0,01% — dibulatkan dua desimal seluruh barisnya menjadi
+    '0,00%' dan lembarnya tidak menyatakan apa pun.
+    """
+    try:
+        n = float(nilai or 0) * 100
+    except (TypeError, ValueError):
+        n = 0.0
+    return f"{n:,.3f}".replace(",", "X").replace(".", ",").replace("X", ".") + "%"
+
+
+def _f_nama_kategori(kode) -> str:
+    return _NAMA_KATEGORI.get(kode, str(kode or "").replace("_", " ").title())
+
+
+def _lingkungan_cop():
+    from jinja2 import Environment, FileSystemLoader
+
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    env = Environment(
+        loader=FileSystemLoader(os.path.join(BASE_DIR, "../templates/pdf")),
+        autoescape=True,
+    )
+    env.filters["tanggal"] = _f_tanggal
+    env.filters["rupiah"] = _f_rupiah
+    env.filters["angka"] = _f_angka
+    env.filters["persen"] = _f_persen
+    env.filters["persenPecahan"] = _f_persen_pecahan
+    env.filters["namaKategori"] = _f_nama_kategori
+    return env
+
+
+def _lengkapi(data: dict) -> dict:
+    """Tambahkan nilai turunan yang hanya dipakai saat mencetak."""
+    keluar = dict(data)
+
+    # Ringkasan pekerjaan untuk kepala dokumen: nama-nama baris kontrak,
+    # dibatasi supaya kepala dokumen tidak tumbuh menjadi setengah halaman.
+    nama = []
+    for b in data.get("bap") or []:
+        n = (b.get("pekerjaan") or "").strip()
+        if n and n not in nama:
+            nama.append(n)
+    ringkas = ", ".join(nama[:2])
+    if len(nama) > 2:
+        ringkas += f", dan {len(nama) - 2} lainnya"
+    keluar["pekerjaanRingkas"] = ringkas or "-"
+
+    # Nomor BAP mengikuti nomor CoP: keduanya terbit berpasangan, dan
+    # penomoran terpisah hanya menciptakan dua urutan yang harus dicocokkan
+    # tangan setiap kali dokumennya dicari.
+    keluar["nomorBap"] = data.get("cop", {}).get("number")
+    return keluar
+
+
+class CoPDocumentService:
+    """Cetak Certificate of Payment dan Berita Acara Pemeriksaan."""
+
+    @staticmethod
+    def render(data: dict, sertakan_bap: bool = True) -> bytes:
+        """CoP (potret) + BAP (lanskap) dalam satu berkas PDF."""
+        env = _lingkungan_cop()
+        template = env.get_template("certificate_of_payment.html")
+        html = template.render(**_lengkapi(data), sertakanBap=sertakan_bap)
+        return HTML(string=html).write_pdf()
+
+    @staticmethod
+    def render_bap(data: dict) -> bytes:
+        """BAP saja — seluruhnya lanskap."""
+        env = _lingkungan_cop()
+        template = env.get_template("berita_acara_pemeriksaan.html")
+        html = template.render(**_lengkapi(data))
+        return HTML(string=html).write_pdf()

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <title>BAP {{ nomorBap }}</title>
+    <style>
+      /*
+        BAP sendirian: SELURUH berkas lanskap.
+
+        Gayanya sengaja diulang di sini alih-alih diimpor dari berkas CoP —
+        WeasyPrint memuat tiap dokumen berdiri sendiri, dan hanya ISI tabelnya
+        yang dibagi (lihat `cop_bap_isi.html`). Yang dibagi adalah bagian yang
+        kalau berbeda menghasilkan dua lembar berbeda untuk pekerjaan sama;
+        gaya cetak bukan bagian itu.
+      */
+      @page { size: A4 landscape; margin: 10mm; }
+
+      body { font-family: "Helvetica", "Arial", sans-serif; font-size: 9.5pt; color: #000; margin: 0; }
+      h1 { margin: 0 0 10pt; font-size: 15pt; text-align: center; letter-spacing: 0.3pt; }
+      .garis-judul { border-bottom: 1.4pt solid #000; margin-bottom: 12pt; }
+
+      table.kepala { width: 100%; border-collapse: collapse; margin-bottom: 12pt; }
+      table.kepala td { vertical-align: top; padding: 1pt 0; }
+      td.k-label { width: 12%; }
+      td.k-titik { width: 2%; }
+      td.k-isi { width: 32%; font-weight: bold; }
+      td.k-label2 { width: 10%; padding-left: 8pt; }
+      td.k-isi2 { width: 32%; font-weight: bold; }
+
+      table.bap { width: 100%; border-collapse: collapse; font-size: 7.4pt; }
+      table.bap th, table.bap td { border: 0.5pt solid #444; padding: 3pt 4pt; }
+      table.bap thead th { background: #e9edf3; font-weight: bold; text-align: center; vertical-align: middle; }
+      table.bap td.angka { text-align: right; }
+      table.bap td.tengah { text-align: center; }
+      table.bap tfoot td { font-weight: bold; background: #f4f6f9; }
+      .bap-pekerjaan { max-width: 150pt; }
+      .bap-ket { display: block; font-size: 6.6pt; color: #444; }
+
+      table.ttd { width: 100%; border-collapse: collapse; margin-top: 26pt; }
+      table.ttd td { width: 33.33%; text-align: center; vertical-align: top; padding: 0 6pt; }
+      .ttd-peran { font-size: 8.6pt; margin-bottom: 40pt; }
+      .ttd-nama { border-top: 0.6pt solid #000; padding-top: 3pt; font-weight: bold; }
+      .ttd-tanggal { font-size: 7.6pt; color: #444; }
+    </style>
+  </head>
+  <body>
+    {% include "cop_bap_isi.html" %}
+  </body>
+</html>

@@ -555,8 +555,21 @@ class TestHanyaSPK:
         assert hasil["status"] == 400
 
     @pytest.mark.asyncio
+    async def test_jenis_tanpa_cop_dikecualikan(self, repo):
+        """
+        A tidak ditagihkan bertahap; D penagihannya lewat pembuat faktur
+        yang sudah ada. Keduanya memang terbit sebagai SPK, tetapi bukan
+        SPK yang memakai berita acara progres.
+        """
+        for jenis in ("A", "D"):
+            repo["spk"]["purchaseType"] = jenis
+            hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
+                                     departments={"engineering"})
+            assert hasil["status"] == 400
+
+    @pytest.mark.asyncio
     async def test_jenis_spk_diterima(self, repo):
-        for jenis in ("A", "B", "D", "H", "H1", "6.4.1"):
+        for jenis in ("B", "H", "H1", "6.4.1", "6.4.2"):
             repo["spk"]["purchaseType"] = jenis
             repo["items_disimpan"] = None
             hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
@@ -826,3 +839,389 @@ class TestPenyaringanPenyesuaian:
         keluar = CoP.saring_nilai(data, user_level=2)
         assert keluar["netAmount"] == 8000000
         assert len(keluar["adjustments"]) == 1
+
+
+# =====================================================================
+# 10. Data pencetakan (CoP + BAP)
+# =====================================================================
+
+
+@pytest.fixture
+def repo_cetak(repo, monkeypatch):
+    """
+    SPK dua baris, sudah ada CoP nomor 1, dan yang dicetak nomor 2.
+
+    Angka contohnya sengaja diambil dari lembar Excel yang selama ini
+    dipakai (proyek R501) supaya hasil hitungnya dapat dibandingkan langsung
+    dengan dokumen yang sudah pernah terbit.
+    """
+    baris = [
+        {"id": 11, "task": "Beton f'c 12.5 MPa", "unit": "m3",
+         "quantity": Decimal("4850"), "price": Decimal("845000"),
+         "remarks_1": None, "purchaseOrderID": 5, "addendumNumber": None},
+        {"id": 12, "task": "Beton f'c 30 MPa", "unit": "m3",
+         "quantity": Decimal("7500"), "price": Decimal("925000"),
+         "remarks_1": None, "purchaseOrderID": 5, "addendumNumber": None},
+    ]
+
+    async def _baris_kontrak(po_id):
+        return [dict(b) for b in baris]
+
+    async def _sebelumnya(po_id, nomor):
+        return repo.get("sebelumnya", {})
+
+    async def _riwayat(po_id, nomor):
+        return repo.get("riwayat", [])
+
+    monkeypatch.setattr(
+        modul.CertificateOfPaymentRepository, "baris_kontrak", staticmethod(_baris_kontrak)
+    )
+    monkeypatch.setattr(
+        modul.CertificateOfPaymentRepository, "cop_sebelumnya", staticmethod(_sebelumnya)
+    )
+    monkeypatch.setattr(
+        modul.CertificateOfPaymentRepository,
+        "riwayat_pembayaran",
+        staticmethod(_riwayat),
+    )
+
+    repo["spk"]["ppn"] = Decimal("11")
+    repo["spk"]["dpPercentage"] = 20.0
+    repo["spk"]["retentionPercentage"] = 5.0
+    repo["spk"]["pphPercentage"] = 2.0
+    repo["spk"]["supplierName"] = "PT. Adhimix RMC Indonesia"
+    repo["sebelumnya"] = {}
+    repo["riwayat"] = []
+    repo["cop"] = {
+        "id": 9, "name": "008-PO-R501-F/CoP-001", "number": 1,
+        "purchaseOrderID": 5, "projectName": "R501",
+        "date": "2026-08-11", "periodStart": None, "periodEnd": None,
+        "note": None, "createdBy": 1, "createdByName": "Budi",
+        "checkedByName": "Sari", "approvedByName": "Daniel",
+        "checkedAt": None, "approvedAt": None,
+        "isChecked": True, "isApproved": True,
+        "grossAmount": Decimal("52390000"),
+        "deductionTotal": Decimal("0"),
+        "additionTotal": Decimal("0"),
+        "netAmount": Decimal("52390000"),
+        "items": [{"purchaseOrderItemID": 11, "quantity": Decimal("62"),
+                   "remarks": None}],
+        "adjustments": [],
+    }
+    return repo
+
+
+class TestDataCetak:
+    @pytest.mark.asyncio
+    async def test_nilai_kontrak_dijumlah_dari_baris(self, repo_cetak):
+        hasil = await CoP.data_cetak(9, user_level=2)
+        # 4850 x 845.000 + 7500 x 925.000
+        assert hasil["kontrak"]["total"] == 11_035_750_000
+
+    @pytest.mark.asyncio
+    async def test_bobot_baris_berjumlah_satu(self, repo_cetak):
+        """Bobot adalah porsi nilai tiap baris; seluruhnya harus 100%."""
+        hasil = await CoP.data_cetak(9, user_level=2)
+        total = sum(b["bobot"] for b in hasil["bap"])
+        assert abs(total - 1.0) < 1e-9
+
+    @pytest.mark.asyncio
+    async def test_bobot_progres_cocok_dengan_lembar_lama(self, repo_cetak):
+        """
+        62 m3 dari 4850 m3 pada baris berbobot 37,136% menghasilkan
+        0,4747298552431869% — angka yang sama persis dengan lembar Excel
+        yang sudah pernah terbit untuk proyek ini.
+        """
+        hasil = await CoP.data_cetak(9, user_level=2)
+        assert abs(hasil["nilai"]["persenProgres"] - 0.004747298552431869) < 1e-15
+
+    @pytest.mark.asyncio
+    async def test_ppn_mengikuti_tarif_spk(self, repo_cetak):
+        hasil = await CoP.data_cetak(9, user_level=2)
+        # Dibandingkan dengan angka BULAT, bukan hasil perkalian float.
+        #
+        # `52_390_000 * 1.11` dalam float menghasilkan 58152900.00000001;
+        # yang dihitung controller lewat Decimal menghasilkan 58152900 tepat.
+        # Menuliskan ekspresi float sebagai harapan justru membuat pengujian
+        # menuntut jawaban yang KELIRU.
+        assert hasil["nilai"]["ppn"] == 5_762_900
+        assert hasil["nilai"]["totalDibayar"] == 58_152_900
+
+    @pytest.mark.asyncio
+    async def test_tarif_ppn_lama_tidak_dipaksa_sebelas_persen(self, repo_cetak):
+        """Dokumen ber-PPN 10% harus tercetak ulang dengan 10%, bukan 11%."""
+        repo_cetak["spk"]["ppn"] = Decimal("10")
+        hasil = await CoP.data_cetak(9, user_level=2)
+        assert hasil["nilai"]["ppn"] == 5_239_000
+
+    @pytest.mark.asyncio
+    async def test_volume_sebelumnya_masuk_kolomnya(self, repo_cetak):
+        repo_cetak["sebelumnya"] = {11: Decimal("62")}
+        repo_cetak["cop"]["number"] = 2
+        hasil = await CoP.data_cetak(9, user_level=2)
+        b = hasil["bap"][0]
+        assert b["volumeSebelumnya"] == 62
+        assert b["volumePeriodeIni"] == 62
+        assert b["volumeAkumulatif"] == 124
+
+    @pytest.mark.asyncio
+    async def test_baris_tak_dikerjakan_bernilai_nol(self, repo_cetak):
+        """Baris yang tidak disentuh periode ini tetap TAMPIL, bernilai nol."""
+        hasil = await CoP.data_cetak(9, user_level=2)
+        assert len(hasil["bap"]) == 2
+        assert hasil["bap"][1]["volumePeriodeIni"] == 0
+        assert hasil["bap"][1]["bobotSaatIni"] == 0
+
+    @pytest.mark.asyncio
+    async def test_persentase_penyesuaian_dihitung_dari_kotor(self, repo_cetak):
+        repo_cetak["cop"]["adjustments"] = [
+            {"kind": "deduction", "category": "uang_muka", "label": None,
+             "amount": Decimal("10478000")},
+        ]
+        hasil = await CoP.data_cetak(9, user_level=2)
+        # 10.478.000 / 52.390.000 = 20%
+        assert abs(hasil["penyesuaian"][0]["persenDariKotor"] - 0.20) < 1e-12
+
+    @pytest.mark.asyncio
+    async def test_syarat_kontrak_ikut_tercetak(self, repo_cetak):
+        hasil = await CoP.data_cetak(9, user_level=2)
+        assert hasil["spk"]["dpPercentage"] == 20.0
+        assert hasil["spk"]["retentionPercentage"] == 5.0
+
+    @pytest.mark.asyncio
+    async def test_level_1_tidak_boleh_mengunduh(self, repo_cetak):
+        """Lembar ini memuat harga satuan dan nilai kontrak."""
+        hasil = await CoP.data_cetak(9, user_level=1)
+        assert hasil["status"] == 403
+
+    @pytest.mark.asyncio
+    async def test_pembagian_nol_tidak_meledak(self, repo_cetak, monkeypatch):
+        """SPK bernilai nol tidak boleh menggagalkan pencetakan."""
+
+        async def _kosong(po_id):
+            return [
+                {"id": 11, "task": "Gratis", "unit": "ls",
+                 "quantity": Decimal("0"), "price": Decimal("0"),
+                 "remarks_1": None, "purchaseOrderID": 5, "addendumNumber": None},
+            ]
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository,
+            "baris_kontrak",
+            staticmethod(_kosong),
+        )
+        hasil = await CoP.data_cetak(9, user_level=2)
+        assert "error" not in hasil
+        assert hasil["bap"][0]["bobot"] == 0
+
+
+class TestJenisATertutupSemuaJalur:
+    """
+    Jenis A tidak memakai CoP & BAP sama sekali.
+
+    Diuji pada SETIAP pintu masuk, bukan satu saja: satu jalur yang lupa
+    dijaga sudah cukup membuat aturannya tidak berlaku — dan yang menemukan
+    celahnya biasanya bukan yang menulis kodenya.
+    """
+
+    @pytest.mark.asyncio
+    async def test_tidak_muncul_di_daftar_pilihan(self, repo, monkeypatch):
+        async def _kandidat(project_name=None, keyword=None, batas=50):
+            return [
+                {"id": 1, "name": "001-SPK-X-A", "projectName": "X",
+                 "purchaseType": "A", "customData": None, "date": None,
+                 "dpp": 100, "supplierName": "PT A"},
+                {"id": 3, "name": "003-SPK-X-D", "projectName": "X",
+                 "purchaseType": "D", "customData": None, "date": None,
+                 "dpp": 300, "supplierName": "PT D"},
+                {"id": 2, "name": "002-SPK-X-B", "projectName": "X",
+                 "purchaseType": "B", "customData": None, "date": None,
+                 "dpp": 200, "supplierName": "PT B"},
+            ]
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository,
+            "spk_kandidat",
+            staticmethod(_kandidat),
+        )
+        hasil = await CoP.spk_kandidat(user_level=2)
+        assert [s["purchaseType"] for s in hasil] == ["B"]
+
+    @pytest.mark.asyncio
+    async def test_tidak_bisa_dibuat(self, repo):
+        for jenis in ("A", "D"):
+            repo["spk"]["purchaseType"] = jenis
+            hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
+                                     departments={"engineering"})
+            assert hasil["status"] == 400, jenis
+
+    @pytest.mark.asyncio
+    async def test_pagunya_tidak_bisa_dibuka(self, repo):
+        repo["spk"]["purchaseType"] = "D"
+        hasil = await CoP.pagu_spk(5, user_level=2)
+        assert isinstance(hasil, dict) and hasil["status"] == 400
+
+    @pytest.mark.asyncio
+    async def test_tidak_bisa_dicetak(self, repo_cetak):
+        """Termasuk CoP lama yang terlanjur tersimpan sebelum aturan ini ada."""
+        repo_cetak["spk"]["purchaseType"] = "A"
+        hasil = await CoP.data_cetak(9, user_level=2)
+        assert hasil["status"] == 400
+        repo_cetak["spk"]["purchaseType"] = "D"
+        hasil = await CoP.data_cetak(9, user_level=2)
+        assert hasil["status"] == 400
+
+
+# =====================================================================
+# 11. Lapangan tidak boleh tahu harga — disisir menyeluruh
+# =====================================================================
+
+
+#: Nama kolom yang MEMBAWA nilai uang, di mana pun ia muncul.
+#:
+#: Dipakai penyisir di bawah. Daftar ini sengaja berlebih: `dpp`, `total`,
+#: dan `saran*` belum tentu ada hari ini, tetapi bila kelak ditambahkan dan
+#: lupa disaring, pengujian ini yang menemukannya — bukan orang lapangan
+#: yang membuka perkakas pengembang.
+KOLOM_UANG = {
+    "price", "amount", "dpp", "total", "totalAmount",
+    "grossAmount", "deductionTotal", "additionTotal", "netAmount",
+    "hargaSatuan", "saranPph", "saranUangMuka", "saranRetensi",
+    "pphPercentage", "dpPercentage", "retentionPercentage",
+}
+
+
+def _sisir_uang(simpul, jalur="") -> list[str]:
+    """Telusuri SELURUH jawaban; kembalikan jalur tiap kolom uang yang lolos."""
+    temuan: list[str] = []
+    if isinstance(simpul, dict):
+        for k, v in simpul.items():
+            j = f"{jalur}.{k}" if jalur else k
+            if k in KOLOM_UANG:
+                temuan.append(j)
+            temuan += _sisir_uang(v, j)
+    elif isinstance(simpul, list):
+        for i, v in enumerate(simpul):
+            temuan += _sisir_uang(v, f"{jalur}[{i}]")
+    return temuan
+
+
+class TestLapanganTidakTahuHarga:
+    """
+    Aturan yang paling sering ditanyakan pemilik, dan paling mudah bocor:
+    orang lapangan mengisi VOLUME, dan hanya volume.
+
+    Diuji dengan MENYISIR seluruh jawaban, bukan memeriksa beberapa kolom
+    yang diingat. Kolom baru yang lupa disaring akan tertangkap di sini.
+    """
+
+    @pytest.mark.asyncio
+    async def test_pagu_bersih_dari_uang(self, repo):
+        hasil = await CoP.pagu_spk(5, user_level=1)
+        assert _sisir_uang(hasil) == []
+        # Volume justru HARUS ada — itu bahan kerjanya.
+        assert hasil[0]["sisa"] == 200.0
+        assert hasil[0]["pagu"] == 200.0
+
+    @pytest.mark.asyncio
+    async def test_detail_bersih_dari_uang(self, repo, monkeypatch):
+        repo["cop"] = {
+            "id": 9, "name": "CoP-001", "purchaseOrderID": 5,
+            "createdBy": 1, "isChecked": True, "isApproved": False,
+            "grossAmount": Decimal("52390000"),
+            "deductionTotal": Decimal("1000000"),
+            "additionTotal": Decimal("0"),
+            "netAmount": Decimal("51390000"),
+            "items": [{"purchaseOrderItemID": 11, "quantity": Decimal("62"),
+                       "price": Decimal("845000"), "amount": Decimal("52390000"),
+                       "unit": "m3", "task": "Beton"}],
+            "adjustments": [{"kind": "deduction", "category": "uang_muka",
+                             "amount": Decimal("1000000")}],
+        }
+        hasil = await CoP.get_by_id(9, user_level=1)
+        assert _sisir_uang(hasil) == []
+        # Yang tersisa tetap berguna: volume, satuan, dan nama pekerjaannya.
+        assert hasil["items"][0]["quantity"] == Decimal("62")
+        assert hasil["items"][0]["unit"] == "m3"
+
+    @pytest.mark.asyncio
+    async def test_daftar_bersih_dari_uang(self, repo, monkeypatch):
+        async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20):
+            return {
+                "total": 1,
+                "data": [{
+                    "id": 9, "name": "CoP-001",
+                    "grossAmount": Decimal("52390000"),
+                    "netAmount": Decimal("51390000"),
+                    "items": [{"price": Decimal("845000")}],
+                }],
+            }
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "get_all", staticmethod(_semua)
+        )
+        hasil = await CoP.get_all(user_level=1)
+        assert _sisir_uang(hasil) == []
+
+    @pytest.mark.asyncio
+    async def test_daftar_spk_bersih_dari_uang(self, repo, monkeypatch):
+        async def _kandidat(project_name=None, keyword=None, batas=50):
+            return [{"id": 5, "name": "013-SPK-MICZ-B", "projectName": "MICZ",
+                     "purchaseType": "B", "customData": None, "date": None,
+                     "dpp": 11035750000, "supplierName": "PT X"}]
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository,
+            "spk_kandidat",
+            staticmethod(_kandidat),
+        )
+        hasil = await CoP.spk_kandidat(user_level=1)
+        assert _sisir_uang(hasil) == []
+        # Nomor & proyeknya tetap terbaca — tanpa itu ia tak bisa memilih.
+        assert hasil[0]["name"] == "013-SPK-MICZ-B"
+
+    @pytest.mark.asyncio
+    async def test_syarat_pajak_spk_tidak_bocor(self, repo, monkeypatch):
+        """
+        Tarif PPh, uang muka, dan retensi adalah susunan kesepakatan dengan
+        pemasok. Tanpa nominal pun ia sudah menceritakan isinya.
+        """
+        repo["cop"] = {
+            "id": 9, "name": "CoP-001", "purchaseOrderID": 5, "createdBy": 1,
+            "isChecked": False, "isApproved": False,
+            "grossAmount": Decimal("52390000"),
+            "netAmount": Decimal("52390000"),
+            "items": [], "adjustments": [],
+        }
+        hasil = await CoP.get_by_id(9, user_level=1)
+        assert "spkSyarat" not in hasil
+        assert _sisir_uang(hasil) == []
+
+    @pytest.mark.asyncio
+    async def test_pdf_ditolak(self, repo_cetak):
+        """Lembar cetaknya memuat harga satuan dan nilai kontrak."""
+        hasil = await CoP.data_cetak(9, user_level=1)
+        assert hasil["status"] == 403
+
+    @pytest.mark.asyncio
+    async def test_tidak_boleh_mengisi_potongan(self, repo_penyesuaian):
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot()], user_id=1, user_level=1, departments={"engineering"}
+        )
+        assert hasil["status"] == 403
+
+    @pytest.mark.asyncio
+    async def test_level_2_tetap_menerima_semuanya(self, repo, monkeypatch):
+        """Penjagaannya tidak boleh kebablasan: pemeriksa TETAP melihat nilai."""
+        repo["cop"] = {
+            "id": 9, "name": "CoP-001", "purchaseOrderID": 5, "createdBy": 1,
+            "isChecked": False, "isApproved": False,
+            "grossAmount": Decimal("52390000"),
+            "netAmount": Decimal("52390000"),
+            "items": [{"purchaseOrderItemID": 11, "quantity": Decimal("62"),
+                       "price": Decimal("845000"), "amount": Decimal("52390000")}],
+            "adjustments": [],
+        }
+        hasil = await CoP.get_by_id(9, user_level=2)
+        assert hasil["items"][0]["price"] == Decimal("845000")
+        assert hasil["grossAmount"] == Decimal("52390000")

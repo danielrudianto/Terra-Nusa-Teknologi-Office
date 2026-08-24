@@ -73,6 +73,22 @@ class CertificateOfPaymentController:
     # Jenis dokumen
     # ------------------------------------------------------------------
 
+    #: Jenis SPK yang TIDAK dilayani Certificate of Payment.
+    #:
+    #: Keduanya dikecualikan atas keputusan pemilik, dengan sebab berbeda:
+    #:
+    #:   A — pekerjaannya tidak ditagihkan bertahap, sehingga berita acara
+    #:       progres tidak menyatakan apa pun di sana;
+    #:   D — penagihannya sudah ditangani pembuat faktur yang lebih dulu ada.
+    #:       Menyediakan jalur kedua untuk pekerjaan yang sama membuat dua
+    #:       dokumen dapat terbit atas progres yang satu, dan yang menerima
+    #:       tagihan tidak punya cara mengetahui mana yang berlaku.
+    #:
+    #: Ditegakkan pada SETIAP pintu masuk — daftar pilihan, pagu, pembuatan,
+    #: dan pencetakan. Satu jalur yang lupa dijaga sudah cukup membuat
+    #: aturannya tidak berlaku.
+    JENIS_TANPA_COP = frozenset({"A", "D"})
+
     @staticmethod
     def adalah_spk(po: Dict[str, Any]) -> bool:
         """
@@ -94,6 +110,13 @@ class CertificateOfPaymentController:
                 custom = json.loads(custom or "{}")
             except Exception:
                 custom = {}
+
+        jenis = (po.get("purchaseType") or "").strip()
+        # Varian diringkas dulu ("H1" -> "H"), sama seperti saat nomornya
+        # disusun — tanpa itu pengecualian di bawah tidak pernah cocok.
+        jenis = PurchaseOrderController.VARIAN_JENIS.get(jenis, jenis)
+        if jenis in CertificateOfPaymentController.JENIS_TANPA_COP:
+            return False
 
         awalan = PurchaseOrderController._awalan_dokumen(
             po.get("purchaseType") or "", custom or {}
@@ -180,6 +203,8 @@ class CertificateOfPaymentController:
         # susunan kesepakatan dengan pemasok — dan itu bukan bagian pekerjaan
         # orang lapangan.
         hasil.pop("adjustments", None)
+        # Syarat pajak SPK juga bukan bagian pekerjaan lapangan.
+        hasil.pop("spkSyarat", None)
 
         if isinstance(data.get("items"), list):
             hasil["items"] = [
@@ -765,6 +790,237 @@ class CertificateOfPaymentController:
         return siap, None
 
     # ------------------------------------------------------------------
+    # Data pencetakan (CoP + BAP)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def data_cetak(cop_id: int, user_level: int = 1):
+        """
+        Susun seluruh angka yang dicetak pada CoP dan BAP.
+
+        BENTUK YANG DIIKUTI
+
+        Mengikuti berkas Excel yang selama ini dipakai, termasuk kolom BOBOT
+        pada BAP: bobot sebuah baris adalah porsi nilainya terhadap seluruh
+        nilai kontrak, dan bobot progres adalah bobot itu dikali persentase
+        volumenya. Jumlah seluruh bobot akhir = persentase progres kontrak,
+        dan itulah angka yang muncul di baris "Progress Kontrak" pada CoP.
+
+        YANG DICETAK HARUS TETAP SAMA BILA DICETAK ULANG
+
+        "Volume sebelumnya" dibatasi NOMOR CoP, bukan "semua kecuali yang
+        ini". Mencetak ulang CoP nomor 2 setelah nomor 3 terbit harus
+        menghasilkan lembar yang sama persis seperti saat ia diterbitkan.
+        """
+        try:
+            if not boleh_melihat_nilai_cop(user_level):
+                return app_error(
+                    ErrorCode.FORBIDDEN,
+                    "Dokumen ini memuat nilai rupiah dan hanya dapat diunduh "
+                    "level 2 ke atas.",
+                    403,
+                )
+
+            cop = await CertificateOfPaymentRepository.get_by_id(cop_id)
+            if isinstance(cop, dict) and "error" in cop:
+                return cop
+
+            po_id = int(cop["purchaseOrderID"])
+            spk = await PurchaseOrderRepository.get_by_id(po_id)
+            if not spk or (isinstance(spk, dict) and "error" in spk):
+                return app_error(ErrorCode.NOT_FOUND, "SPK tidak ditemukan", 404)
+
+            # Dijaga DI SINI juga, bukan hanya saat CoP dibuat.
+            #
+            # Aturan ini lahir belakangan; CoP yang terlanjur tersimpan
+            # sebelum jenis A dikecualikan tetap ada di basis data, dan
+            # tanpa penjagaan di sini ia masih dapat dicetak sebagai
+            # dokumen resmi.
+            if not CertificateOfPaymentController.adalah_spk(spk):
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "Dokumen ini bukan SPK yang memakai certificate of "
+                    "payment, sehingga tidak dapat dicetak.",
+                    400,
+                )
+
+            nomor = int(cop["number"])
+            baris_kontrak = await CertificateOfPaymentRepository.baris_kontrak(po_id)
+            sebelumnya = await CertificateOfPaymentRepository.cop_sebelumnya(
+                po_id, nomor
+            )
+            riwayat = await CertificateOfPaymentRepository.riwayat_pembayaran(
+                po_id, nomor
+            )
+
+            # Volume periode ini, per baris.
+            periode_ini: Dict[int, Decimal] = {}
+            catatan_baris: Dict[int, str] = {}
+            for i in cop.get("items") or []:
+                kunci = int(i["purchaseOrderItemID"])
+                periode_ini[kunci] = periode_ini.get(kunci, Decimal("0")) + _d(
+                    i["quantity"]
+                )
+                if i.get("remarks"):
+                    catatan_baris[kunci] = i["remarks"]
+
+            # ---- nilai kontrak: induk + seluruh adendum yang disetujui ----
+            nilai_induk = Decimal("0")
+            nilai_adendum = Decimal("0")
+            for b in baris_kontrak:
+                nilai = _d(b["quantity"]) * _d(b["price"])
+                if b["addendumNumber"] is None:
+                    nilai_induk += nilai
+                else:
+                    nilai_adendum += nilai
+            nilai_kontrak = nilai_induk + nilai_adendum
+
+            # ---- baris BAP ----
+            def _bagi(a: Decimal, b: Decimal) -> Decimal:
+                return (a / b) if b else Decimal("0")
+
+            bap: List[Dict[str, Any]] = []
+            for urut, b in enumerate(baris_kontrak, start=1):
+                vol_kontrak = _d(b["quantity"])
+                harga = _d(b["price"])
+                total_baris = vol_kontrak * harga
+                bobot = _bagi(total_baris, nilai_kontrak)
+
+                vol_lalu = sebelumnya.get(b["id"], Decimal("0"))
+                vol_kini = periode_ini.get(b["id"], Decimal("0"))
+                vol_akum = vol_lalu + vol_kini
+
+                pers_lalu = _bagi(vol_lalu, vol_kontrak)
+                pers_kini = _bagi(vol_kini, vol_kontrak)
+                pers_akum = _bagi(vol_akum, vol_kontrak)
+
+                bap.append(
+                    {
+                        "no": urut,
+                        "pekerjaan": b["task"] or "-",
+                        "keterangan": b["remarks_1"],
+                        "adendum": b["addendumNumber"],
+                        "volumeKontrak": float(vol_kontrak),
+                        "satuan": b["unit"] or "",
+                        "hargaSatuan": float(harga),
+                        "total": float(total_baris),
+                        "bobot": float(bobot),
+                        "volumeSebelumnya": float(vol_lalu),
+                        "persentaseSebelumnya": float(pers_lalu),
+                        "bobotSebelumnya": float(bobot * pers_lalu),
+                        "volumePeriodeIni": float(vol_kini),
+                        "persentaseSaatIni": float(pers_kini),
+                        "bobotSaatIni": float(bobot * pers_kini),
+                        "volumeAkumulatif": float(vol_akum),
+                        "persentaseAkumulatif": float(pers_akum),
+                        "bobotAkumulatif": float(bobot * pers_akum),
+                        "catatan": catatan_baris.get(b["id"]),
+                    }
+                )
+
+            bobot_lalu = sum((Decimal(str(r["bobotSebelumnya"])) for r in bap), Decimal("0"))
+            bobot_kini = sum((Decimal(str(r["bobotSaatIni"])) for r in bap), Decimal("0"))
+            bobot_akum = sum((Decimal(str(r["bobotAkumulatif"])) for r in bap), Decimal("0"))
+
+            # ---- ringkasan CoP ----
+            kotor = _d(cop.get("grossAmount"))
+            potongan = _d(cop.get("deductionTotal"))
+            tambahan = _d(cop.get("additionTotal"))
+            bersih = _d(cop.get("netAmount"))
+
+            # PPN mengikuti tarif SPK-nya, bukan angka tetap di kode.
+            #
+            # Tarifnya pernah 10% dan kini 11%; menuliskannya di sini berarti
+            # setiap dokumen lama tercetak ulang dengan tarif yang keliru.
+            tarif_ppn = _d(spk.get("ppn"))
+            ppn = bersih * tarif_ppn / Decimal("100")
+
+            penyesuaian = []
+            for a in cop.get("adjustments") or []:
+                nominal = _d(a["amount"])
+                penyesuaian.append(
+                    {
+                        "kind": a["kind"],
+                        "category": a["category"],
+                        "label": a.get("label"),
+                        "amount": float(nominal),
+                        # Persentase terhadap nilai pekerjaan periode ini —
+                        # begitulah kolom tengah pada lembar lama dibaca.
+                        "persenDariKotor": float(_bagi(nominal, kotor)),
+                    }
+                )
+
+            return {
+                "cop": {
+                    "id": cop["id"],
+                    "name": cop["name"],
+                    "number": nomor,
+                    "date": cop["date"],
+                    "periodStart": cop.get("periodStart"),
+                    "periodEnd": cop.get("periodEnd"),
+                    "note": cop.get("note"),
+                    "projectName": cop["projectName"],
+                    "createdByName": cop.get("createdByName"),
+                    "checkedByName": cop.get("checkedByName"),
+                    "approvedByName": cop.get("approvedByName"),
+                    "checkedAt": cop.get("checkedAt"),
+                    "approvedAt": cop.get("approvedAt"),
+                    "isApproved": bool(cop.get("isApproved")),
+                },
+                "spk": {
+                    "name": spk.get("name"),
+                    "supplierName": spk.get("supplierName") or spk.get("supplier_name"),
+                    "purchaseType": spk.get("purchaseType"),
+                    "dpPercentage": float(_d(spk.get("dpPercentage"))),
+                    "retentionPercentage": float(_d(spk.get("retentionPercentage"))),
+                    "pphPercentage": float(_d(spk.get("pphPercentage"))),
+                    "ppn": float(tarif_ppn),
+                },
+                "kontrak": {
+                    "induk": float(nilai_induk),
+                    "adendum": float(nilai_adendum),
+                    "total": float(nilai_kontrak),
+                    "adaAdendum": nilai_adendum > 0,
+                },
+                "bap": bap,
+                "bapTotal": {
+                    "total": float(nilai_kontrak),
+                    "bobot": float(_bagi(nilai_kontrak, nilai_kontrak)),
+                    "bobotSebelumnya": float(bobot_lalu),
+                    "bobotSaatIni": float(bobot_kini),
+                    "bobotAkumulatif": float(bobot_akum),
+                },
+                "nilai": {
+                    "kotor": float(kotor),
+                    "persenProgres": float(bobot_kini),
+                    "potongan": float(potongan),
+                    "tambahan": float(tambahan),
+                    "bersih": float(bersih),
+                    "tarifPpn": float(tarif_ppn),
+                    "ppn": float(ppn),
+                    "totalDibayar": float(bersih + ppn),
+                },
+                "penyesuaian": penyesuaian,
+                "riwayat": [
+                    {
+                        "number": r["number"],
+                        "name": r["name"],
+                        "date": r["date"],
+                        "gross": float(_d(r["grossAmount"])),
+                        "net": float(_d(r["netAmount"])),
+                        "iniSendiri": int(r["number"]) == nomor,
+                    }
+                    for r in riwayat
+                ],
+                "riwayatTotal": float(
+                    sum((_d(r["netAmount"]) for r in riwayat), Decimal("0"))
+                ),
+            }
+        except Exception as e:
+            log_error(f"Gagal menyusun data cetak CoP: {str(e)}")
+            return internal_error()
+
+    # ------------------------------------------------------------------
     # Hapus & baca
     # ------------------------------------------------------------------
 
@@ -809,6 +1065,44 @@ class CertificateOfPaymentController:
         hasil = await CertificateOfPaymentRepository.get_by_id(cop_id)
         if isinstance(hasil, dict) and "error" in hasil:
             return hasil
+
+        # Syarat pajak & pembayaran DIBAWA DARI SPK, tidak diketik ulang.
+        #
+        # Kode PPh, objek pajaknya, dan tarifnya sudah tercatat saat purchase
+        # order dibuat. Meminta pemeriksa mengetiknya lagi tiap periode
+        # berarti angka yang sama disimpan di dua tempat — dan yang berbeda
+        # di antara keduanya tidak menimbulkan galat apa pun, hanya potongan
+        # yang keliru pada periode kelima.
+        #
+        # Yang dikirim SARANNYA, bukan potongan yang sudah jadi: pemeriksa
+        # tetap yang memutuskan ia dipotong periode ini atau tidak.
+        if boleh_melihat_nilai_cop(user_level):
+            try:
+                spk = await PurchaseOrderRepository.get_by_id(
+                    int(hasil["purchaseOrderID"])
+                )
+                if isinstance(spk, dict) and "error" not in spk:
+                    kotor = _d(hasil.get("grossAmount"))
+                    tarif_pph = _d(spk.get("pphPercentage"))
+                    tarif_dp = _d(spk.get("dpPercentage"))
+                    tarif_ret = _d(spk.get("retentionPercentage"))
+                    hasil["spkSyarat"] = {
+                        "pphCode": spk.get("pphCode"),
+                        "pphTaxObject": spk.get("pphTaxObject"),
+                        "pphPercentage": float(tarif_pph),
+                        "dpPercentage": float(tarif_dp),
+                        "retentionPercentage": float(tarif_ret),
+                        # Saran nominal, dihitung dari nilai pekerjaan
+                        # periode ini.
+                        "saranPph": float(kotor * tarif_pph / 100),
+                        "saranUangMuka": float(kotor * tarif_dp / 100),
+                        "saranRetensi": float(kotor * tarif_ret / 100),
+                    }
+            except Exception as e:
+                # Gagal membaca syarat SPK tidak boleh menggagalkan pembacaan
+                # CoP-nya; yang hilang hanya sarannya.
+                log_error(f"Gagal membaca syarat SPK untuk CoP: {str(e)}")
+
         return CertificateOfPaymentController.saring_nilai(hasil, user_level)
 
     @staticmethod

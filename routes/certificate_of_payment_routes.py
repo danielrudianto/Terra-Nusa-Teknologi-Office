@@ -9,7 +9,7 @@ dari basis data lewat `_departments`, sama seperti pada purchase order.
 
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from controllers.certificate_of_payment_controller import (
     CertificateOfPaymentController,
@@ -172,6 +172,66 @@ async def periksa_cop(
         await CertificateOfPaymentController.set_checked(
             cop_id, checked, current_user["id"], _level(current_user), divisi
         )
+    )
+
+
+def _pdf(isi: bytes, nama: str) -> Response:
+    """
+    Kirim sebagai berkas yang LANGSUNG diunduh.
+
+    `attachment`, bukan `inline`: dokumen ini dibawa ke pembukuan dan
+    ditandatangani, jadi yang menekan tombol memang menghendaki berkasnya —
+    bukan pratinjau di dalam tab yang harus disimpan sekali lagi.
+    """
+    return Response(
+        content=isi,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nama}"'},
+    )
+
+
+def _nama_berkas(nama_cop: str, akhiran: str) -> str:
+    """Nomor dokumen memuat garis miring; itu memisah folder pada unduhan."""
+    aman = (nama_cop or "CoP").replace("/", "-").replace("\\", "-")
+    return f"{aman}{akhiran}.pdf"
+
+
+@router.get("/{cop_id}/pdf")
+async def unduh_pdf(
+    cop_id: int,
+    current_user: Annotated[User, Depends(require("certificate_of_payment", "read"))],
+):
+    """
+    Certificate of Payment beserta lampiran BAP — satu berkas, dua orientasi.
+
+    Level 1 ditolak controller: lembar ini memuat harga satuan dan nilai
+    kontrak, dan orang lapangan memang tidak pernah menerimanya.
+    """
+    from services.pdf_service import CoPDocumentService
+
+    data = _lempar_bila_galat(
+        await CertificateOfPaymentController.data_cetak(cop_id, _level(current_user))
+    )
+    return _pdf(
+        CoPDocumentService.render(data, sertakan_bap=True),
+        _nama_berkas(data["cop"]["name"], ""),
+    )
+
+
+@router.get("/{cop_id}/bap-pdf")
+async def unduh_bap(
+    cop_id: int,
+    current_user: Annotated[User, Depends(require("certificate_of_payment", "read"))],
+):
+    """Berita Acara Pemeriksaan saja — seluruhnya lanskap."""
+    from services.pdf_service import CoPDocumentService
+
+    data = _lempar_bila_galat(
+        await CertificateOfPaymentController.data_cetak(cop_id, _level(current_user))
+    )
+    return _pdf(
+        CoPDocumentService.render_bap(data),
+        _nama_berkas(data["cop"]["name"], "-BAP"),
     )
 
 

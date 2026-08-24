@@ -666,3 +666,88 @@ class CertificateOfPaymentRepository:
         except Exception as e:
             log_error(f"Gagal menyimpan penyesuaian CoP: {str(e)}")
             return internal_error()
+
+    # ------------------------------------------------------------------
+    # Data untuk pencetakan
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def cop_sebelumnya(purchase_order_id: int, nomor: int):
+        """
+        Volume per baris yang sudah disertifikasi CoP SEBELUM nomor ini.
+
+        Dibatasi nomor, bukan "semua kecuali yang ini". Dokumen yang sudah
+        terbit harus tetap tercetak sama: BAP nomor 2 menyebut "volume
+        sebelumnya" menurut keadaan saat ia terbit, dan mencetaknya ulang
+        setelah CoP nomor 3 ada tidak boleh mengubah angka itu.
+        """
+        try:
+            ids = await CertificateOfPaymentRepository.rantai_ids(purchase_order_id)
+            if not ids:
+                return {}
+            baris = await database.fetch_all(
+                """
+                SELECT ci.purchaseOrderItemID AS baris, SUM(ci.quantity) AS jumlah
+                FROM certificate_of_payment_items ci
+                JOIN certificate_of_payments c
+                  ON c.id = ci.certificateOfPaymentID
+                WHERE c.isDelete = 0
+                  AND c.status <> 'cancelled'
+                  AND c.purchaseOrderID = :po
+                  AND c.number < :nomor
+                GROUP BY ci.purchaseOrderItemID
+                """,
+                {"po": ids[0], "nomor": nomor},
+            )
+            return {r["baris"]: _d(r["jumlah"]) for r in baris}
+        except Exception as e:
+            log_error(f"Gagal membaca CoP sebelumnya: {str(e)}")
+            return {}
+
+    @staticmethod
+    async def riwayat_pembayaran(purchase_order_id: int, sampai_nomor: int):
+        """Seluruh CoP pada SPK ini sampai nomor tertentu — untuk tabel akumulasi."""
+        try:
+            ids = await CertificateOfPaymentRepository.rantai_ids(purchase_order_id)
+            if not ids:
+                return []
+            baris = await database.fetch_all(
+                """
+                SELECT number, name, date, grossAmount, netAmount
+                FROM certificate_of_payments
+                WHERE purchaseOrderID = :po
+                  AND isDelete = 0
+                  AND status <> 'cancelled'
+                  AND number <= :nomor
+                ORDER BY number
+                """,
+                {"po": ids[0], "nomor": sampai_nomor},
+            )
+            return [dict(r) for r in baris]
+        except Exception as e:
+            log_error(f"Gagal membaca riwayat pembayaran CoP: {str(e)}")
+            return []
+
+    @staticmethod
+    async def baris_kontrak(purchase_order_id: int):
+        """Seluruh baris pekerjaan pada rantai SPK, beserta dokumen asalnya."""
+        try:
+            ids = await CertificateOfPaymentRepository.rantai_ids(purchase_order_id)
+            if not ids:
+                return []
+            baris = await database.fetch_all(
+                """
+                SELECT poi.id, poi.task, poi.unit, poi.quantity, poi.price,
+                       poi.remarks_1, poi.purchaseOrderID,
+                       po.addendumNumber
+                FROM purchase_order_items poi
+                JOIN purchase_orders po ON po.id = poi.purchaseOrderID
+                WHERE poi.purchaseOrderID IN :ids
+                ORDER BY po.addendumNumber IS NOT NULL, po.addendumNumber, poi.id
+                """,
+                {"ids": tuple(ids)},
+            )
+            return [dict(r) for r in baris]
+        except Exception as e:
+            log_error(f"Gagal membaca baris kontrak: {str(e)}")
+            return []
