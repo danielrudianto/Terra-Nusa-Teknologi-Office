@@ -33,6 +33,22 @@ purchases_table = Table(
     Column("isReceiptAttached", Boolean(), nullable=False),
     Column("isTaxInvoiceAttached", Boolean(), nullable=False),
     Column("isCopAttached", Boolean(), nullable=False),
+    # Certificate of payment yang DITAGIHKAN oleh pembelian ini.
+    #
+    # Ini SATU-SATUNYA sumber jawaban atas "CoP ini sudah ditagihkan belum".
+    # Tidak ada penanda kedua pada sisi CoP — penanda yang harus dijaga
+    # sejalan dengan barisnya cepat atau lambat berselisih, dan tidak ada
+    # galat yang muncul saat itu terjadi.
+    #
+    # Akibat langsungnya: pembelian yang DIHAPUS membuat CoP-nya terbuka
+    # kembali untuk ditagihkan, tanpa satu pun langkah tambahan. Itu memang
+    # yang dikehendaki — salah input dibetulkan dengan menghapus lalu membuat
+    # ulang, bukan dengan menerbitkan CoP baru atas volume yang sudah
+    # memakan pagu.
+    #
+    # NULL untuk pembelian yang tidak berasal dari CoP — dan itu mayoritas:
+    # pembelian barang tidak melewati certificate of payment sama sekali.
+    Column("certificateOfPaymentID", Integer(), nullable=True),
     Column("isCopyPurchaseOrderAttached", Boolean(), nullable=False),
     Column("bankName", String(100), nullable=False),
     Column("bankAccountName", String(100), nullable=False),

@@ -12,28 +12,27 @@
 ALTER TABLE certificate_of_payments
   ADD COLUMN documentNumber INT NULL AFTER number;
 
--- Dokumen yang sudah ada diberi nomor menurut URUTAN TERBITNYA per proyek:
--- yang lebih dulu dibuat mendapat nomor lebih kecil. Diurutkan dengan `id`,
--- bukan `date` — dua dokumen dapat bertanggal sama, dan `id` tidak pernah
--- kembar.
-SET @proyek := '';
-SET @urut := 0;
-
+-- Dokumen yang sudah ada diberi nomor menurut URUTAN TERBITNYA per proyek.
+--
+-- ROW_NUMBER(), bukan variabel sesi (@urut := ...). Urutan baris pada
+-- derived table tidak dijamin MySQL 8 — ORDER BY di dalamnya boleh
+-- diabaikan pengoptimal, dan penomorannya diam-diam menjadi acak tanpa
+-- satu pun galat.
+--
+-- Diurutkan dengan `id`, bukan `date`: dua dokumen dapat bertanggal sama,
+-- dan `id` tidak pernah kembar.
 UPDATE certificate_of_payments c
 JOIN (
   SELECT id,
-         @urut := IF(@proyek = projectName, @urut + 1, 1) AS nomor,
-         @proyek := projectName AS p
+         ROW_NUMBER() OVER (PARTITION BY projectName ORDER BY id) AS nomor
   FROM certificate_of_payments
-  ORDER BY projectName, id
 ) AS urutan ON urutan.id = c.id
 SET c.documentNumber = urutan.nomor;
 
 -- Nama dokumen disusun ulang mengikuti format baru.
 --
--- ELT dipakai sebagai ganti daftar CASE: bulannya hanya dua belas dan
--- tetap, dan CASE dua belas cabang di sini lebih panjang daripada yang
--- diterangkannya.
+-- ELT dipakai sebagai ganti dua belas cabang CASE: bulannya tetap dan tidak
+-- akan bertambah.
 UPDATE certificate_of_payments
 SET name = CONCAT(
       LPAD(documentNumber, 3, '0'), '-',

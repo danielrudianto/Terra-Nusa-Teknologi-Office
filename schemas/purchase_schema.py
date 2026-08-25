@@ -33,6 +33,14 @@ class PurchaseBase(BaseModel):
     lastStatus: str = Field(..., description="Last status of the purchase")
     lastStatusDescription: Optional[str] = Field(None, description="Last status description")
     isInternal: bool = Field(False, description="Whether the purchase is internal")
+    # Certificate of payment yang ditagihkan pembelian ini.
+    #
+    # Opsional, dan memang mayoritas kosong: pembelian barang tidak melewati
+    # certificate of payment sama sekali. Bila terisi, server memastikan
+    # CoP-nya sudah disetujui dan belum pernah ditagihkan.
+    certificateOfPaymentID: Optional[int] = Field(
+        None, description="Certificate of payment being billed by this purchase"
+    )
 
 class PurchaseCreate(PurchaseBase):
     pass

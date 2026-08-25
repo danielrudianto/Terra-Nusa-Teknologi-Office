@@ -70,6 +70,33 @@ class PurchaseController:
         Create a new purchase.
         """
         try:
+            # Certificate of payment: dijaga SEBELUM barisnya tersimpan.
+            #
+            # Syaratnya milik CoP, jadi yang memutuskan controller CoP —
+            # menyalin aturannya ke sini akan tertinggal saat syaratnya
+            # berubah. Yang dijaga: sudah disetujui, dan belum pernah
+            # ditagihkan.
+            #
+            # Penjagaan ini BUKAN satu-satunya. Basis data memegang indeks
+            # unik pada CoP yang sedang aktif ditagihkan, sehingga dua
+            # permintaan yang datang bersamaan pun tidak dapat lolos berdua.
+            # Yang di sini gunanya menyampaikan SEBABNYA; tanpa ini yang
+            # menekan simpan hanya menerima galat basis data.
+            cop_id = purchase_data.get("certificateOfPaymentID")
+            if cop_id:
+                from controllers.certificate_of_payment_controller import (
+                    CertificateOfPaymentController,
+                )
+
+                galat = await CertificateOfPaymentController.periksa_boleh_ditagih(
+                    int(cop_id)
+                )
+                if galat:
+                    raise HTTPException(
+                        status_code=galat.get("status", 409),
+                        detail=galat.get("error"),
+                    )
+
             purchase_data["createdBy"] = userID
             purchase_data["createdAt"] = datetime.now()
             purchase_data['isDelete'] = False

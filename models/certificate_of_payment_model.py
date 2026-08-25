@@ -254,11 +254,22 @@ certificate_of_payment_items_table = Table(
 # penjagaan pagu dapat dilewati hanya dengan menuliskannya di sini.
 
 #: Kategori potongan.
+#: PPh SENGAJA TIDAK ADA DI SINI.
+#:
+#: Ia dipotong pada PEMBELIAN, bukan pada certificate of payment. Tabel
+#: `purchases` sudah punya `pphCode`, `pphTaxObject`, dan `pphPercentage`
+#: sendiri, dan nilai tagihannya memang dihitung dengan mengurangkan PPh
+#: dari DPP. Mencatatnya juga di sini berarti satu potongan yang sama
+#: tersimpan pada dua dokumen — dan yang membaca keduanya tidak punya cara
+#: mengetahui apakah angkanya dipotong sekali atau dua kali.
+#:
+#: Pada lembar CoP, PPh tetap TERLIHAT: ia tercetak di blok syarat kontrak
+#: bersama uang muka dan retensi, sebagai keterangan tarif yang berlaku —
+#: bukan sebagai baris yang ikut dijumlahkan pada PENGURANGAN.
 KATEGORI_POTONGAN = (
     "uang_muka",   # amortisasi uang muka yang sudah dibayarkan di awal
     "retensi",     # ditahan sampai masa pemeliharaan berakhir
     "denda",       # keterlambatan atau mutu
-    "pph",         # potongan pajak penghasilan
     "lain_lain",
 )
 

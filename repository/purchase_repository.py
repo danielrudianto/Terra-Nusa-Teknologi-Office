@@ -666,6 +666,14 @@ class PurchaseRepository:
         `supplierName` dan `supplierAddress` yang ikut dikirim layar sengaja
         TIDAK ada di daftar: keduanya bukan kolom tabel ini, melainkan hasil
         join ke `suppliers` yang dipakai untuk ditampilkan.
+
+        `certificateOfPaymentID` juga TIDAK ada di daftar, dan itu disengaja.
+        Ia ditetapkan sekali saat pembelian dibuat, dan penjagaan "satu CoP
+        satu tagihan" berjalan pada saat itu. Bila ia dapat diubah belakangan,
+        satu pembelian dapat dipindahkan ke CoP lain tanpa melewati penjagaan
+        mana pun — dan CoP yang ditinggalkannya menjadi terbuka kembali
+        walaupun tagihannya sudah beredar. Memindahkan tagihan dilakukan
+        dengan menghapus lalu membuat ulang.
         """
         BOLEH = {
             "invoiceName", "receiptName", "taxInvoiceName", "purchaseOrderName",

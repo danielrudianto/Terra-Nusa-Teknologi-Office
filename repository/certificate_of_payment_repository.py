@@ -584,6 +584,7 @@ class CertificateOfPaymentRepository:
         keyword: str | None = None,
         sort_by: str | None = None,
         sort_dir: str | None = None,
+        keadaan: str | None = None,
     ):
         """
         Daftar CoP, disaring dan dipenggal halaman.
@@ -607,6 +608,24 @@ class CertificateOfPaymentRepository:
             if created_by:
                 syarat.append("c.createdBy = :pembuat")
                 params["pembuat"] = created_by
+
+            # Keadaan dokumen disaring DI SQL.
+            #
+            # Ia tidak tersimpan sebagai satu kolom melainkan disimpulkan dari
+            # `isChecked`/`isApproved`, dan sebelumnya layar yang menyaringnya
+            # sendiri. Itu keliru pada daftar berhalaman: yang disaring hanya
+            # dua puluh baris yang kebetulan terbuka, dan `total` yang dipakai
+            # pemenggal halaman tetap menghitung SEMUANYA. Beranda ponsel yang
+            # membaca angka itu akan menyebut jumlah yang tidak pernah cocok
+            # dengan isi layarnya.
+            KEADAAN = {
+                "draft": "c.isChecked = 0",
+                "diperiksa": "c.isChecked = 1 AND c.isApproved = 0",
+                "disetujui": "c.isApproved = 1",
+            }
+            ke = KEADAAN.get((keadaan or "").strip())
+            if ke:
+                syarat.append(f"({ke})")
 
             kata = (keyword or "").strip()
             if kata:
@@ -716,6 +735,102 @@ class CertificateOfPaymentRepository:
         except Exception as e:
             log_error(f"Gagal membaca kandidat SPK: {str(e)}")
             return internal_error()
+
+    # ------------------------------------------------------------------
+    # Penagihan (hubungan dengan pembelian)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def tagihan(cop_id: int) -> Dict[str, Any] | None:
+        """
+        Pembelian AKTIF yang menagihkan CoP ini, bila ada.
+
+        Dibaca dari `purchases`, BUKAN dari penanda pada CoP. Tidak ada
+        penanda kedua yang harus dijaga sejalan — dan karena itu pembelian
+        yang dihapus membuka kembali CoP-nya dengan sendirinya, tanpa satu
+        pun langkah tambahan yang dapat terlupa.
+        """
+        baris = await database.fetch_one(
+            """
+            SELECT p.id, p.invoiceName, p.date, p.dpp, p.lastStatus, p.isPaid,
+                   p.createdAt, u.name AS createdByName
+            FROM purchases p
+            LEFT JOIN users u ON u.id = p.createdBy
+            WHERE p.certificateOfPaymentID = :cop AND p.isDelete = 0
+            LIMIT 1
+            """,
+            {"cop": cop_id},
+        )
+        return dict(baris) if baris else None
+
+    @staticmethod
+    async def tagihan_banyak(cop_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+        """
+        Keadaan penagihan untuk BANYAK CoP sekaligus.
+
+        Dipakai daftar. Menanyakannya satu per satu berarti dua puluh kueri
+        tambahan tiap kali halaman dibuka — dan daftar yang lambat adalah
+        daftar yang orang berhenti membukanya.
+        """
+        if not cop_ids:
+            return {}
+        baris = await database.fetch_all(
+            """
+            SELECT certificateOfPaymentID AS cop, id, invoiceName, isPaid
+            FROM purchases
+            WHERE certificateOfPaymentID IN :ids AND isDelete = 0
+            """,
+            {"ids": tuple(cop_ids)},
+        )
+        return {int(r["cop"]): dict(r) for r in baris}
+
+    @staticmethod
+    async def siap_tagih(
+        keyword: str | None = None, batas: int = 30
+    ) -> List[Dict[str, Any]]:
+        """
+        CoP yang SUDAH DISETUJUI dan BELUM ditagihkan.
+
+        Dua syarat, dan keduanya perlu:
+
+          * disetujui — nilainya sudah diputuskan dan tidak akan berubah
+            lagi; menagihkan yang belum disetujui berarti angka tagihannya
+            masih dapat bergeser setelah tagihannya terbit;
+          * belum ditagihkan — `LEFT JOIN ... IS NULL`, bukan penanda pada
+            CoP, sehingga yang pembeliannya baru saja dihapus muncul lagi di
+            sini tanpa perlu dipulihkan tangan.
+        """
+        syarat = ["c.isDelete = 0", "c.isApproved = 1", "p.id IS NULL"]
+        params: Dict[str, Any] = {"limit": max(1, int(batas))}
+        kata = (keyword or "").strip()
+        if kata:
+            syarat.append(
+                "(c.name LIKE :kata OR c.projectName LIKE :kata "
+                "OR po.name LIKE :kata OR s.name LIKE :kata)"
+            )
+            params["kata"] = f"%{kata}%"
+
+        baris = await database.fetch_all(
+            f"""
+            SELECT c.id, c.name, c.number, c.projectName, c.date,
+                   c.periodStart, c.periodEnd, c.netAmount,
+                   po.id   AS purchaseOrderID,
+                   po.name AS purchaseOrderName,
+                   po.purchaseType, po.ppn, po.pphCode, po.pphTaxObject,
+                   po.pphPercentage, po.supplierID,
+                   s.name AS supplierName, s.address AS supplierAddress
+            FROM certificate_of_payments c
+            JOIN purchase_orders po ON po.id = c.purchaseOrderID
+            LEFT JOIN suppliers s ON s.id = po.supplierID
+            LEFT JOIN purchases p
+                   ON p.certificateOfPaymentID = c.id AND p.isDelete = 0
+            WHERE {' AND '.join(syarat)}
+            ORDER BY c.date DESC, c.id DESC
+            LIMIT :limit
+            """,
+            params,
+        )
+        return [dict(r) for r in baris]
 
     # ------------------------------------------------------------------
     # Penyesuaian & ringkasan nilai

@@ -783,7 +783,6 @@ class CertificateOfPaymentController:
             "retensiPagu": float(ret_pagu),
             "retensiTerpakai": float(ret_lalu),
             "retensiSisa": float(ret_sisa),
-            "saranPph": float(kotor * tarif_pph / 100),
             "saranUangMuka": float(saran_dp),
             "saranRetensi": float(saran_ret),
         }
@@ -1190,7 +1189,10 @@ class CertificateOfPaymentController:
             # Karena itu ketiganya dibentuk di sini, bukan diserahkan pada
             # perulangan daftar penyesuaian. Kategori di luar ketiganya
             # (denda, lain-lain) tetap dicetak menyusul apa adanya.
-            POKOK = ("uang_muka", "retensi", "pph")
+            # PPh TIDAK termasuk: ia dipotong pada pembelian, bukan di sini.
+            # Tarifnya tetap tercetak pada blok syarat kontrak di atas
+            # sebagai keterangan — lihat catatan pada KATEGORI_POTONGAN.
+            POKOK = ("uang_muka", "retensi")
             baku: Dict[str, Decimal] = {k: Decimal("0") for k in POKOK}
             potongan_lain: List[Dict[str, Any]] = []
             for a in cop.get("adjustments") or []:
@@ -1303,6 +1305,127 @@ class CertificateOfPaymentController:
             log_error(f"Gagal menyusun data cetak CoP: {str(e)}")
             return internal_error()
 
+
+    # ------------------------------------------------------------------
+    # Penagihan
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def siap_tagih(keyword: str | None = None, user_level: int = 1):
+        """
+        CoP yang siap ditagihkan: sudah disetujui, belum ada pembeliannya.
+
+        Dijaga level 2 ke atas seperti seluruh jalan keluar yang memuat
+        rupiah — daftar ini menyebut nilai bersih tiap dokumen, dan itulah
+        angka yang akan menjadi DPP pembeliannya.
+        """
+        try:
+            if not boleh_melihat_nilai_cop(user_level):
+                return app_error(
+                    ErrorCode.FORBIDDEN,
+                    "Daftar ini memuat nilai rupiah dan hanya dapat dibuka "
+                    "level 2 ke atas.",
+                    403,
+                )
+            baris = await CertificateOfPaymentRepository.siap_tagih(keyword)
+            if isinstance(baris, dict) and "error" in baris:
+                return baris
+
+            hasil = []
+            for c in baris:
+                # Jenis yang memang tidak memakai CoP tidak boleh muncul di
+                # sini pula. Dokumen semacam itu seharusnya tidak pernah
+                # ada, tetapi aturan A/D lahir belakangan dan yang telanjur
+                # tersimpan tetap terbaca oleh kueri ini.
+                if not CertificateOfPaymentController.adalah_spk(c):
+                    continue
+                hasil.append(
+                    {
+                        "id": c["id"],
+                        "name": c["name"],
+                        "number": c["number"],
+                        "projectName": c["projectName"],
+                        "date": c["date"],
+                        "periodStart": c.get("periodStart"),
+                        "periodEnd": c.get("periodEnd"),
+                        "netAmount": float(_d(c.get("netAmount"))),
+                        "purchaseOrderID": c.get("purchaseOrderID"),
+                        "purchaseOrderName": c.get("purchaseOrderName"),
+                        "purchaseType": c.get("purchaseType"),
+                        "supplierID": c.get("supplierID"),
+                        "supplierName": c.get("supplierName"),
+                        "supplierAddress": c.get("supplierAddress"),
+                        # Tarif pajak IKUT, supaya formulir pembelian tidak
+                        # perlu menanyakan SPK-nya sekali lagi.
+                        #
+                        # PPh sengaja diteruskan APA ADANYA dari SPK: di
+                        # sinilah ia dipotong, bukan di CoP. Lihat catatan
+                        # pada KATEGORI_POTONGAN.
+                        "ppn": float(_d(c.get("ppn"))),
+                        "pphCode": c.get("pphCode"),
+                        "pphTaxObject": c.get("pphTaxObject"),
+                        "pphPercentage": float(_d(c.get("pphPercentage"))),
+                    }
+                )
+            return hasil
+        except Exception as e:
+            log_error(f"Gagal membaca CoP siap tagih: {str(e)}")
+            return internal_error()
+
+    @staticmethod
+    async def tagihan(cop_id: int, user_level: int = 1):
+        """Keadaan penagihan sebuah CoP: sudah, atau belum."""
+        try:
+            p = await CertificateOfPaymentRepository.tagihan(cop_id)
+            if not p:
+                return {"ditagihkan": False, "pembelian": None}
+            keluar = {
+                "id": p["id"],
+                "invoiceName": p.get("invoiceName"),
+                "date": p.get("date"),
+                "lastStatus": p.get("lastStatus"),
+                "isPaid": bool(p.get("isPaid")),
+                "createdByName": p.get("createdByName"),
+            }
+            if boleh_melihat_nilai_cop(user_level):
+                keluar["dpp"] = float(_d(p.get("dpp")))
+            return {"ditagihkan": True, "pembelian": keluar}
+        except Exception as e:
+            log_error(f"Gagal membaca penagihan CoP: {str(e)}")
+            return internal_error()
+
+    @staticmethod
+    async def periksa_boleh_ditagih(cop_id: int) -> Dict[str, Any] | None:
+        """
+        Boleh dijadikan dasar pembelian? Kembalikan galat bila tidak.
+
+        Dipanggil dari sisi PEMBELIAN, sebelum barisnya disimpan. Ditulis di
+        sini, bukan di controller pembelian, karena syaratnya milik CoP —
+        dan yang menyalinnya ke sana akan tertinggal saat syaratnya berubah.
+        """
+        cop = await CertificateOfPaymentRepository.get_by_id(cop_id)
+        if isinstance(cop, dict) and "error" in cop:
+            return cop
+
+        if not cop.get("isApproved"):
+            return app_error(
+                ErrorCode.VALIDATION,
+                "Certificate of payment ini belum disetujui, jadi belum dapat "
+                "ditagihkan.",
+                409,
+            )
+
+        sudah = await CertificateOfPaymentRepository.tagihan(cop_id)
+        if sudah:
+            return app_error(
+                ErrorCode.VALIDATION,
+                "Certificate of payment ini sudah ditagihkan lewat pembelian "
+                f"{sudah.get('invoiceName') or sudah['id']}. Hapus pembelian "
+                "itu lebih dahulu bila memang perlu ditagihkan ulang.",
+                409,
+            )
+        return None
+
     # ------------------------------------------------------------------
     # Hapus & baca
     # ------------------------------------------------------------------
@@ -1384,6 +1507,7 @@ class CertificateOfPaymentController:
         keyword: str | None = None,
         sort_by: str | None = None,
         sort_dir: str | None = None,
+        keadaan: str | None = None,
     ):
         hasil = await CertificateOfPaymentRepository.get_all(
             purchase_order_id,
@@ -1394,6 +1518,7 @@ class CertificateOfPaymentController:
             keyword,
             sort_by,
             sort_dir,
+            keadaan,
         )
         if isinstance(hasil, dict) and "error" in hasil:
             return hasil

@@ -1190,7 +1190,7 @@ class TestLapanganTidakTahuHarga:
     async def test_daftar_bersih_dari_uang(self, repo, monkeypatch):
         async def _semua(
             po=None, proyek=None, pembuat=None, page=0, page_size=20, kata=None,
-            urut=None, arah=None,
+            urut=None, arah=None, keadaan=None,
         ):
             return {
                 "total": 1,
@@ -1506,7 +1506,7 @@ class TestPencarianDaftar:
         diterima = {}
 
         async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20,
-                         kata=None, urut=None, arah=None):
+                         kata=None, urut=None, arah=None, keadaan=None):
             diterima["kata"] = kata
             return {"total": 0, "data": []}
 
@@ -1521,7 +1521,7 @@ class TestPencarianDaftar:
         diterima = {}
 
         async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20,
-                         kata=None, urut=None, arah=None):
+                         kata=None, urut=None, arah=None, keadaan=None):
             diterima["kata"] = kata
             return {"total": 0, "data": []}
 
@@ -1542,7 +1542,7 @@ class TestPencarianDaftar:
         """
 
         async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20,
-                         kata=None, urut=None, arah=None):
+                         kata=None, urut=None, arah=None, keadaan=None):
             return {
                 "total": 1,
                 "data": [{
@@ -1694,7 +1694,7 @@ class TestUrutanDaftar:
         diterima = {}
 
         async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20,
-                         kata=None, urut=None, arah=None):
+                         kata=None, urut=None, arah=None, keadaan=None):
             diterima["urut"] = urut
             diterima["arah"] = arah
             return {"total": 0, "data": []}
@@ -1880,3 +1880,228 @@ class TestCetakSetelahDiperiksa:
         self._pasang(monkeypatch, is_checked=1)
         hasil = await CoP.data_cetak(9, user_level=1, sertakan_cop=True)
         assert hasil["status"] == 403
+
+
+class TestPenagihanCoP:
+    """
+    Satu CoP hanya boleh menjadi dasar SATU pembelian yang aktif.
+
+    Keadaan "sudah ditagihkan" TIDAK disimpan sebagai penanda pada CoP,
+    melainkan disimpulkan dari ada tidaknya pembelian aktif yang menunjuknya.
+    Akibatnya menghapus pembelian membuka kembali CoP-nya dengan sendirinya —
+    tidak ada penanda kedua yang dapat tertinggal tidak sejalan.
+    """
+
+    @staticmethod
+    def _cop(disetujui=1):
+        return {
+            "id": 9, "name": "001-R501-VIII-2026", "number": 1,
+            "purchaseOrderID": 5, "projectName": "R501",
+            "isChecked": 1, "isApproved": disetujui,
+            "items": [], "adjustments": [],
+            "netAmount": Decimal("52390000"),
+        }
+
+    @pytest.mark.asyncio
+    async def test_belum_disetujui_tidak_boleh_ditagih(self, monkeypatch):
+        async def _get(cop_id):
+            return dict(TestPenagihanCoP._cop(disetujui=0))
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "get_by_id", staticmethod(_get)
+        )
+        galat = await CoP.periksa_boleh_ditagih(9)
+        assert galat is not None
+        assert galat["status"] == 409
+        assert "belum disetujui" in galat["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_sudah_ditagihkan_ditolak(self, monkeypatch):
+        async def _get(cop_id):
+            return dict(TestPenagihanCoP._cop())
+
+        async def _tagihan(cop_id):
+            return {"id": 77, "invoiceName": "INV-0042"}
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "get_by_id", staticmethod(_get)
+        )
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "tagihan", staticmethod(_tagihan)
+        )
+        galat = await CoP.periksa_boleh_ditagih(9)
+        assert galat["status"] == 409
+        # Pesannya MENYEBUT pembelian yang sudah ada — tanpa itu yang
+        # membacanya tidak tahu ke mana harus mencari.
+        assert "INV-0042" in galat["error"]
+
+    @pytest.mark.asyncio
+    async def test_disetujui_dan_belum_ditagih_lolos(self, monkeypatch):
+        async def _get(cop_id):
+            return dict(TestPenagihanCoP._cop())
+
+        async def _tagihan(cop_id):
+            return None
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "get_by_id", staticmethod(_get)
+        )
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "tagihan", staticmethod(_tagihan)
+        )
+        assert await CoP.periksa_boleh_ditagih(9) is None
+
+    @pytest.mark.asyncio
+    async def test_pembelian_terhapus_membuka_kembali(self, monkeypatch):
+        """
+        Yang menjaga bukan penanda, melainkan barisnya sendiri.
+
+        `tagihan()` hanya melihat pembelian dengan `isDelete = 0`. Karena itu
+        menghapus pembelian yang salah membuat CoP-nya dapat ditagihkan lagi
+        tanpa satu pun langkah pemulihan — dan tidak ada penanda yang dapat
+        tertinggal menyala.
+        """
+        keadaan = {"terhapus": False}
+
+        async def _get(cop_id):
+            return dict(TestPenagihanCoP._cop())
+
+        async def _tagihan(cop_id):
+            return None if keadaan["terhapus"] else {"id": 77, "invoiceName": "X"}
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "get_by_id", staticmethod(_get)
+        )
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "tagihan", staticmethod(_tagihan)
+        )
+
+        assert (await CoP.periksa_boleh_ditagih(9))["status"] == 409
+        keadaan["terhapus"] = True
+        assert await CoP.periksa_boleh_ditagih(9) is None
+
+    @pytest.mark.asyncio
+    async def test_siap_tagih_ditolak_level_1(self, monkeypatch):
+        """Daftar ini menyebut nilai bersih tiap dokumen."""
+        hasil = await CoP.siap_tagih(user_level=1)
+        assert hasil["status"] == 403
+
+    @pytest.mark.asyncio
+    async def test_siap_tagih_meneruskan_tarif_pajak(self, monkeypatch):
+        """
+        Tarif PPN & PPh ikut, supaya formulir pembelian tidak perlu
+        menanyakan SPK-nya sekali lagi — dan supaya PPh yang dipotong memang
+        tarif SPK-nya, bukan angka yang diketik ulang.
+        """
+
+        async def _siap(kata=None, batas=30):
+            return [{
+                "id": 9, "name": "001-R501-VIII-2026", "number": 1,
+                "projectName": "R501", "date": None,
+                "periodStart": None, "periodEnd": None,
+                "netAmount": Decimal("52390000"),
+                "purchaseOrderID": 5, "purchaseOrderName": "008-SPK-R501-B",
+                "purchaseType": "B", "customData": None,
+                "supplierID": 3, "supplierName": "PT. X",
+                "supplierAddress": "Jl. Y",
+                "ppn": Decimal("11"), "pphCode": "23-100-09",
+                "pphTaxObject": "Jasa", "pphPercentage": 2.0,
+            }]
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "siap_tagih", staticmethod(_siap)
+        )
+        hasil = await CoP.siap_tagih(user_level=2)
+        assert len(hasil) == 1
+        assert hasil[0]["ppn"] == 11
+        assert hasil[0]["pphPercentage"] == 2
+        assert hasil[0]["pphCode"] == "23-100-09"
+        assert hasil[0]["netAmount"] == 52_390_000
+
+
+class TestPphBukanPotonganCoP:
+    """
+    PPh dipotong pada PEMBELIAN, bukan pada certificate of payment.
+
+    Tabel `purchases` punya `pphPercentage` sendiri dan nilai tagihannya
+    memang dihitung dengan mengurangkan PPh dari DPP. Mencatatnya juga
+    sebagai potongan CoP berarti satu potongan yang sama tersimpan pada dua
+    dokumen — dan tidak ada cara mengetahui apakah ia dipotong sekali atau
+    dua kali.
+    """
+
+    def test_pph_bukan_kategori_potongan(self):
+        from models.certificate_of_payment_model import KATEGORI_POTONGAN
+
+        assert "pph" not in KATEGORI_POTONGAN
+        # Yang lain tetap ada — PPh dilepas, bukan daftarnya dikosongkan.
+        assert "uang_muka" in KATEGORI_POTONGAN
+        assert "retensi" in KATEGORI_POTONGAN
+        assert "denda" in KATEGORI_POTONGAN
+
+    @pytest.mark.asyncio
+    async def test_pph_ditolak_sebagai_potongan(self, repo, monkeypatch):
+        """
+        Muatan yang tetap mengirimkannya DITOLAK, bukan diterima diam-diam.
+
+        Layar lama masih dapat mengirimkannya sampai semua orang menyegarkan
+        perambannya; yang diterima diam-diam akan memotong dua kali.
+        """
+        hasil = await CoP.set_penyesuaian(
+            9,
+            [{"kind": "deduction", "category": "pph", "amount": 100000}],
+            user_id=2,
+            user_level=3,
+        )
+        assert "error" in hasil
+
+
+class TestSaringKeadaan:
+    """
+    Keadaan dokumen disaring di SERVER, bukan di layar.
+
+    Ia disimpulkan dari `isChecked`/`isApproved`, bukan disimpan sebagai satu
+    kolom — dan menyaringnya di layar keliru pada daftar berhalaman: yang
+    tersaring hanya baris yang kebetulan terbuka, sementara `total` tetap
+    menghitung semuanya.
+    """
+
+    @pytest.mark.asyncio
+    async def test_keadaan_diteruskan_ke_penyimpanan(self, monkeypatch):
+        diterima = {}
+
+        async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20,
+                         kata=None, urut=None, arah=None, keadaan=None):
+            diterima["keadaan"] = keadaan
+            return {"total": 0, "data": []}
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "get_all", staticmethod(_semua)
+        )
+        await CoP.get_all(user_level=2, keadaan="diperiksa")
+        assert diterima["keadaan"] == "diperiksa"
+
+    def test_tiga_keadaan_menutup_seluruh_kemungkinan(self):
+        """
+        Draft / diperiksa / disetujui harus SALING LEPAS dan MENUTUP semua.
+
+        Bila ada dokumen yang tidak masuk salah satunya, ia hilang dari
+        ketiga keping penyaring sekaligus — dan tidak ada apa pun di layar
+        yang memberitahu bahwa ia ada.
+        """
+        for checked in (0, 1):
+            for approved in (0, 1):
+                # `isApproved` selalu menyiratkan sudah diperiksa; keadaan
+                # (0,1) tidak terbentuk oleh alur mana pun.
+                if approved and not checked:
+                    continue
+                cocok = [
+                    nama
+                    for nama, uji in (
+                        ("draft", not checked),
+                        ("diperiksa", checked and not approved),
+                        ("disetujui", approved),
+                    )
+                    if uji
+                ]
+                assert len(cocok) == 1, (checked, approved, cocok)

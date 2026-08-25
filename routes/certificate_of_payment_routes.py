@@ -90,7 +90,16 @@ async def daftar_cop(
     keyword: Optional[str] = None,
     sortBy: Optional[str] = None,
     sortDir: Optional[str] = None,
+    keadaan: Optional[str] = None,
 ):
+    """
+    Daftar CoP.
+
+    `keadaan` disaring di SERVER — draft, diperiksa, atau disetujui. Dipakai
+    keping penyaring pada layar daftar dan penghitung pada beranda ponsel;
+    keduanya membaca `total` dari jawaban yang sama, sehingga angka dan isi
+    layarnya tidak dapat berselisih.
+    """
     return _lempar_bila_galat(
         await CertificateOfPaymentController.get_all(
             purchase_order_id=purchaseOrderID,
@@ -102,6 +111,24 @@ async def daftar_cop(
             keyword=keyword,
             sort_by=sortBy,
             sort_dir=sortDir,
+            keadaan=keadaan,
+        )
+    )
+
+
+@router.get("/siap-tagih")
+async def cop_siap_tagih(
+    current_user: Annotated[User, Depends(require("certificate_of_payment", "read"))],
+    keyword: Optional[str] = None,
+):
+    """
+    CoP yang sudah disetujui dan belum ditagihkan.
+
+    Dibaca formulir pembelian untuk memilih dasar tagihannya.
+    """
+    return _lempar_bila_galat(
+        await CertificateOfPaymentController.siap_tagih(
+            keyword, _level(current_user)
         )
     )
 
@@ -297,4 +324,15 @@ async def hapus_cop(
         await CertificateOfPaymentController.delete(
             cop_id, current_user["id"], _level(current_user)
         )
+    )
+
+
+@router.get("/{cop_id}/tagihan")
+async def tagihan_cop(
+    cop_id: int,
+    current_user: Annotated[User, Depends(require("certificate_of_payment", "read"))],
+):
+    """Sudah ditagihkan lewat pembelian mana? Kosong bila belum."""
+    return _lempar_bila_galat(
+        await CertificateOfPaymentController.tagihan(cop_id, _level(current_user))
     )
