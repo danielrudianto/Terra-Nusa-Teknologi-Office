@@ -1348,9 +1348,18 @@ class CertificateOfPaymentController:
         page_size: int = 20,
         user_level: int = 1,
         keyword: str | None = None,
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
     ):
         hasil = await CertificateOfPaymentRepository.get_all(
-            purchase_order_id, project_name, created_by, page, page_size, keyword
+            purchase_order_id,
+            project_name,
+            created_by,
+            page,
+            page_size,
+            keyword,
+            sort_by,
+            sort_dir,
         )
         if isinstance(hasil, dict) and "error" in hasil:
             return hasil

@@ -462,6 +462,44 @@ class CertificateOfPaymentRepository:
             log_error(f"Gagal membaca CoP: {str(e)}")
             return internal_error()
 
+    #: Kolom yang boleh dijadikan dasar pengurutan.
+    #:
+    #: DAFTAR PUTIH, bukan penyaringan karakter. Nama kolom masuk ke dalam
+    #: SQL sebagai teks — ia tidak dapat dijadikan parameter — sehingga
+    #: apa pun yang lolos dari sini berjalan sebagai SQL. Yang tidak
+    #: dikenali diabaikan, bukan ditolak: pengurutan adalah kenyamanan, dan
+    #: menggagalkan seluruh daftar karena satu parameter aneh membuat layar
+    #: kosong tanpa keterangan.
+    URUTAN_BOLEH = {
+        "nomor": "c.name",
+        "pemasok": "s.name",
+        "proyek": "c.projectName",
+        "tanggal": "c.date",
+        "pembuat": "pembuat.name",
+        "nilai": "c.netAmount",
+        # Keadaan bukan satu kolom melainkan disimpulkan dari dua penanda.
+        # Diurutkan sesuai PERJALANAN dokumennya — draf, diperiksa,
+        # disetujui — bukan menurut abjad namanya, karena urutan itulah
+        # yang berarti bagi yang membacanya.
+        "keadaan": "c.isApproved, c.isChecked",
+    }
+
+    @staticmethod
+    def _urutan(sort_by: str | None, sort_dir: str | None) -> str:
+        kolom = CertificateOfPaymentRepository.URUTAN_BOLEH.get(
+            (sort_by or "").strip()
+        )
+        arah = "ASC" if (sort_dir or "").lower() == "asc" else "DESC"
+        if not kolom:
+            # Bawaan: yang terbaru di atas. Itulah yang dicari orang saat
+            # membuka daftar tanpa memilih urutan apa pun.
+            return "c.date DESC, c.id DESC"
+        # `c.id` selalu menjadi pemutus terakhir: tanpa itu dua baris dengan
+        # tanggal sama dapat bertukar tempat antar halaman, dan satu dokumen
+        # muncul dua kali sementara yang lain tidak pernah muncul.
+        bagian = ", ".join(f"{k.strip()} {arah}" for k in kolom.split(","))
+        return f"{bagian}, c.id DESC"
+
     @staticmethod
     async def get_all(
         purchase_order_id: int | None = None,
@@ -470,6 +508,8 @@ class CertificateOfPaymentRepository:
         page: int = 0,
         page_size: int = 20,
         keyword: str | None = None,
+        sort_by: str | None = None,
+        sort_dir: str | None = None,
     ):
         """
         Daftar CoP, disaring dan dipenggal halaman.
@@ -521,6 +561,8 @@ class CertificateOfPaymentRepository:
                 params,
             )
 
+            urutan = CertificateOfPaymentRepository._urutan(sort_by, sort_dir)
+
             params["limit"] = max(1, int(page_size))
             params["offset"] = max(0, int(page)) * max(1, int(page_size))
             baris = await database.fetch_all(
@@ -533,7 +575,7 @@ class CertificateOfPaymentRepository:
                 LEFT JOIN suppliers s ON s.id = po.supplierID
                 LEFT JOIN users pembuat ON pembuat.id = c.createdBy
                 WHERE {where}
-                ORDER BY c.date DESC, c.id DESC
+                ORDER BY {urutan}
                 LIMIT :limit OFFSET :offset
                 """,
                 params,

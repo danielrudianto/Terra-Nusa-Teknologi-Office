@@ -22,6 +22,9 @@ from decimal import Decimal
 import pytest
 
 from controllers import certificate_of_payment_controller as modul
+from repository.certificate_of_payment_repository import (
+    CertificateOfPaymentRepository as Repo,
+)
 from controllers.certificate_of_payment_controller import (
     CertificateOfPaymentController as CoP,
 )
@@ -1179,7 +1182,8 @@ class TestLapanganTidakTahuHarga:
     @pytest.mark.asyncio
     async def test_daftar_bersih_dari_uang(self, repo, monkeypatch):
         async def _semua(
-            po=None, proyek=None, pembuat=None, page=0, page_size=20, kata=None
+            po=None, proyek=None, pembuat=None, page=0, page_size=20, kata=None,
+            urut=None, arah=None,
         ):
             return {
                 "total": 1,
@@ -1495,7 +1499,7 @@ class TestPencarianDaftar:
         diterima = {}
 
         async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20,
-                         kata=None):
+                         kata=None, urut=None, arah=None):
             diterima["kata"] = kata
             return {"total": 0, "data": []}
 
@@ -1510,7 +1514,7 @@ class TestPencarianDaftar:
         diterima = {}
 
         async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20,
-                         kata=None):
+                         kata=None, urut=None, arah=None):
             diterima["kata"] = kata
             return {"total": 0, "data": []}
 
@@ -1531,7 +1535,7 @@ class TestPencarianDaftar:
         """
 
         async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20,
-                         kata=None):
+                         kata=None, urut=None, arah=None):
             return {
                 "total": 1,
                 "data": [{
@@ -1624,3 +1628,72 @@ class TestPemasokPadaKandidatSpk:
         hasil = await CoP.spk_kandidat(user_level=2)
         assert hasil[0]["dpp"] == 500_000_000
         assert hasil[0]["supplierAddress"]
+
+
+class TestUrutanDaftar:
+    """
+    Nama kolom pengurutan masuk ke SQL sebagai TEKS.
+
+    Ia tidak dapat dijadikan parameter — `ORDER BY :kolom` tidak berlaku di
+    MySQL — sehingga apa pun yang lolos dari daftar putih berjalan sebagai
+    SQL. Karena itu yang diuji di sini bukan kenyamanannya, melainkan bahwa
+    yang tidak dikenali tidak pernah sampai ke pernyataan.
+    """
+
+    def test_tanpa_permintaan_pakai_bawaan(self):
+        assert Repo._urutan(None, None) == "c.date DESC, c.id DESC"
+
+    def test_kolom_dikenali(self):
+        assert Repo._urutan("tanggal", "asc") == "c.date ASC, c.id DESC"
+        assert Repo._urutan("nilai", "desc") == "c.netAmount DESC, c.id DESC"
+        assert Repo._urutan("pemasok", "asc") == "s.name ASC, c.id DESC"
+
+    def test_kolom_asing_diabaikan_bukan_diteruskan(self):
+        """Yang tidak dikenali jatuh ke bawaan — tidak pernah masuk SQL."""
+        for jahat in (
+            "c.id; DROP TABLE certificate_of_payments",
+            "(SELECT password FROM users LIMIT 1)",
+            "name UNION SELECT 1",
+            "",
+            "   ",
+        ):
+            assert Repo._urutan(jahat, "asc") == "c.date DESC, c.id DESC"
+
+    def test_arah_hanya_dua_kemungkinan(self):
+        """Arah pun tidak diteruskan apa adanya."""
+        assert Repo._urutan("tanggal", "asc").endswith("c.id DESC")
+        assert " ASC," in Repo._urutan("tanggal", "asc")
+        # Apa pun selain 'asc' menjadi DESC — termasuk yang mencoba menyisip.
+        for jahat in ("desc", "DESC", "; DROP TABLE x", None, "asc; --"):
+            hasil = Repo._urutan("tanggal", jahat)
+            assert hasil in (
+                "c.date ASC, c.id DESC",
+                "c.date DESC, c.id DESC",
+            ), hasil
+            assert ";" not in hasil
+
+    def test_keadaan_urut_mengikuti_perjalanan_dokumen(self):
+        """
+        Draf -> diperiksa -> disetujui, bukan menurut abjad.
+
+        Itulah urutan yang berarti bagi yang membacanya; menurut abjad,
+        "diperiksa" mendahului "draf" dan daftarnya tidak menyatakan apa-apa.
+        """
+        hasil = Repo._urutan("keadaan", "asc")
+        assert hasil == "c.isApproved ASC, c.isChecked ASC, c.id DESC"
+
+    @pytest.mark.asyncio
+    async def test_urutan_diteruskan_ke_penyimpanan(self, monkeypatch):
+        diterima = {}
+
+        async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20,
+                         kata=None, urut=None, arah=None):
+            diterima["urut"] = urut
+            diterima["arah"] = arah
+            return {"total": 0, "data": []}
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "get_all", staticmethod(_semua)
+        )
+        await CoP.get_all(user_level=2, sort_by="nilai", sort_dir="asc")
+        assert diterima == {"urut": "nilai", "arah": "asc"}
