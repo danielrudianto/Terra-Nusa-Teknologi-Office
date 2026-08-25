@@ -1311,13 +1311,21 @@ class CertificateOfPaymentController:
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def siap_tagih(keyword: str | None = None, user_level: int = 1):
+    async def siap_tagih(
+        keyword: str | None = None,
+        user_level: int = 1,
+        purchase_order_id: int | None = None,
+    ):
         """
         CoP yang siap ditagihkan: sudah disetujui, belum ada pembeliannya.
 
         Dijaga level 2 ke atas seperti seluruh jalan keluar yang memuat
         rupiah — daftar ini menyebut nilai bersih tiap dokumen, dan itulah
         angka yang akan menjadi DPP pembeliannya.
+
+        `purchase_order_id` mempersempitnya pada satu SPK; formulir
+        pembelian memakainya untuk memperingatkan bahwa SPK yang dipilih
+        masih punya CoP yang belum ditagihkan.
         """
         try:
             if not boleh_melihat_nilai_cop(user_level):
@@ -1327,7 +1335,9 @@ class CertificateOfPaymentController:
                     "level 2 ke atas.",
                     403,
                 )
-            baris = await CertificateOfPaymentRepository.siap_tagih(keyword)
+            baris = await CertificateOfPaymentRepository.siap_tagih(
+                keyword, purchase_order_id=purchase_order_id
+            )
             if isinstance(baris, dict) and "error" in baris:
                 return baris
 

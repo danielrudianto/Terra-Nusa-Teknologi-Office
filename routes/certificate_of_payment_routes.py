@@ -120,15 +120,20 @@ async def daftar_cop(
 async def cop_siap_tagih(
     current_user: Annotated[User, Depends(require("certificate_of_payment", "read"))],
     keyword: Optional[str] = None,
+    purchaseOrderID: Optional[int] = None,
 ):
     """
     CoP yang sudah disetujui dan belum ditagihkan.
 
-    Dibaca formulir pembelian untuk memilih dasar tagihannya.
+    Dibaca formulir pembelian untuk memilih dasar tagihannya, dan — dengan
+    `purchaseOrderID` — untuk memperingatkan bahwa SPK yang barusan dipilih
+    masih menyisakan CoP yang belum ditagihkan. Satu jalan keluar untuk
+    kedua maksud itu: peringatan yang dijawab kueri lain akan menyebut CoP
+    yang tidak ada di daftar pilihannya begitu aturannya bergeser sedikit.
     """
     return _lempar_bila_galat(
         await CertificateOfPaymentController.siap_tagih(
-            keyword, _level(current_user)
+            keyword, _level(current_user), purchase_order_id=purchaseOrderID
         )
     )
 

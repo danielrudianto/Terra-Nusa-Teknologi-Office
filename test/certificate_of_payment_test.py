@@ -1994,7 +1994,7 @@ class TestPenagihanCoP:
         tarif SPK-nya, bukan angka yang diketik ulang.
         """
 
-        async def _siap(kata=None, batas=30):
+        async def _siap(kata=None, batas=30, purchase_order_id=None):
             return [{
                 "id": 9, "name": "001-R501-VIII-2026", "number": 1,
                 "projectName": "R501", "date": None,
@@ -2017,6 +2017,62 @@ class TestPenagihanCoP:
         assert hasil[0]["pphPercentage"] == 2
         assert hasil[0]["pphCode"] == "23-100-09"
         assert hasil[0]["netAmount"] == 52_390_000
+
+    @pytest.mark.asyncio
+    async def test_siap_tagih_meneruskan_saringan_spk(self, monkeypatch):
+        """
+        `purchase_order_id` sampai ke REPOSITORI, bukan disaring di Python.
+
+        Formulir pembelian memakainya untuk bertanya "SPK ini masih punya
+        CoP yang belum ditagihkan, tidak?". Bila saringannya dikerjakan
+        setelah baris terambil, yang tersaring hanya tiga puluh baris yang
+        kebetulan terbawa `LIMIT` — dan SPK yang CoP-nya berada di luar
+        tiga puluh itu dijawab "tidak ada" untuk dokumen yang jelas ada.
+        """
+        terlihat = {}
+
+        async def _siap(kata=None, batas=30, purchase_order_id=None):
+            terlihat["po"] = purchase_order_id
+            return []
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "siap_tagih", staticmethod(_siap)
+        )
+        await CoP.siap_tagih(user_level=2, purchase_order_id=77)
+        assert terlihat["po"] == 77
+
+    @pytest.mark.asyncio
+    async def test_saringan_spk_masuk_ke_perintah_sql(self, monkeypatch):
+        """
+        Saringannya benar-benar menjadi `WHERE`, bukan sekadar diterima.
+
+        Uji sebelumnya hanya memastikan angkanya SAMPAI ke repositori.
+        Membuang klausanya dari perintah SQL tetap membuat uji itu lulus,
+        sementara akibatnya besar: peringatan "SPK ini punya CoP yang belum
+        ditagihkan" akan menyala pada SETIAP SPK, termasuk yang CoP-nya
+        milik proyek lain sama sekali.
+        """
+        terpakai = {}
+
+        async def _fetch_all(query, values=None):
+            terpakai["q"] = " ".join(str(query).split())
+            terpakai["v"] = values or {}
+            return []
+
+        monkeypatch.setattr(
+            "repository.certificate_of_payment_repository.database.fetch_all",
+            _fetch_all,
+        )
+        await Repo.siap_tagih(purchase_order_id=77)
+        assert "c.purchaseOrderID = :po" in terpakai["q"]
+        assert terpakai["v"].get("po") == 77
+
+        # Tanpa SPK, klausanya TIDAK boleh ikut — daftar pemilih harus
+        # memuat seluruh CoP yang siap ditagih, bukan kosong.
+        terpakai.clear()
+        await Repo.siap_tagih()
+        assert "c.purchaseOrderID = :po" not in terpakai["q"]
+        assert "po" not in terpakai["v"]
 
 
 class TestPphBukanPotonganCoP:

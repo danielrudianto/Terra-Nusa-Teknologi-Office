@@ -786,7 +786,9 @@ class CertificateOfPaymentRepository:
 
     @staticmethod
     async def siap_tagih(
-        keyword: str | None = None, batas: int = 30
+        keyword: str | None = None,
+        batas: int = 30,
+        purchase_order_id: int | None = None,
     ) -> List[Dict[str, Any]]:
         """
         CoP yang SUDAH DISETUJUI dan BELUM ditagihkan.
@@ -799,9 +801,20 @@ class CertificateOfPaymentRepository:
           * belum ditagihkan — `LEFT JOIN ... IS NULL`, bukan penanda pada
             CoP, sehingga yang pembeliannya baru saja dihapus muncul lagi di
             sini tanpa perlu dipulihkan tangan.
+
+        `purchase_order_id` mempersempitnya pada SATU SPK. Dipakai formulir
+        pembelian untuk bertanya "SPK yang barusan dipilih ini masih punya
+        CoP yang belum ditagihkan, tidak?" — pertanyaan yang jawabannya
+        harus datang dari kueri yang sama dengan daftar pemilihnya. Kueri
+        terpisah untuk maksud yang sama akan berselisih pada perubahan
+        aturan berikutnya, dan yang berselisih adalah peringatan yang
+        muncul untuk CoP yang tidak ada di daftar pilihannya.
         """
         syarat = ["c.isDelete = 0", "c.isApproved = 1", "p.id IS NULL"]
         params: Dict[str, Any] = {"limit": max(1, int(batas))}
+        if purchase_order_id:
+            syarat.append("c.purchaseOrderID = :po")
+            params["po"] = int(purchase_order_id)
         kata = (keyword or "").strip()
         if kata:
             syarat.append(
