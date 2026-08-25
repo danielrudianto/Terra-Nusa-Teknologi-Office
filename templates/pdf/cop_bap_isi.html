@@ -6,52 +6,75 @@
   sendirian. Menyalinnya ke dua tempat berarti kolom yang ditambahkan kelak
   hanya masuk ke salah satunya — dan yang tertinggal tidak menimbulkan galat
   apa pun, hanya dua lembar yang berbeda untuk pekerjaan yang sama.
-#}
-<h1>Berita Acara Pemeriksaan</h1>
-<div class="garis-judul"></div>
 
-<table class="kepala">
+  TIDAK ADA SATU PUN NILAI RUPIAH DI LEMBAR INI.
+
+  BAP menyatakan APA YANG TERLAKSANA, bukan berapa yang dibayar. Ia
+  ditandatangani di lapangan — kerap oleh orang yang memang tidak berhak
+  mengetahui harga satuan kontrak — dan lembar yang memuat harga tidak dapat
+  diserahkan kepada mereka.
+
+  Harga tetap dipakai untuk MENGHITUNG bobot, tetapi hitungannya sudah
+  selesai di server: yang sampai ke lembar ini hanya persentasenya. Itulah
+  sebabnya kolom "Harga Satuan" dan "Total" dapat hilang tanpa membuat satu
+  pun angka bobot berubah.
+#}
+<table class="bap-judul">
   <tr>
-    <td class="k-label">No. BAP</td><td class="k-titik">:</td>
-    <td class="k-isi">{{ nomorBap }}</td>
-    <td class="k-label2">Proyek</td><td class="k-titik">:</td>
-    <td class="k-isi2">{{ cop.projectName }}</td>
+    <td class="bap-judul__logo">
+      {% if logoDataUri %}
+      <img src="{{ logoDataUri }}" alt="{{ perusahaan.nama }}" />
+      {% else %}
+      <div class="bap-judul__nama">{{ perusahaan.nama }}</div>
+      {% endif %}
+    </td>
+    <td class="bap-judul__teks">Berita Acara Pemeriksaan</td>
+    <td class="bap-judul__sisi"></td>
+  </tr>
+</table>
+
+<table class="bap-kepala">
+  <tr>
+    <td class="bk-label">No. BAP</td><td class="bk-titik">:</td>
+    <td class="bk-isi">{{ nomorBap }}</td>
+    <td class="bk-label2">Proyek</td><td class="bk-titik">:</td>
+    <td class="bk-isi2">{{ cop.projectName }}</td>
   </tr>
   <tr>
-    <td class="k-label">Tanggal</td><td class="k-titik">:</td>
-    <td class="k-isi">{{ cop.date | tanggal }}</td>
-    <td class="k-label2">No. SPK</td><td class="k-titik">:</td>
-    <td class="k-isi2">{{ spk.name }}</td>
+    <td class="bk-label">Tanggal</td><td class="bk-titik">:</td>
+    <td class="bk-isi">{{ cop.date | tanggal }}</td>
+    <td class="bk-label2">No. SPK</td><td class="bk-titik">:</td>
+    <td class="bk-isi2">{{ spk.name }}</td>
   </tr>
   <tr>
-    <td class="k-label">Periode</td><td class="k-titik">:</td>
-    <td class="k-isi">
+    <td class="bk-label">Periode</td><td class="bk-titik">:</td>
+    <td class="bk-isi">
       {% if cop.periodStart or cop.periodEnd %}
         {{ cop.periodStart | tanggal }} s.d. {{ cop.periodEnd | tanggal }}
       {% else %}—{% endif %}
     </td>
-    <td class="k-label2">Nama</td><td class="k-titik">:</td>
-    <td class="k-isi2">{{ spk.supplierName or "-" }}</td>
+    <td class="bk-label2">Penerima</td><td class="bk-titik">:</td>
+    <td class="bk-isi2">{{ spk.supplierName or "-" }}</td>
   </tr>
 </table>
 
 <table class="bap">
   <thead>
     <tr>
-      <th rowspan="2">No</th>
-      <th rowspan="2">Pekerjaan</th>
-      <th rowspan="2">Volume<br />Kontrak</th>
-      <th rowspan="2">Satuan</th>
-      <th rowspan="2">Harga Satuan</th>
-      <th rowspan="2">Total</th>
-      <th rowspan="2">Bobot</th>
+      <th rowspan="2" class="bap-w-no">No</th>
+      <th rowspan="2" class="bap-w-kerja">Pekerjaan</th>
+      <th rowspan="2" class="bap-w-vol">Volume<br />Kontrak</th>
+      <th rowspan="2" class="bap-w-sat">Satuan</th>
+      <th rowspan="2" class="bap-w-bobot">Bobot</th>
       <th colspan="3">Sebelumnya</th>
-      <th colspan="3">Periode Ini</th>
+      <th colspan="3" class="bap-sorot">Periode Ini</th>
       <th colspan="3">Akumulatif</th>
     </tr>
     <tr>
       <th>Volume</th><th>%</th><th>Bobot</th>
-      <th>Volume</th><th>%</th><th>Bobot</th>
+      <th class="bap-sorot">Volume</th>
+      <th class="bap-sorot">%</th>
+      <th class="bap-sorot">Bobot</th>
       <th>Volume</th><th>%</th><th>Bobot</th>
     </tr>
   </thead>
@@ -66,17 +89,15 @@
       </td>
       <td class="angka">{{ b.volumeKontrak | angka }}</td>
       <td class="tengah">{{ b.satuan }}</td>
-      <td class="angka">{{ b.hargaSatuan | rupiah }}</td>
-      <td class="angka">{{ b.total | rupiah }}</td>
       <td class="angka">{{ b.bobot | persenPecahan }}</td>
 
       <td class="angka">{{ b.volumeSebelumnya | angka }}</td>
       <td class="angka">{{ b.persentaseSebelumnya | persenPecahan }}</td>
       <td class="angka">{{ b.bobotSebelumnya | persenPecahan }}</td>
 
-      <td class="angka">{{ b.volumePeriodeIni | angka }}</td>
-      <td class="angka">{{ b.persentaseSaatIni | persenPecahan }}</td>
-      <td class="angka">{{ b.bobotSaatIni | persenPecahan }}</td>
+      <td class="angka bap-sorot">{{ b.volumePeriodeIni | angka }}</td>
+      <td class="angka bap-sorot">{{ b.persentaseSaatIni | persenPecahan }}</td>
+      <td class="angka bap-sorot">{{ b.bobotSaatIni | persenPecahan }}</td>
 
       <td class="angka">{{ b.volumeAkumulatif | angka }}</td>
       <td class="angka">{{ b.persentaseAkumulatif | persenPecahan }}</td>
@@ -86,34 +107,67 @@
   </tbody>
   <tfoot>
     <tr>
-      <td colspan="5" class="tengah">Total</td>
-      <td class="angka">{{ bapTotal.total | rupiah }}</td>
+      <td colspan="4" class="kanan">Total</td>
       <td class="angka">{{ bapTotal.bobot | persenPecahan }}</td>
       <td colspan="2"></td>
       <td class="angka">{{ bapTotal.bobotSebelumnya | persenPecahan }}</td>
-      <td colspan="2"></td>
-      <td class="angka">{{ bapTotal.bobotSaatIni | persenPecahan }}</td>
+      <td colspan="2" class="bap-sorot"></td>
+      <td class="angka bap-sorot">{{ bapTotal.bobotSaatIni | persenPecahan }}</td>
       <td colspan="2"></td>
       <td class="angka">{{ bapTotal.bobotAkumulatif | persenPecahan }}</td>
     </tr>
   </tfoot>
 </table>
 
-<table class="ttd">
+<!--
+  KIRI yang MENYETUJUI, KANAN yang MEMERIKSA.
+
+  Urutannya bukan selera tata letak: pada lembar yang ditandatangani, yang
+  paling kiri dibaca sebagai yang paling bertanggung jawab. Menukarnya
+  membuat pemeriksa tampak sebagai penanggung akhir atas hasil pemeriksaan
+  yang bukan keputusannya.
+-->
+<table class="bap-ttd">
   <tr>
     <td>
-      <div class="ttd-peran">Dibuat oleh,</div>
-      <div class="ttd-nama">{{ cop.createdByName or "—" }}</div>
+      <div class="bt-peran">Pemberi Tugas,</div>
+      <div class="bt-badan">{{ perusahaan.nama }}</div>
+      {% if penandatangan.nama %}
+      <div class="bt-nama">{{ penandatangan.nama }}</div>
+      <div class="bt-jabatan">{{ penandatangan.jabatan or "" }}</div>
+      {% else %}
+      <div>(<span class="bt-kosong">&nbsp;</span>)</div>
+      {% endif %}
     </td>
     <td>
-      <div class="ttd-peran">Diperiksa oleh,</div>
-      <div class="ttd-nama">{{ cop.checkedByName or "—" }}</div>
-      {% if cop.checkedAt %}<div class="ttd-tanggal">{{ cop.checkedAt | tanggal }}</div>{% endif %}
+      <div class="bt-peran">Diperiksa oleh,</div>
+      <div class="bt-badan">&nbsp;</div>
+      {% if cop.checkedByName %}
+      <div class="bt-nama">{{ cop.checkedByName }}</div>
+      <div class="bt-jabatan">{{ cop.checkedByPosition or "" }}</div>
+      {% else %}
+      <div>(<span class="bt-kosong">&nbsp;</span>)</div>
+      {% endif %}
     </td>
     <td>
-      <div class="ttd-peran">Disetujui oleh,</div>
-      <div class="ttd-nama">{{ cop.approvedByName or "—" }}</div>
-      {% if cop.approvedAt %}<div class="ttd-tanggal">{{ cop.approvedAt | tanggal }}</div>{% endif %}
+      <div class="bt-peran">Penerima Tugas,</div>
+      <div class="bt-badan">{{ spk.supplierName or "" }}</div>
+      <div>(<span class="bt-kosong">&nbsp;</span>)</div>
     </td>
   </tr>
 </table>
+
+{% if keteranganPersetujuan %}
+<!--
+  Keterangan persetujuan elektronik.
+
+  BUKAN pengganti tanda tangan basah — nilainya penelusuran: ketika dokumen
+  ini ditanyakan setahun kemudian, keterangannya ada di lembarnya sendiri
+  tanpa perlu membuka sistem.
+
+  Tidak tercetak sama sekali bila belum disetujui. Menuliskan "disetujui"
+  pada lembar draf, walau dengan tanggal kosong, membuat lembar yang belum
+  sah terbaca seperti sudah.
+-->
+<div class="bap-jejak">{{ keteranganPersetujuan }}</div>
+{% endif %}

@@ -692,7 +692,48 @@ def _lengkapi(data: dict) -> dict:
     }
     keluar["perusahaan"] = _PERUSAHAAN
     keluar["logoDataUri"] = _logo_data_uri()
+
+    # Keterangan persetujuan elektronik — bentuknya sama dengan purchase
+    # order. BUKAN pengganti tanda tangan basah; nilainya penelusuran.
+    #
+    # Kosong bila belum disetujui, dan templat memang tidak menggambarnya:
+    # menuliskan "disetujui" pada lembar draf, walau dengan tanggal kosong,
+    # membuat lembar yang belum sah terbaca seperti sudah.
+    keluar["keteranganPersetujuan"] = _keterangan_persetujuan(cop)
     return keluar
+
+
+def _keterangan_persetujuan(cop: dict) -> str:
+    """
+    "Disetujui secara elektronik pada 12 Agustus 2026, 14.05 WIB · Diperiksa
+    oleh Budi".
+
+    Waktunya disusun dari bagian LOKAL. `isoformat()` maupun konversi UTC
+    memundurkan tanggalnya tujuh jam bagi WIB — dokumen yang disetujui pukul
+    05.00 akan tercetak disetujui sehari sebelumnya.
+    """
+    kapan = cop.get("approvedAt")
+    if not kapan or not cop.get("isApproved"):
+        return ""
+    try:
+        tanggal = (
+            f"{kapan.day} {_BULAN_ID[kapan.month]} {kapan.year}"
+            f", {kapan.hour:02d}.{kapan.minute:02d} WIB"
+        )
+    except Exception:
+        return ""
+
+    bagian = [f"Disetujui secara elektronik pada {tanggal}"]
+    kedua = []
+    if cop.get("approvedByName"):
+        kedua.append(f"Oleh {cop['approvedByName']}")
+    if cop.get("checkedByName"):
+        kedua.append(f"Diperiksa oleh {cop['checkedByName']}")
+    if cop.get("name"):
+        kedua.append(str(cop["name"]))
+    if kedua:
+        bagian.append(" \u00b7 ".join(kedua))
+    return " \u00b7 ".join(bagian)
 
 
 class CoPDocumentService:

@@ -44,6 +44,7 @@
     </style>
   </head>
   <body>
+    {% if not cop.isApproved %}<div class="cap-draf">DRAFT</div>{% endif %}
     {% include "cop_bap_isi.html" %}
   </body>
 </html>

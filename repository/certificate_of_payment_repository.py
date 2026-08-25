@@ -185,6 +185,64 @@ class CertificateOfPaymentRepository:
         )
         return int(terakhir or 0) + 1
 
+    #: Angka bulan menjadi angka Romawi.
+    #:
+    #: Ditulis sebagai daftar, bukan dihitung: bulannya hanya dua belas dan
+    #: tidak akan bertambah. Algoritma Romawi umum di sini hanya menambah
+    #: sesuatu yang harus dibaca ulang tiap kali orang memeriksa apakah
+    #: bulan sembilan benar "IX".
+    BULAN_ROMAWI = (
+        "", "I", "II", "III", "IV", "V", "VI",
+        "VII", "VIII", "IX", "X", "XI", "XII",
+    )
+
+    @staticmethod
+    async def nomor_dokumen_berikut(project_name: str) -> int:
+        """
+        Urutan DOKUMEN berikutnya dalam satu proyek.
+
+        Tidak pernah kembali ke 1. Bulan dan tahun pada nomornya hanya
+        menerangkan kapan berkasnya terbit; yang membedakan satu dokumen dari
+        yang lain adalah angka ini.
+
+        DOKUMEN TERHAPUS TETAP DIHITUNG — `MAX`, bukan `COUNT`. Nomor yang
+        sudah pernah terbit tidak boleh dipakai ulang: salinannya mungkin
+        sudah beredar, dan dua berkas berbeda bernomor sama adalah persoalan
+        yang tidak dapat diselesaikan belakangan.
+        """
+        terakhir = await database.fetch_val(
+            """
+            SELECT MAX(documentNumber)
+            FROM certificate_of_payments
+            WHERE projectName = :proyek
+            """,
+            {"proyek": project_name or ""},
+        )
+        return int(terakhir or 0) + 1
+
+    @staticmethod
+    def susun_nama(nomor_dokumen: int, project_name: str, tanggal) -> str:
+        """
+        Nomor CoP: 001-R501-VIII-2026.
+
+        Bulan dan tahun diambil dari TANGGAL DOKUMEN, bukan dari hari ini:
+        CoP bertanggal 31 Agustus yang baru sempat dimasukkan tanggal 2
+        September harus tetap bernomor VIII — nomornya menerangkan dokumennya,
+        bukan kapan orang mengetiknya.
+        """
+        try:
+            bulan = int(getattr(tanggal, "month", 0)) or 0
+            tahun = int(getattr(tanggal, "year", 0)) or 0
+        except Exception:
+            bulan, tahun = 0, 0
+        romawi = (
+            CertificateOfPaymentRepository.BULAN_ROMAWI[bulan]
+            if 1 <= bulan <= 12
+            else "-"
+        )
+        kode = (project_name or "").strip() or "-"
+        return f"{nomor_dokumen:03d}-{kode}-{romawi}-{tahun or '-'}"
+
     # ------------------------------------------------------------------
     # Tulis
     # ------------------------------------------------------------------
@@ -203,10 +261,26 @@ class CertificateOfPaymentRepository:
                     data["purchaseOrderID"]
                 )
 
+                # Nomor dokumen diambil DI DALAM transaksi, sedekat mungkin
+                # dengan penyisipannya. Diambil di controller, dua permintaan
+                # yang datang bersamaan membaca angka terakhir yang sama dan
+                # keduanya menyusun nama yang sama — lalu yang kedua ditolak
+                # kolom `name` yang unik, dengan galat yang tidak menyebut
+                # sebabnya.
+                nomor_dokumen = data.get(
+                    "documentNumber"
+                ) or await CertificateOfPaymentRepository.nomor_dokumen_berikut(
+                    data.get("projectName") or ""
+                )
+                nama = data.get("name") or CertificateOfPaymentRepository.susun_nama(
+                    nomor_dokumen, data.get("projectName") or "", data["date"]
+                )
+
                 cop_id = await database.execute(
                     insert(certificate_of_payments_table).values(
-                        name=data["name"],
+                        name=nama,
                         number=nomor,
+                        documentNumber=nomor_dokumen,
                         purchaseOrderID=data["purchaseOrderID"],
                         projectName=data.get("projectName") or "",
                         date=data["date"],

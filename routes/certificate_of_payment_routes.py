@@ -216,7 +216,9 @@ async def unduh_pdf(
     from services.pdf_service import CoPDocumentService
 
     data = _lempar_bila_galat(
-        await CertificateOfPaymentController.data_cetak(cop_id, _level(current_user))
+        await CertificateOfPaymentController.data_cetak(
+            cop_id, _level(current_user), sertakan_cop=True
+        )
     )
     return _pdf(
         CoPDocumentService.render(data, sertakan_bap=True),
@@ -229,11 +231,19 @@ async def unduh_bap(
     cop_id: int,
     current_user: Annotated[User, Depends(require("certificate_of_payment", "read"))],
 ):
-    """Berita Acara Pemeriksaan saja — seluruhnya lanskap."""
+    """
+    Berita Acara Pemeriksaan saja — seluruhnya lanskap.
+
+    `sertakan_cop=False`: BAP boleh diunduh SEBELUM diperiksa. Ia menyatakan
+    volume yang terlaksana, bukan nilai yang dibayar — dan justru inilah
+    lembar yang dibawa ke lapangan untuk diperiksa lebih dahulu.
+    """
     from services.pdf_service import CoPDocumentService
 
     data = _lempar_bila_galat(
-        await CertificateOfPaymentController.data_cetak(cop_id, _level(current_user))
+        await CertificateOfPaymentController.data_cetak(
+            cop_id, _level(current_user), sertakan_cop=False
+        )
     )
     return _pdf(
         CoPDocumentService.render_bap(data),

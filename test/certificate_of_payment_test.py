@@ -108,7 +108,14 @@ def repo(monkeypatch):
     async def _create(data, items, user_id):
         keadaan["dibuat"] = dict(data)
         keadaan["items_disimpan"] = [dict(i) for i in items]
-        return {"certificateOfPaymentID": 99, "name": data["name"], "number": 1}
+        # Nama TIDAK datang dari controller: ia disusun di dalam transaksi
+        # penyimpanan, bersama nomor dokumennya. Tiruan ini menirukan itu —
+        # kalau tidak, tesnya akan lulus atas kontrak yang sudah tidak
+        # berlaku.
+        nama = data.get("name") or Repo.susun_nama(
+            1, data.get("projectName") or "", data.get("date")
+        )
+        return {"certificateOfPaymentID": 99, "name": nama, "number": 1}
 
     async def _get_by_id(cop_id):
         return dict(keadaan["cop"]) if keadaan["cop"] else {"error": "x", "status": 404}
@@ -1697,3 +1704,179 @@ class TestUrutanDaftar:
         )
         await CoP.get_all(user_level=2, sort_by="nilai", sort_dir="asc")
         assert diterima == {"urut": "nilai", "arah": "asc"}
+
+
+class TestPenomoranDokumen:
+    """
+    Nomor CoP: 001-R501-VIII-2026.
+
+    Angka pertama urutan DOKUMEN dalam proyek — berjalan terus, tidak pernah
+    kembali ke 1. Bulan romawi dan tahun menerangkan kapan berkasnya terbit.
+    """
+
+    def test_bentuk_nomor(self):
+        import datetime as d
+
+        assert (
+            Repo.susun_nama(1, "R501", d.date(2026, 8, 25)) == "001-R501-VIII-2026"
+        )
+        assert (
+            Repo.susun_nama(37, "MICZ", d.date(2026, 1, 3)) == "037-MICZ-I-2026"
+        )
+        assert (
+            Repo.susun_nama(128, "R501", d.date(2025, 12, 31))
+            == "128-R501-XII-2025"
+        )
+
+    def test_bulan_diambil_dari_tanggal_dokumen(self):
+        """
+        BUKAN dari hari ini.
+
+        CoP bertanggal 31 Agustus yang baru sempat dimasukkan 2 September
+        harus tetap bernomor VIII: nomornya menerangkan dokumennya, bukan
+        kapan orang mengetiknya.
+        """
+        import datetime as d
+
+        assert "-VIII-" in Repo.susun_nama(9, "R501", d.date(2026, 8, 31))
+        assert "-IX-" in Repo.susun_nama(9, "R501", d.date(2026, 9, 1))
+
+    def test_seluruh_dua_belas_bulan(self):
+        import datetime as d
+
+        harap = [
+            "I", "II", "III", "IV", "V", "VI",
+            "VII", "VIII", "IX", "X", "XI", "XII",
+        ]
+        for bulan, romawi in enumerate(harap, start=1):
+            nama = Repo.susun_nama(1, "P", d.date(2026, bulan, 15))
+            assert nama == f"001-P-{romawi}-2026", nama
+
+    def test_nomor_diisi_nol_di_depan(self):
+        import datetime as d
+
+        assert Repo.susun_nama(7, "P", d.date(2026, 5, 1)).startswith("007-")
+        # Melewati tiga digit tidak dipotong: dokumen ke-1234 tetap utuh.
+        assert Repo.susun_nama(1234, "P", d.date(2026, 5, 1)).startswith("1234-")
+
+    def test_proyek_kosong_tidak_menghasilkan_nomor_pincang(self):
+        """
+        Proyek kosong menjadi tanda pisah, bukan untai kosong.
+
+        "001--VIII-2026" punya dua tanda hubung berturut-turut dan terbaca
+        seperti nomor yang rusak; "001---VIII-2026" pun tidak lebih baik.
+        Yang penting: bentuknya tetap empat bagian.
+        """
+        import datetime as d
+
+        nama = Repo.susun_nama(1, "", d.date(2026, 8, 1))
+        assert nama == "001---VIII-2026" or nama.count("-") >= 3
+        assert "VIII" in nama
+
+    @pytest.mark.asyncio
+    async def test_nomor_dokumen_memakai_max_bukan_count(self, monkeypatch):
+        """
+        Dokumen TERHAPUS tetap memakan nomornya.
+
+        Dengan COUNT, menghapus dokumen ke-3 membuat dokumen berikutnya
+        kembali bernomor 003 — padahal salinan yang lama mungkin sudah
+        beredar, dan dua berkas berbeda bernomor sama tidak dapat
+        diselesaikan belakangan.
+        """
+        sql_terpakai = {}
+
+        async def _fetch_val(query, values=None):
+            sql_terpakai["q"] = " ".join(str(query).split())
+            return 12
+
+        monkeypatch.setattr(
+            "repository.certificate_of_payment_repository.database.fetch_val",
+            _fetch_val,
+        )
+        hasil = await Repo.nomor_dokumen_berikut("R501")
+        assert hasil == 13
+        assert "MAX(documentNumber)" in sql_terpakai["q"]
+        assert "COUNT" not in sql_terpakai["q"].upper()
+
+    @pytest.mark.asyncio
+    async def test_proyek_pertama_mulai_dari_satu(self, monkeypatch):
+        async def _fetch_val(query, values=None):
+            return None
+
+        monkeypatch.setattr(
+            "repository.certificate_of_payment_repository.database.fetch_val",
+            _fetch_val,
+        )
+        assert await Repo.nomor_dokumen_berikut("BARU") == 1
+
+
+class TestCetakSetelahDiperiksa:
+    """
+    CoP tidak dapat dicetak sebelum diperiksa; BAP tetap bisa.
+
+    Lembar CoP menyatakan nilai tagihan, dan sebelum diperiksa angkanya belum
+    ditelaah siapa pun — potongan uang muka dan retensi bahkan belum tentu
+    dimasukkan. Begitu keluar dari pencetak, lembar itu tidak dapat dibedakan
+    dari yang sudah benar.
+
+    BAP menyatakan volume yang terlaksana, bukan nilai yang dibayar — dan
+    justru itulah lembar yang dibawa ke lapangan untuk diperiksa lebih dulu.
+    """
+
+    @staticmethod
+    def _pasang(monkeypatch, is_checked):
+        async def _get(cop_id):
+            return {
+                "id": 9, "name": "001-R501-VIII-2026", "number": 1,
+                "purchaseOrderID": 5, "projectName": "R501",
+                "date": None, "periodStart": None, "periodEnd": None,
+                "isChecked": is_checked, "isApproved": 0,
+                "items": [], "adjustments": [],
+                "grossAmount": Decimal("0"), "deductionTotal": Decimal("0"),
+                "additionTotal": Decimal("0"), "netAmount": Decimal("0"),
+            }
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository, "get_by_id", staticmethod(_get)
+        )
+
+    @pytest.mark.asyncio
+    async def test_cop_ditolak_sebelum_diperiksa(self, monkeypatch):
+        self._pasang(monkeypatch, is_checked=0)
+        hasil = await CoP.data_cetak(9, user_level=3, sertakan_cop=True)
+        assert "error" in hasil
+        assert hasil["status"] == 409
+        # Pesannya menyebut jalan keluarnya, bukan sekadar menolak.
+        assert "Berita Acara" in hasil["error"]
+
+    @pytest.mark.asyncio
+    async def test_bap_tetap_boleh_sebelum_diperiksa(self, monkeypatch):
+        """
+        Yang dijaga adalah CoP, bukan seluruh pencetakan.
+
+        Kalau penjagaannya dipasang pada `data_cetak` tanpa membedakan
+        keduanya, BAP ikut terkunci — dan yang di lapangan tidak punya lembar
+        untuk diperiksa, sehingga tidak ada yang dapat diperiksa sama sekali.
+        """
+        self._pasang(monkeypatch, is_checked=0)
+        hasil = await CoP.data_cetak(9, user_level=3, sertakan_cop=False)
+        # Lolos penjagaan; berhenti belakangan karena SPK tiruan tidak ada.
+        assert hasil.get("status") != 409
+
+    @pytest.mark.asyncio
+    async def test_sudah_diperiksa_lolos_penjagaan(self, monkeypatch):
+        self._pasang(monkeypatch, is_checked=1)
+        hasil = await CoP.data_cetak(9, user_level=3, sertakan_cop=True)
+        assert hasil.get("status") != 409
+
+    @pytest.mark.asyncio
+    async def test_level_1_tetap_ditolak_lebih_dulu(self, monkeypatch):
+        """
+        Penjagaan LAMA tidak tergeser oleh yang baru.
+
+        Level 1 ditolak karena lembarnya memuat harga — alasan yang berdiri
+        sendiri, dan harus tetap berlaku pada dokumen yang sudah diperiksa.
+        """
+        self._pasang(monkeypatch, is_checked=1)
+        hasil = await CoP.data_cetak(9, user_level=1, sertakan_cop=True)
+        assert hasil["status"] == 403

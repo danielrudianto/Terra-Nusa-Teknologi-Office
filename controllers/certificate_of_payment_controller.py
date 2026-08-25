@@ -355,11 +355,16 @@ class CertificateOfPaymentController:
 
             induk_id = spk.get("parentPurchaseOrderID") or spk.get("id") or int(po_id)
             nomor = await CertificateOfPaymentRepository.nomor_berikut(int(po_id))
-            nama = f"{spk.get('name') or f'SPK-{induk_id}'}/CoP-{nomor:03d}"
 
+            # Nomor dokumen dan namanya TIDAK disusun di sini.
+            #
+            # Keduanya diambil di dalam transaksi penyimpanan, sedekat mungkin
+            # dengan penyisipannya. Disusun di sini, dua permintaan yang datang
+            # bersamaan membaca angka terakhir yang sama dan menghasilkan nama
+            # yang sama — lalu yang kedua ditolak kolom unik dengan galat yang
+            # tidak menyebut sebabnya.
             hasil = await CertificateOfPaymentRepository.create(
                 {
-                    "name": nama,
                     "number": nomor,
                     "purchaseOrderID": induk_id,
                     "projectName": data.get("projectName") or spk.get("projectName") or "",
@@ -760,6 +765,13 @@ class CertificateOfPaymentController:
             "pphCode": spk.get("pphCode"),
             "pphTaxObject": spk.get("pphTaxObject"),
             "pphPercentage": float(tarif_pph),
+            # Tarif PPN mengikuti SPK-nya, BUKAN angka tetap.
+            #
+            # Ia pernah 10% dan kini 11%; menuliskannya di kode berarti tiap
+            # dokumen lama yang dibuka ulang menampilkan tarif yang keliru.
+            # Nol berarti dokumen ini memang tidak kena PPN — dan barisnya
+            # tidak digambar sama sekali, bukan digambar bernilai nol.
+            "ppn": float(_d(spk.get("ppn"))),
             "dpPercentage": float(tarif_dp),
             "retentionPercentage": float(tarif_ret),
             "nilaiKontrak": float(nilai_kontrak),
@@ -988,7 +1000,9 @@ class CertificateOfPaymentController:
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def data_cetak(cop_id: int, user_level: int = 1):
+    async def data_cetak(
+        cop_id: int, user_level: int = 1, sertakan_cop: bool = True
+    ):
         """
         Susun seluruh angka yang dicetak pada CoP dan BAP.
 
@@ -1018,6 +1032,26 @@ class CertificateOfPaymentController:
             cop = await CertificateOfPaymentRepository.get_by_id(cop_id)
             if isinstance(cop, dict) and "error" in cop:
                 return cop
+
+            # BELUM DIPERIKSA -> CoP tidak boleh dicetak.
+            #
+            # Lembar CoP menyatakan nilai tagihan, dan sebelum diperiksa
+            # angkanya belum ditelaah siapa pun — potongan uang muka dan
+            # retensi bahkan belum tentu dimasukkan. Lembar seperti itu
+            # tidak dapat dibedakan dari yang sudah benar begitu keluar dari
+            # pencetak, dan satu lembar yang sampai ke pemasok sudah cukup
+            # untuk ditagihkan.
+            #
+            # BAP tetap boleh dicetak: ia menyatakan volume yang terlaksana,
+            # bukan nilai yang dibayar, dan justru itulah yang dibawa ke
+            # lapangan untuk diperiksa lebih dulu.
+            if sertakan_cop and not cop.get("isChecked"):
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "Certificate of payment belum diperiksa, jadi belum dapat "
+                    "dicetak. Berita Acara Pemeriksaan tetap dapat diunduh.",
+                    409,
+                )
 
             po_id = int(cop["purchaseOrderID"])
             spk = await PurchaseOrderRepository.get_by_id(po_id)

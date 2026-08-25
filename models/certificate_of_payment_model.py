@@ -69,6 +69,24 @@ certificate_of_payments_table = Table(
     # Urutan CoP DALAM SATU SPK: 1, 2, 3 ... Disimpan terpisah dari `name`
     # supaya urutan berikutnya tidak perlu diambil dengan mem-parsing teks.
     Column("number", Integer, nullable=False),
+    # Urutan DOKUMEN dalam satu PROYEK — angka pertama pada nomor CoP
+    # ("001-R501-VIII-2026"). Berjalan terus, tidak pernah kembali ke 1.
+    #
+    # SENGAJA TERPISAH dari `number` di atas, dan keduanya tidak boleh
+    # ditukar-tukar:
+    #
+    #   `number`         = pembayaran ke berapa ATAS SPK INI. Inilah yang
+    #                      tercetak sebagai "Pembayaran ke" dan yang menyusun
+    #                      daftar akumulasi pada lembar CoP.
+    #   `documentNumber` = urutan berkas dalam arsip PROYEK. Ia hanya nomor
+    #                      surat; tidak ada hitungan uang yang bergantung
+    #                      padanya.
+    #
+    # Satu proyek dapat memiliki sepuluh SPK, dan CoP pertama SPK kesepuluh
+    # tetap pembayaran ke-1 sementara nomor dokumennya sudah 037.
+    #
+    # NULL berarti dokumen lama yang terbit sebelum penomoran ini berlaku.
+    Column("documentNumber", Integer, nullable=True),
     # SPK yang disertifikasi. Selalu dokumen INDUK — adendum menambah pagu
     # pada rantai yang sama, bukan membuka rangkaian CoP tersendiri.
     Column(
