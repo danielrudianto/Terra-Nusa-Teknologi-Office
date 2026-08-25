@@ -138,6 +138,28 @@ async def cop_siap_tagih(
     )
 
 
+@router.get("/periode-tindih")
+async def periode_tindih(
+    current_user: Annotated[User, Depends(require("certificate_of_payment", "read"))],
+    purchaseOrderID: int,
+    periodStart: str,
+    periodEnd: str,
+    kecualiCopID: Optional[int] = None,
+):
+    """
+    CoP lain atas SPK yang sama yang periodenya bertindih.
+
+    Didaftarkan SEBELUM `/{cop_id}`: rute berparameter menangkap apa pun
+    yang menyerupainya, dan "periode-tindih" akan terbaca sebagai sebuah id
+    lalu ditolak sebagai bukan angka.
+    """
+    return _lempar_bila_galat(
+        await CertificateOfPaymentController.periode_bertindih(
+            purchaseOrderID, periodStart, periodEnd, kecualiCopID
+        )
+    )
+
+
 @router.get("/{cop_id}")
 async def detail_cop(
     cop_id: int,

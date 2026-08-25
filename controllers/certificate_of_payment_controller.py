@@ -1383,6 +1383,56 @@ class CertificateOfPaymentController:
             return internal_error()
 
     @staticmethod
+    async def periode_bertindih(
+        purchase_order_id: int,
+        mulai,
+        selesai,
+        kecuali_cop_id: int | None = None,
+    ):
+        """
+        CoP lain atas SPK yang sama yang periodenya bertindih.
+
+        PERINGATAN, BUKAN PENOLAKAN.
+
+        Periode yang bertindih tidak selalu salah — pekerjaan dapat memang
+        disertifikasi ulang setelah perbaikan, dan CoP pembatalan pun
+        memakai rentang yang sama. Yang keliru adalah bertindih TANPA
+        disadari, dan itu diselesaikan dengan menunjukkan dokumen
+        pembandingnya, bukan dengan menutup jalan.
+
+        Karena itu ia berdiri sebagai jalan keluar tersendiri yang dibaca
+        layar sebelum menyimpan — bukan pemeriksaan di dalam `create` yang
+        akan memaksa server menolak.
+        """
+        try:
+            if not purchase_order_id or not mulai or not selesai:
+                return {"bertindih": []}
+            baris = await CertificateOfPaymentRepository.periode_bertindih(
+                purchase_order_id, mulai, selesai, kecuali_cop_id
+            )
+            return {
+                "bertindih": [
+                    {
+                        "id": b["id"],
+                        "name": b["name"],
+                        "number": b["number"],
+                        "date": b["date"],
+                        "periodStart": b["periodStart"],
+                        "periodEnd": b["periodEnd"],
+                        "keadaan": (
+                            "disetujui"
+                            if b.get("isApproved")
+                            else "diperiksa" if b.get("isChecked") else "draft"
+                        ),
+                    }
+                    for b in baris
+                ]
+            }
+        except Exception as e:
+            log_error(f"Gagal memeriksa tindih periode CoP: {str(e)}")
+            return internal_error()
+
+    @staticmethod
     async def tagihan(cop_id: int, user_level: int = 1):
         """Keadaan penagihan sebuah CoP: sudah, atau belum."""
         try:

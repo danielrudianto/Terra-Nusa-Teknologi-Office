@@ -2161,3 +2161,148 @@ class TestSaringKeadaan:
                     if uji
                 ]
                 assert len(cocok) == 1, (checked, approved, cocok)
+
+
+class TestPeriodeBertindih:
+    """
+    Dua CoP atas SPK yang sama tidak boleh menyertifikasi hari yang sama
+    dua kali.
+
+    Ini PERINGATAN, bukan penolakan: bertindih kadang memang disengaja.
+    Yang keliru adalah bertindih tanpa disadari.
+    """
+
+    @pytest.mark.asyncio
+    async def test_ujung_bertemu_ujung_dihitung_bertindih(self, monkeypatch):
+        """
+        Yang lalu berakhir tanggal 12, yang ini mulai tanggal 12.
+
+        Inilah bentuk yang paling sering terjadi, dan justru inilah yang
+        lolos bila perbandingannya memakai `<` alih-alih `<=`. Batas periode
+        bersifat INKLUSIF — tanggal akhir adalah hari yang ikut dihitung,
+        bukan penanda berhenti — sehingga tanggal 12 masuk di kedua dokumen
+        dan pekerjaannya tertagih dua kali.
+        """
+        terpakai = {}
+
+        async def _fetch_all(query, values=None):
+            terpakai["q"] = " ".join(str(query).split())
+            terpakai["v"] = values or {}
+            return []
+
+        monkeypatch.setattr(
+            "repository.certificate_of_payment_repository.database.fetch_all",
+            _fetch_all,
+        )
+        await Repo.periode_bertindih(7, "2026-08-12", "2026-08-20")
+
+        # Batasnya harus inklusif di KEDUA ujung.
+        assert ":mulai <= c.periodEnd" in terpakai["q"]
+        assert ":selesai >= c.periodStart" in terpakai["q"]
+        assert ":mulai < c.periodEnd" not in terpakai["q"]
+        assert ":selesai > c.periodStart" not in terpakai["q"]
+        assert terpakai["v"]["po"] == 7
+
+    @pytest.mark.asyncio
+    async def test_dokumen_yang_disunting_dikecualikan(self, monkeypatch):
+        """
+        Tanpa ini, menyunting periode sebuah CoP memunculkan peringatan
+        bahwa ia bertindih dengan dirinya sendiri — dan tidak ada cara
+        menyimpannya tanpa mengabaikan peringatan yang selalu benar.
+        """
+        terpakai = {}
+
+        async def _fetch_all(query, values=None):
+            terpakai["q"] = " ".join(str(query).split())
+            terpakai["v"] = values or {}
+            return []
+
+        monkeypatch.setattr(
+            "repository.certificate_of_payment_repository.database.fetch_all",
+            _fetch_all,
+        )
+        await Repo.periode_bertindih(7, "2026-08-01", "2026-08-31", kecuali_cop_id=99)
+        assert "c.id <> :kecuali" in terpakai["q"]
+        assert terpakai["v"]["kecuali"] == 99
+
+        terpakai.clear()
+        await Repo.periode_bertindih(7, "2026-08-01", "2026-08-31")
+        assert "c.id <> :kecuali" not in terpakai["q"]
+
+    @pytest.mark.asyncio
+    async def test_hanya_spk_yang_sama_dan_belum_terhapus(self, monkeypatch):
+        """
+        Tindih hanya berarti pada SPK yang sama. Dokumen terhapus tidak
+        menyertifikasi apa pun dan tidak boleh memunculkan peringatan.
+        """
+        terpakai = {}
+
+        async def _fetch_all(query, values=None):
+            terpakai["q"] = " ".join(str(query).split())
+            return []
+
+        monkeypatch.setattr(
+            "repository.certificate_of_payment_repository.database.fetch_all",
+            _fetch_all,
+        )
+        await Repo.periode_bertindih(7, "2026-08-01", "2026-08-31")
+        assert "c.purchaseOrderID = :po" in terpakai["q"]
+        assert "c.isDelete = 0" in terpakai["q"]
+
+    @pytest.mark.asyncio
+    async def test_keadaan_disimpulkan_bukan_dikirim_mentah(self, monkeypatch):
+        """
+        Layar menampilkan "draf / diperiksa / disetujui", bukan dua angka
+        biner yang harus disimpulkan sendiri di dua tempat berbeda.
+        """
+
+        async def _tindih(po, mulai, selesai, kecuali=None):
+            return [
+                {"id": 1, "name": "001-A", "number": 1, "date": None,
+                 "periodStart": None, "periodEnd": None,
+                 "isChecked": 0, "isApproved": 0},
+                {"id": 2, "name": "002-A", "number": 2, "date": None,
+                 "periodStart": None, "periodEnd": None,
+                 "isChecked": 1, "isApproved": 0},
+                {"id": 3, "name": "003-A", "number": 3, "date": None,
+                 "periodStart": None, "periodEnd": None,
+                 "isChecked": 1, "isApproved": 1},
+            ]
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository,
+            "periode_bertindih",
+            staticmethod(_tindih),
+        )
+        hasil = await CoP.periode_bertindih(7, "2026-08-01", "2026-08-31")
+        assert [b["keadaan"] for b in hasil["bertindih"]] == [
+            "draft",
+            "diperiksa",
+            "disetujui",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_tanpa_periode_tidak_menanyakan_apa_pun(self, monkeypatch):
+        """
+        Layar memanggilnya sambil periodenya masih diisi. Tanpa penjagaan
+        ini, tiap ketukan tanggal menembak kueri dengan `NULL` yang tidak
+        pernah cocok — dan diam-diam menjawab "tidak ada yang bertindih"
+        untuk pertanyaan yang belum lengkap.
+        """
+        dipanggil = {"n": 0}
+
+        async def _tindih(po, mulai, selesai, kecuali=None):
+            dipanggil["n"] += 1
+            return []
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository,
+            "periode_bertindih",
+            staticmethod(_tindih),
+        )
+        assert await CoP.periode_bertindih(7, None, "2026-08-31") == {"bertindih": []}
+        assert await CoP.periode_bertindih(7, "2026-08-01", None) == {"bertindih": []}
+        assert await CoP.periode_bertindih(0, "2026-08-01", "2026-08-31") == {
+            "bertindih": []
+        }
+        assert dipanggil["n"] == 0

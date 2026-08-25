@@ -845,6 +845,70 @@ class CertificateOfPaymentRepository:
         )
         return [dict(r) for r in baris]
 
+    @staticmethod
+    async def periode_bertindih(
+        purchase_order_id: int,
+        mulai,
+        selesai,
+        kecuali_cop_id: int | None = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        CoP lain atas SPK yang SAMA yang periodenya bertindih.
+
+        SYARAT TINDIHNYA
+
+        Dua rentang bertindih bila `mulai <= periodEnd` DAN
+        `selesai >= periodStart`. Bentuk ini menangkap seluruh keadaan
+        sekaligus — yang baru seluruhnya di dalam yang lama, yang lama di
+        dalam yang baru, dan yang saling menimpa sebagian — tanpa satu pun
+        cabang tambahan yang dapat tertinggal.
+
+        UJUNG BERTEMU UJUNG IKUT DIHITUNG
+
+        Tanda `<=` dan `>=`, bukan `<` dan `>`. Periode sebelumnya berakhir
+        tanggal 12 dan yang ini mulai tanggal 12 berarti pekerjaan tanggal 12
+        disertifikasi DUA KALI: batas periode di sini inklusif — tanggal
+        akhir adalah hari yang ikut dihitung, bukan penanda berhenti.
+        Memakai `<` membuat kasus yang paling sering terjadi justru lolos.
+
+        Yang dikembalikan seluruh yang bertindih, bukan sekadar penanda
+        benar/salah: yang mengisi perlu melihat NOMOR dan TANGGAL dokumen
+        pembandingnya untuk memutuskan — dan tanpa itu ia harus mencarinya
+        sendiri di daftar.
+        """
+        syarat = [
+            "c.isDelete = 0",
+            "c.purchaseOrderID = :po",
+            "c.periodStart IS NOT NULL",
+            "c.periodEnd IS NOT NULL",
+            ":mulai <= c.periodEnd",
+            ":selesai >= c.periodStart",
+        ]
+        params: Dict[str, Any] = {
+            "po": int(purchase_order_id),
+            "mulai": mulai,
+            "selesai": selesai,
+        }
+        # Dokumen yang sedang DISUNTING tidak bertindih dengan dirinya
+        # sendiri; tanpa pengecualian ini setiap penyuntingan periode
+        # memunculkan peringatan atas dokumen itu juga.
+        if kecuali_cop_id:
+            syarat.append("c.id <> :kecuali")
+            params["kecuali"] = int(kecuali_cop_id)
+
+        baris = await database.fetch_all(
+            f"""
+            SELECT c.id, c.name, c.number, c.date,
+                   c.periodStart, c.periodEnd,
+                   c.isChecked, c.isApproved
+            FROM certificate_of_payments c
+            WHERE {' AND '.join(syarat)}
+            ORDER BY c.periodStart ASC, c.id ASC
+            """,
+            params,
+        )
+        return [dict(r) for r in baris]
+
     # ------------------------------------------------------------------
     # Penyesuaian & ringkasan nilai
     # ------------------------------------------------------------------
