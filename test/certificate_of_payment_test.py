@@ -1548,3 +1548,79 @@ class TestPencarianDaftar:
         hasil = await CoP.get_all(user_level=1, keyword="CoP")
         bocor = _sisir_uang(hasil)
         assert not bocor, f"nilai rupiah bocor lewat pencarian: {bocor}"
+
+
+class TestPemasokPadaKandidatSpk:
+    """
+    Alamat pemasok ikut ke layar — termasuk ke level 1.
+
+    Ia BUKAN nilai rupiah. Yang mengisi volume tetap perlu memastikan SPK
+    yang dipegangnya milik pemasok yang benar, dan nomor SPK yang mirip
+    justru dibedakan oleh ini. Menahannya "karena level 1" adalah salah
+    paham tentang apa yang sebenarnya dijaga.
+    """
+
+    @staticmethod
+    def _spk():
+        return {
+            "id": 5,
+            "name": "013-SPK-MICZ-B",
+            "projectName": "MICZ",
+            "purchaseType": "B",
+            "customData": None,
+            "date": None,
+            "dpp": Decimal("500000000"),
+            "supplierName": "PT. Subadi Karya",
+            "supplierAddress": "Jalan Cisaranten Kulon No. 66-H, Bandung",
+        }
+
+    @pytest.mark.asyncio
+    async def test_alamat_sampai_ke_level_1(self, monkeypatch):
+        async def _kandidat(proyek=None, kata=None):
+            return [TestPemasokPadaKandidatSpk._spk()]
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository,
+            "spk_kandidat",
+            staticmethod(_kandidat),
+        )
+        hasil = await CoP.spk_kandidat(user_level=1)
+        assert len(hasil) == 1
+        assert hasil[0]["supplierName"] == "PT. Subadi Karya"
+        assert hasil[0]["supplierAddress"].startswith("Jalan Cisaranten")
+
+    @pytest.mark.asyncio
+    async def test_alamat_tidak_menyeret_nilai_kontrak(self, monkeypatch):
+        """
+        Yang DIJAGA tetap dijaga.
+
+        Baris yang sama membawa `dpp`; kalau penyaringnya kendur saat alamat
+        ditambahkan, nilai kontrak ikut lolos lewat pintu yang sama.
+        """
+
+        async def _kandidat(proyek=None, kata=None):
+            return [TestPemasokPadaKandidatSpk._spk()]
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository,
+            "spk_kandidat",
+            staticmethod(_kandidat),
+        )
+        hasil = await CoP.spk_kandidat(user_level=1)
+        bocor = _sisir_uang(hasil)
+        assert not bocor, f"nilai rupiah bocor lewat kandidat SPK: {bocor}"
+        assert "dpp" not in hasil[0]
+
+    @pytest.mark.asyncio
+    async def test_level_2_tetap_menerima_dpp(self, monkeypatch):
+        async def _kandidat(proyek=None, kata=None):
+            return [TestPemasokPadaKandidatSpk._spk()]
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository,
+            "spk_kandidat",
+            staticmethod(_kandidat),
+        )
+        hasil = await CoP.spk_kandidat(user_level=2)
+        assert hasil[0]["dpp"] == 500_000_000
+        assert hasil[0]["supplierAddress"]

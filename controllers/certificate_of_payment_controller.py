@@ -155,6 +155,11 @@ class CertificateOfPaymentController:
                     "projectName": po["projectName"],
                     "purchaseType": po["purchaseType"],
                     "supplierName": po.get("supplierName"),
+                    # Alamat pemasok BUKAN nilai rupiah, jadi ia ikut ke
+                    # level 1: yang mengisi volume tetap perlu memastikan
+                    # SPK yang dipegangnya milik pemasok yang benar, dan
+                    # nomor SPK yang mirip dibedakan justru oleh ini.
+                    "supplierAddress": po.get("supplierAddress"),
                     "date": po.get("date"),
                 }
                 if boleh_melihat_nilai_cop(user_level):

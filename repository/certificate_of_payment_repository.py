@@ -408,6 +408,11 @@ class CertificateOfPaymentRepository:
                 SELECT c.*,
                        po.name        AS purchaseOrderName,
                        po.purchaseType,
+                       -- Pemasok ikut dibaca: lembar periksa menampilkannya
+                       -- pada kartu yang sama dengan formulir purchase
+                       -- order, dan kartu itu memuat nama beserta alamat.
+                       pemasok.name    AS supplierName,
+                       pemasok.address AS supplierAddress,
                        pembuat.name   AS createdByName,
                        pemeriksa.name AS checkedByName,
                        penyetuju.name AS approvedByName,
@@ -422,6 +427,7 @@ class CertificateOfPaymentRepository:
                        penyetuju.position AS approvedByPosition
                 FROM certificate_of_payments c
                 JOIN purchase_orders po ON po.id = c.purchaseOrderID
+                LEFT JOIN suppliers pemasok ON pemasok.id = po.supplierID
                 LEFT JOIN users pembuat   ON pembuat.id   = c.createdBy
                 LEFT JOIN users pemeriksa ON pemeriksa.id = c.checkedBy
                 LEFT JOIN users penyetuju ON penyetuju.id = c.approvedBy
@@ -575,7 +581,13 @@ class CertificateOfPaymentRepository:
                 f"""
                 SELECT po.id, po.name, po.projectName, po.purchaseType,
                        po.customData, po.date, po.dpp,
-                       s.name AS supplierName
+                       s.name AS supplierName,
+                       -- Alamat ikut dibaca karena layar pengisian
+                       -- menampilkan pemasok pada kartu yang sama dengan
+                       -- formulir purchase order — dan kartu itu memuat
+                       -- alamatnya. Tanpa ini kartunya kehilangan satu
+                       -- baris dan berhenti sebangun dengan padanannya.
+                       s.address AS supplierAddress
                 FROM purchase_orders po
                 LEFT JOIN suppliers s ON s.id = po.supplierID
                 WHERE {' AND '.join(syarat)}
