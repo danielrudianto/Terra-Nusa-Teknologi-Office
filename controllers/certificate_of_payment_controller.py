@@ -37,6 +37,7 @@ from utils.permission import (
     boleh_melihat_nilai_cop,
     boleh_membuat_cop,
     boleh_memeriksa_cop,
+    boleh_menyetujui_bap_cop,
     boleh_menyetujui_cop,
     boleh_menyetujui_sendiri,
 )
@@ -519,11 +520,11 @@ class CertificateOfPaymentController:
         departments: set | None = None,
     ):
         """
-        Sunting CoP — hanya SELAMA belum diperiksa.
+        Sunting CoP — hanya SELAMA BAP-nya belum disetujui.
 
-        Setelah diperiksa, isinya sudah menjadi dasar orang lain mengambil
-        keputusan; mengubahnya diam-diam membuat yang memeriksa menyetujui
-        angka yang bukan lagi yang dibacanya.
+        Setelah BAP disetujui, volumenya sudah menjadi progres yang diakui
+        sah dan menjadi dasar harga diisi; mengubahnya diam-diam membuat yang
+        menyetujui BAP mengesahkan angka yang bukan lagi yang dibacanya.
         """
         try:
             lama = await CertificateOfPaymentRepository.get_by_id(cop_id)
@@ -547,11 +548,11 @@ class CertificateOfPaymentController:
                     403,
                 )
 
-            if lama.get("isChecked"):
+            if lama.get("isBapApproved"):
                 return app_error(
                     ErrorCode.VALIDATION,
-                    "Certificate of payment ini sudah diperiksa. Cabut "
-                    "pemeriksaannya lebih dahulu bila memang perlu diubah.",
+                    "BAP-nya sudah disetujui. Batalkan persetujuan BAP lebih "
+                    "dahulu bila volumenya memang perlu diubah.",
                     409,
                 )
 
@@ -599,8 +600,68 @@ class CertificateOfPaymentController:
             return internal_error()
 
     # ------------------------------------------------------------------
-    # Periksa & setujui
+    # Empat tahap: buat BAP -> setujui BAP -> buat CoP -> setujui CoP
     # ------------------------------------------------------------------
+
+    @staticmethod
+    async def approve_bap(
+        cop_id: int,
+        approve: bool,
+        user_id: int,
+        user_level: int = 1,
+    ):
+        """
+        Setujui / batalkan BAP — GERBANG PERTAMA.
+
+        Level 4 ke atas. Inilah yang mengesahkan progres lapangan; baru
+        SESUDAHNYA harga boleh diisi. Pembuatnya sendiri tidak menyetujuinya
+        (kecuali level yang boleh setuju-sendiri) — persetujuan ada untuk
+        menghadirkan tangan kedua atas volume yang dicatat.
+        """
+        try:
+            if not boleh_menyetujui_bap_cop(user_level):
+                return app_error(
+                    ErrorCode.FORBIDDEN,
+                    "Persetujuan BAP hanya dapat dilakukan level 4 ke atas.",
+                    403,
+                )
+
+            cop = await CertificateOfPaymentRepository.get_by_id(cop_id)
+            if isinstance(cop, dict) and "error" in cop:
+                return cop
+
+            if approve and cop.get("isBapApproved"):
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "BAP ini sudah disetujui.",
+                    409,
+                )
+
+            # Membatalkan persetujuan BAP setelah CoP disetujui berarti
+            # menarik dasar sebuah tagihan yang sudah terbit — tidak lewat
+            # sini, melainkan lewat penghapusan yang tercatat.
+            if not approve and cop.get("isApproved"):
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "CoP sudah disetujui; persetujuan BAP tidak dapat "
+                    "dibatalkan lagi.",
+                    409,
+                )
+
+            if approve and not boleh_menyetujui_sendiri(user_level):
+                if int(cop.get("createdBy") or 0) == int(user_id):
+                    return app_error(
+                        ErrorCode.SELF_APPROVAL_FORBIDDEN,
+                        "BAP tidak dapat disetujui oleh pembuatnya sendiri.",
+                        403,
+                    )
+
+            return await CertificateOfPaymentRepository.bap_approve(
+                cop_id, approve, user_id
+            )
+        except Exception as e:
+            log_error(f"Gagal menyetujui BAP CoP: {str(e)}")
+            return internal_error()
 
     @staticmethod
     async def set_checked(
@@ -610,12 +671,18 @@ class CertificateOfPaymentController:
         user_level: int = 1,
         departments: set | None = None,
     ):
-        """Tandai CoP sudah/belum diperiksa."""
+        """
+        Tandai CoP DIBUAT / batalkan pembuatannya — tahap harga & potongan.
+
+        Yang menstempelnya adalah PEMBUAT CoP (engineering level 2 ke atas),
+        dan HANYA setelah BAP-nya disetujui: sebelum itu tidak ada nilai
+        rupiah yang boleh disentuh sama sekali.
+        """
         try:
             if not boleh_memeriksa_cop(user_level, departments):
                 return app_error(
                     ErrorCode.FORBIDDEN,
-                    "Pemeriksaan hanya dapat dilakukan engineering level 2 "
+                    "Pembuatan CoP hanya dapat dilakukan engineering level 2 "
                     "ke atas.",
                     403,
                 )
@@ -624,35 +691,30 @@ class CertificateOfPaymentController:
             if isinstance(cop, dict) and "error" in cop:
                 return cop
 
-            # Pembuatnya tidak memeriksa sendiri.
-            #
-            # Pemeriksaan ada untuk menghadirkan mata kedua atas volume yang
-            # dicatat; yang mencatat dan memeriksa sendiri mengembalikannya
-            # menjadi satu tangan.
-            if checked and not boleh_menyetujui_sendiri(user_level):
-                if int(cop.get("createdBy") or 0) == int(user_id):
-                    return app_error(
-                        ErrorCode.SELF_APPROVAL_FORBIDDEN,
-                        "Certificate of payment tidak dapat diperiksa oleh "
-                        "pembuatnya sendiri.",
-                        403,
-                    )
+            # GERBANG BAP. CoP tidak dapat dibuat sebelum progresnya disahkan.
+            if checked and not cop.get("isBapApproved"):
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "BAP belum disetujui. CoP baru dapat dibuat setelah "
+                    "progres lapangannya disetujui lebih dahulu.",
+                    400,
+                )
 
             return await CertificateOfPaymentRepository.set_checked(
                 cop_id, checked, user_id
             )
         except Exception as e:
-            log_error(f"Gagal menandai pemeriksaan CoP: {str(e)}")
+            log_error(f"Gagal menandai pembuatan CoP: {str(e)}")
             return internal_error()
 
     @staticmethod
     async def approve(cop_id: int, user_id: int, user_level: int = 1):
-        """Setujui CoP — tahap terakhir."""
+        """Setujui CoP — GERBANG TERAKHIR, level 4 ke atas."""
         try:
             if not boleh_menyetujui_cop(user_level):
                 return app_error(
                     ErrorCode.FORBIDDEN,
-                    "Persetujuan hanya dapat dilakukan level 3 ke atas.",
+                    "Persetujuan CoP hanya dapat dilakukan level 4 ke atas.",
                     403,
                 )
 
@@ -667,12 +729,18 @@ class CertificateOfPaymentController:
                     409,
                 )
 
-            # Harus SUDAH DIPERIKSA.
-            if not cop.get("isChecked"):
+            # Harus SUDAH LEWAT dua tahap sebelumnya.
+            if not cop.get("isBapApproved"):
                 return app_error(
                     ErrorCode.VALIDATION,
-                    "Certificate of payment belum diperiksa. Mintakan "
-                    "pemeriksaan lebih dahulu.",
+                    "BAP belum disetujui. Setujui BAP-nya lebih dahulu.",
+                    400,
+                )
+            if not cop.get("isCopCreated"):
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "CoP belum dibuat. Harga dan potongannya perlu diisi "
+                    "lebih dahulu.",
                     400,
                 )
 
@@ -684,16 +752,25 @@ class CertificateOfPaymentController:
                         "pembuatnya sendiri.",
                         403,
                     )
-                # Pemeriksa tidak menyetujui yang diperiksanya sendiri —
-                # penjagaan yang sama seperti pada purchase order, dan karena
-                # alasan yang sama: dua tahap yang dikerjakan satu orang
-                # berturut-turut bukan dua tangan.
-                pemeriksa = cop.get("checkedBy")
-                if pemeriksa is not None and int(pemeriksa) == int(user_id):
+                # Yang menyetujui BAP tidak merangkap menyetujui CoP — dua
+                # persetujuan berarti dua orang. Karena keduanya level 4 dan
+                # ambang setuju-sendiri = 5, level 4 tidak pernah lolos.
+                penyetuju_bap = cop.get("bapApprovedBy")
+                if penyetuju_bap is not None and int(penyetuju_bap) == int(user_id):
                     return app_error(
                         ErrorCode.PO_CHECKER_IS_APPROVER,
                         "Certificate of payment tidak dapat disetujui oleh "
-                        "pemeriksanya sendiri.",
+                        "yang menyetujui BAP-nya sendiri.",
+                        403,
+                    )
+                # Pembuat CoP (yang mengisi harga) tidak menyetujui buatannya
+                # sendiri — penjagaan yang sama seperti pada purchase order.
+                pembuat_cop = cop.get("copCreatedBy")
+                if pembuat_cop is not None and int(pembuat_cop) == int(user_id):
+                    return app_error(
+                        ErrorCode.PO_CHECKER_IS_APPROVER,
+                        "Certificate of payment tidak dapat disetujui oleh "
+                        "pembuat CoP-nya sendiri.",
                         403,
                     )
 
@@ -817,7 +894,7 @@ class CertificateOfPaymentController:
             if not boleh_memeriksa_cop(user_level, departments):
                 return app_error(
                     ErrorCode.FORBIDDEN,
-                    "Potongan dan tambahan hanya dapat diisi pemeriksa "
+                    "Potongan dan tambahan hanya dapat diisi pembuat CoP "
                     "(engineering level 2 ke atas).",
                     403,
                 )
@@ -825,6 +902,16 @@ class CertificateOfPaymentController:
             cop = await CertificateOfPaymentRepository.get_by_id(cop_id)
             if isinstance(cop, dict) and "error" in cop:
                 return cop
+
+            # GERBANG BAP. Nilai rupiah baru boleh disentuh setelah progres
+            # lapangannya disahkan — sebelum itu tidak ada harga sama sekali.
+            if not cop.get("isBapApproved"):
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "BAP belum disetujui. Potongan dan tambahan baru dapat "
+                    "diisi setelah progres lapangannya disetujui.",
+                    400,
+                )
 
             if cop.get("isApproved"):
                 return app_error(
@@ -1048,7 +1135,7 @@ class CertificateOfPaymentController:
             # BAP tetap boleh dicetak: ia menyatakan volume yang terlaksana,
             # bukan nilai yang dibayar, dan justru itulah yang dibawa ke
             # lapangan untuk diperiksa lebih dulu.
-            if sertakan_cop and not cop.get("isChecked"):
+            if sertakan_cop and not cop.get("isCopCreated"):
                 return app_error(
                     ErrorCode.VALIDATION,
                     "Certificate of payment belum diperiksa, jadi belum dapat "
@@ -1242,13 +1329,18 @@ class CertificateOfPaymentController:
                     "note": cop.get("note"),
                     "projectName": cop["projectName"],
                     "createdByName": cop.get("createdByName"),
-                    "checkedByName": cop.get("checkedByName"),
+                    "bapApprovedByName": cop.get("bapApprovedByName"),
+                    "copCreatedByName": cop.get("copCreatedByName"),
                     "approvedByName": cop.get("approvedByName"),
                     "createdByPosition": cop.get("createdByPosition"),
-                    "checkedByPosition": cop.get("checkedByPosition"),
+                    "bapApprovedByPosition": cop.get("bapApprovedByPosition"),
+                    "copCreatedByPosition": cop.get("copCreatedByPosition"),
                     "approvedByPosition": cop.get("approvedByPosition"),
-                    "checkedAt": cop.get("checkedAt"),
+                    "bapApprovedAt": cop.get("bapApprovedAt"),
+                    "copCreatedAt": cop.get("copCreatedAt"),
                     "approvedAt": cop.get("approvedAt"),
+                    "isBapApproved": bool(cop.get("isBapApproved")),
+                    "isCopCreated": bool(cop.get("isCopCreated")),
                     "isApproved": bool(cop.get("isApproved")),
                 },
                 "spk": {
@@ -1426,7 +1518,11 @@ class CertificateOfPaymentController:
                         "keadaan": (
                             "disetujui"
                             if b.get("isApproved")
-                            else "diperiksa" if b.get("isChecked") else "draft"
+                            else "dibuat"
+                            if b.get("isCopCreated")
+                            else "bap"
+                            if b.get("isBapApproved")
+                            else "draft"
                         ),
                     }
                     for b in baris

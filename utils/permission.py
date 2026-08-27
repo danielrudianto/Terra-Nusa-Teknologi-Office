@@ -485,15 +485,23 @@ def boleh_menyetujui_sendiri(level) -> bool:
 # Certificate of Payment
 # =====================================================================
 #
-# Tiga tangan, tiga level, satu divisi:
+# Empat tangan, satu divisi:
 #
-#   dibuat    level 1 engineering  — orang lapangan, ia yang menyaksikan
-#   diperiksa level 2 engineering  — angkanya dicocokkan dengan SPK
-#   disetujui level 3 ke atas      — boleh ditagihkan
+#   dibuat        level 1 engineering  — orang lapangan, ia yang menyaksikan
+#   BAP disetujui level 4 ke atas      — progres lapangannya diakui sah;
+#                                        BARU setelah ini harga boleh diisi
+#   diperiksa     level 2 engineering  — harga & potongan dicocokkan SPK
+#   CoP disetujui level 4 ke atas      — boleh ditagihkan
 #
-# Divisi ditegakkan untuk level 1-3. Level 4 ke atas dibebaskan dari
-# divisinya, sama seperti pada purchase order: keduanya berwenang atas
-# seluruh dokumen dan kerap merekalah satu-satunya yang hadir.
+# Dua persetujuan, keduanya level 4 ke atas, tetapi BUKAN pekerjaan yang sama:
+# yang pertama mengesahkan progres LAPANGAN (BAP) sebelum ada rupiah, yang
+# kedua mengesahkan NILAI yang ditagihkan sesudah pemeriksa mengisinya. Karena
+# ambang setuju-sendiri = 5, level 4 tidak dapat merangkap keduanya sekaligus
+# maupun menyetujui buatannya sendiri — dua persetujuan berarti dua orang.
+#
+# Divisi ditegakkan untuk pembuatan & pemeriksaan (level 1-3). Level 4 ke atas
+# dibebaskan dari divisinya, sama seperti pada purchase order: keduanya
+# berwenang atas seluruh dokumen dan kerap merekalah satu-satunya yang hadir.
 
 DIVISI_COP = frozenset({"engineering"})
 
@@ -502,7 +510,12 @@ LEVEL_COP_BEBAS_DIVISI = 4
 
 LEVEL_COP_BUAT = 1
 LEVEL_COP_PERIKSA = 2
-LEVEL_COP_SETUJU = 3
+#: Persetujuan BAP (gerbang pertama) DAN persetujuan CoP (gerbang terakhir)
+#: sama-sama level 4 ke atas. Disamakan sengaja: keduanya keputusan atas
+#: dokumen yang sama, dan yang berwenang menerbitkan tagihan adalah yang
+#: berwenang mengakui progresnya.
+LEVEL_COP_SETUJU_BAP = 4
+LEVEL_COP_SETUJU = 4
 
 #: Level minimum yang boleh MELIHAT nilai rupiah pada CoP.
 #
@@ -549,9 +562,22 @@ def boleh_memeriksa_cop(level, departments=None) -> bool:
     return _divisi_cop_terpenuhi(lv, departments)
 
 
+def boleh_menyetujui_bap_cop(level) -> bool:
+    """
+    Boleh MENYETUJUI BAP — gerbang pertama, sebelum harga diisi.
+
+    Tanpa syarat divisi, sama seperti persetujuan CoP: mengesahkan progres
+    lapangan adalah keputusan atasan, bukan pekerjaan teknis engineering.
+    """
+    try:
+        return int(level or 1) >= LEVEL_COP_SETUJU_BAP
+    except (TypeError, ValueError):
+        return False
+
+
 def boleh_menyetujui_cop(level) -> bool:
     """
-    Boleh MENYETUJUI certificate of payment.
+    Boleh MENYETUJUI certificate of payment — gerbang terakhir.
 
     Tanpa syarat divisi: persetujuan adalah keputusan, bukan pekerjaan
     teknis, dan yang menanggungnya bukan divisi engineering.

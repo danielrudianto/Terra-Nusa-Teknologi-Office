@@ -120,12 +120,12 @@
 </table>
 
 <!--
-  KIRI yang MENYETUJUI, KANAN yang MEMERIKSA.
+  KIRI yang MENYETUJUI, TENGAH yang MENYETUJUI BAP.
 
+  Lembar ini adalah BAP: yang menandatangani di tengah adalah yang
+  MENYETUJUI progres lapangannya (gerbang pertama), bukan pengisi harga.
   Urutannya bukan selera tata letak: pada lembar yang ditandatangani, yang
-  paling kiri dibaca sebagai yang paling bertanggung jawab. Menukarnya
-  membuat pemeriksa tampak sebagai penanggung akhir atas hasil pemeriksaan
-  yang bukan keputusannya.
+  paling kiri dibaca sebagai yang paling bertanggung jawab.
 -->
 <table class="bap-ttd">
   <tr>
@@ -140,11 +140,11 @@
       {% endif %}
     </td>
     <td>
-      <div class="bt-peran">Diperiksa oleh,</div>
+      <div class="bt-peran">Disetujui oleh,</div>
       <div class="bt-badan">&nbsp;</div>
-      {% if cop.checkedByName %}
-      <div class="bt-nama">{{ cop.checkedByName }}</div>
-      <div class="bt-jabatan">{{ cop.checkedByPosition or "" }}</div>
+      {% if cop.bapApprovedByName %}
+      <div class="bt-nama">{{ cop.bapApprovedByName }}</div>
+      <div class="bt-jabatan">{{ cop.bapApprovedByPosition or "" }}</div>
       {% else %}
       <div>(<span class="bt-kosong">&nbsp;</span>)</div>
       {% endif %}

@@ -330,6 +330,26 @@ async def set_penyesuaian(
     )
 
 
+@router.patch("/{cop_id}/approve-bap")
+async def setujui_bap(
+    cop_id: int,
+    current_user: Annotated[User, Depends(require("certificate_of_payment", "approve"))],
+    approve: bool = True,
+):
+    """
+    Setujui / batalkan BAP — GERBANG PERTAMA (level 4 ke atas).
+
+    `approve=false` membatalkannya, dan ikut menggugurkan tahap sesudahnya.
+    Dijaga izin `approve` yang sama dengan persetujuan CoP: keduanya keputusan
+    atas dokumen yang sama.
+    """
+    return _lempar_bila_galat(
+        await CertificateOfPaymentController.approve_bap(
+            cop_id, approve, current_user["id"], _level(current_user)
+        )
+    )
+
+
 @router.patch("/{cop_id}/approve")
 async def setujui_cop(
     cop_id: int,

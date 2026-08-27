@@ -133,6 +133,10 @@ def repo(monkeypatch):
         keadaan["approve"] = (cop_id, user_id)
         return {"message": "ok"}
 
+    async def _bap_approve(cop_id, approve, user_id):
+        keadaan["bap_approve"] = (cop_id, approve, user_id)
+        return {"message": "ok"}
+
     async def _ganti(cop_id, items, user_id):
         keadaan["items_disimpan"] = [dict(i) for i in items]
         return {"message": "ok"}
@@ -147,6 +151,7 @@ def repo(monkeypatch):
     monkeypatch.setattr(modul.CertificateOfPaymentRepository, "get_by_id", staticmethod(_get_by_id))
     monkeypatch.setattr(modul.CertificateOfPaymentRepository, "set_checked", staticmethod(_set_checked))
     monkeypatch.setattr(modul.CertificateOfPaymentRepository, "approve", staticmethod(_approve))
+    monkeypatch.setattr(modul.CertificateOfPaymentRepository, "bap_approve", staticmethod(_bap_approve))
     monkeypatch.setattr(modul.CertificateOfPaymentRepository, "ganti_items", staticmethod(_ganti))
     monkeypatch.setattr(modul.CertificateOfPaymentRepository, "update_meta", staticmethod(_update_meta))
     monkeypatch.setattr(modul.PurchaseOrderRepository, "get_by_id", staticmethod(_spk))
@@ -400,78 +405,143 @@ class TestWewenang:
                                  departments={"engineering"})
         assert hasil["status"] == 400
 
+    # ---- gerbang 1: setujui BAP (level 4+) ----
+
     @pytest.mark.asyncio
-    async def test_periksa_butuh_level_2(self, repo):
-        repo["cop"] = {"id": 9, "createdBy": 7, "isChecked": False,
-                       "isApproved": False, "checkedBy": None}
+    async def test_setuju_bap_butuh_level_4(self, repo):
+        repo["cop"] = {"id": 9, "createdBy": 7, "isBapApproved": False,
+                       "isCopCreated": False, "isApproved": False,
+                       "bapApprovedBy": None, "copCreatedBy": None}
+        hasil = await CoP.approve_bap(9, True, user_id=8, user_level=3)
+        assert hasil["status"] == 403
+
+    @pytest.mark.asyncio
+    async def test_pembuat_tidak_setuju_bap_sendiri(self, repo):
+        repo["cop"] = {"id": 9, "createdBy": 7, "isBapApproved": False,
+                       "isCopCreated": False, "isApproved": False,
+                       "bapApprovedBy": None, "copCreatedBy": None}
+        hasil = await CoP.approve_bap(9, True, user_id=7, user_level=4)
+        assert hasil["status"] == 403
+        assert hasil["code"] == "SELF_APPROVAL_FORBIDDEN"
+
+    @pytest.mark.asyncio
+    async def test_setuju_bap_oleh_orang_lain_diterima(self, repo):
+        repo["cop"] = {"id": 9, "createdBy": 7, "isBapApproved": False,
+                       "isCopCreated": False, "isApproved": False,
+                       "bapApprovedBy": None, "copCreatedBy": None}
+        hasil = await CoP.approve_bap(9, True, user_id=8, user_level=4)
+        assert "error" not in hasil
+        assert repo["bap_approve"] == (9, True, 8)
+
+    # ---- gerbang 2: buat CoP / isi harga (level 2+), butuh BAP disetujui ----
+
+    @pytest.mark.asyncio
+    async def test_buat_cop_butuh_level_2(self, repo):
+        repo["cop"] = {"id": 9, "createdBy": 7, "isBapApproved": True,
+                       "isCopCreated": False, "isApproved": False,
+                       "bapApprovedBy": 4, "copCreatedBy": None}
         hasil = await CoP.set_checked(9, True, user_id=1, user_level=1,
                                       departments={"engineering"})
         assert hasil["status"] == 403
 
     @pytest.mark.asyncio
-    async def test_pembuat_tidak_memeriksa_sendiri(self, repo):
-        repo["cop"] = {"id": 9, "createdBy": 7, "isChecked": False,
-                       "isApproved": False, "checkedBy": None}
-        hasil = await CoP.set_checked(9, True, user_id=7, user_level=2,
+    async def test_buat_cop_butuh_bap_disetujui(self, repo):
+        repo["cop"] = {"id": 9, "createdBy": 7, "isBapApproved": False,
+                       "isCopCreated": False, "isApproved": False,
+                       "bapApprovedBy": None, "copCreatedBy": None}
+        hasil = await CoP.set_checked(9, True, user_id=8, user_level=2,
                                       departments={"engineering"})
-        assert hasil["status"] == 403
-        assert hasil["code"] == "SELF_APPROVAL_FORBIDDEN"
+        assert hasil["status"] == 400
 
     @pytest.mark.asyncio
-    async def test_periksa_oleh_orang_lain_diterima(self, repo):
-        repo["cop"] = {"id": 9, "createdBy": 7, "isChecked": False,
-                       "isApproved": False, "checkedBy": None}
+    async def test_buat_cop_setelah_bap_diterima(self, repo):
+        repo["cop"] = {"id": 9, "createdBy": 7, "isBapApproved": True,
+                       "isCopCreated": False, "isApproved": False,
+                       "bapApprovedBy": 4, "copCreatedBy": None}
         hasil = await CoP.set_checked(9, True, user_id=8, user_level=2,
                                       departments={"engineering"})
         assert "error" not in hasil
         assert repo["set_checked"] == (9, True, 8)
 
+    # ---- gerbang 3: setujui CoP (level 4+) ----
+
     @pytest.mark.asyncio
-    async def test_setuju_butuh_level_3(self, repo):
-        repo["cop"] = {"id": 9, "createdBy": 7, "isChecked": True,
-                       "isApproved": False, "checkedBy": 8}
-        hasil = await CoP.approve(9, user_id=8, user_level=2)
+    async def test_setuju_cop_butuh_level_4(self, repo):
+        repo["cop"] = {"id": 9, "createdBy": 7, "isBapApproved": True,
+                       "isCopCreated": True, "isApproved": False,
+                       "bapApprovedBy": 4, "copCreatedBy": 8}
+        hasil = await CoP.approve(9, user_id=5, user_level=3)
         assert hasil["status"] == 403
 
     @pytest.mark.asyncio
-    async def test_belum_diperiksa_tidak_dapat_disetujui(self, repo):
-        repo["cop"] = {"id": 9, "createdBy": 7, "isChecked": False,
-                       "isApproved": False, "checkedBy": None}
-        hasil = await CoP.approve(9, user_id=3, user_level=3)
+    async def test_bap_belum_disetujui_tidak_dapat_setuju_cop(self, repo):
+        repo["cop"] = {"id": 9, "createdBy": 7, "isBapApproved": False,
+                       "isCopCreated": False, "isApproved": False,
+                       "bapApprovedBy": None, "copCreatedBy": None}
+        hasil = await CoP.approve(9, user_id=5, user_level=4)
         assert hasil["status"] == 400
 
     @pytest.mark.asyncio
-    async def test_pemeriksa_tidak_menyetujui_periksaannya(self, repo):
-        repo["cop"] = {"id": 9, "createdBy": 7, "isChecked": True,
-                       "isApproved": False, "checkedBy": 3}
-        hasil = await CoP.approve(9, user_id=3, user_level=3)
+    async def test_cop_belum_dibuat_tidak_dapat_disetujui(self, repo):
+        repo["cop"] = {"id": 9, "createdBy": 7, "isBapApproved": True,
+                       "isCopCreated": False, "isApproved": False,
+                       "bapApprovedBy": 4, "copCreatedBy": None}
+        hasil = await CoP.approve(9, user_id=5, user_level=4)
+        assert hasil["status"] == 400
+
+    @pytest.mark.asyncio
+    async def test_penyetuju_bap_tidak_menyetujui_cop(self, repo):
+        """Dua persetujuan berarti dua orang: yang setujui BAP tak setujui CoP."""
+        repo["cop"] = {"id": 9, "createdBy": 7, "isBapApproved": True,
+                       "isCopCreated": True, "isApproved": False,
+                       "bapApprovedBy": 4, "copCreatedBy": 8}
+        hasil = await CoP.approve(9, user_id=4, user_level=4)
         assert hasil["status"] == 403
         assert hasil["code"] == "PO_CHECKER_IS_APPROVER"
 
     @pytest.mark.asyncio
-    async def test_alur_lengkap_tiga_tangan(self, repo):
-        """Dibuat orang 1, diperiksa orang 2, disetujui orang 3."""
+    async def test_pembuat_cop_tidak_menyetujui_cop(self, repo):
+        repo["cop"] = {"id": 9, "createdBy": 7, "isBapApproved": True,
+                       "isCopCreated": True, "isApproved": False,
+                       "bapApprovedBy": 4, "copCreatedBy": 5}
+        hasil = await CoP.approve(9, user_id=5, user_level=4)
+        assert hasil["status"] == 403
+        assert hasil["code"] == "PO_CHECKER_IS_APPROVER"
+
+    @pytest.mark.asyncio
+    async def test_alur_lengkap_empat_tangan(self, repo):
+        """Dibuat 1, BAP disetujui 4, CoP dibuat 2, CoP disetujui 5."""
         buat = await CoP.create(_muatan(40), user_id=1, user_level=1,
                                 departments={"engineering"})
         assert "error" not in buat
 
-        repo["cop"] = {"id": 99, "createdBy": 1, "isChecked": False,
-                       "isApproved": False, "checkedBy": None}
-        periksa = await CoP.set_checked(99, True, user_id=2, user_level=2,
-                                        departments={"engineering"})
-        assert "error" not in periksa
+        repo["cop"] = {"id": 99, "createdBy": 1, "isBapApproved": False,
+                       "isCopCreated": False, "isApproved": False,
+                       "bapApprovedBy": None, "copCreatedBy": None}
+        setuju_bap = await CoP.approve_bap(99, True, user_id=4, user_level=4)
+        assert "error" not in setuju_bap
+        assert repo["bap_approve"] == (99, True, 4)
 
-        repo["cop"] = {"id": 99, "createdBy": 1, "isChecked": True,
-                       "isApproved": False, "checkedBy": 2}
-        setuju = await CoP.approve(99, user_id=3, user_level=3)
+        repo["cop"] = {"id": 99, "createdBy": 1, "isBapApproved": True,
+                       "isCopCreated": False, "isApproved": False,
+                       "bapApprovedBy": 4, "copCreatedBy": None}
+        buat_cop = await CoP.set_checked(99, True, user_id=2, user_level=2,
+                                         departments={"engineering"})
+        assert "error" not in buat_cop
+
+        repo["cop"] = {"id": 99, "createdBy": 1, "isBapApproved": True,
+                       "isCopCreated": True, "isApproved": False,
+                       "bapApprovedBy": 4, "copCreatedBy": 2}
+        setuju = await CoP.approve(99, user_id=5, user_level=5)
         assert "error" not in setuju
-        assert repo["approve"] == (99, 3)
+        assert repo["approve"] == (99, 5)
 
     @pytest.mark.asyncio
     async def test_sudah_disetujui_tidak_disetujui_ulang(self, repo):
-        repo["cop"] = {"id": 9, "createdBy": 7, "isChecked": True,
-                       "isApproved": True, "checkedBy": 8}
-        hasil = await CoP.approve(9, user_id=3, user_level=3)
+        repo["cop"] = {"id": 9, "createdBy": 7, "isBapApproved": True,
+                       "isCopCreated": True, "isApproved": True,
+                       "bapApprovedBy": 4, "copCreatedBy": 8}
+        hasil = await CoP.approve(9, user_id=5, user_level=5)
         assert hasil["status"] == 409
 
 
@@ -482,9 +552,9 @@ class TestWewenang:
 
 class TestSunting:
     @pytest.mark.asyncio
-    async def test_sudah_diperiksa_tidak_dapat_diubah(self, repo):
+    async def test_bap_disetujui_tidak_dapat_diubah(self, repo):
         repo["cop"] = {"id": 9, "createdBy": 1, "purchaseOrderID": 5,
-                       "isChecked": True, "items": []}
+                       "isBapApproved": True, "items": []}
         hasil = await CoP.update(9, {"note": "x"}, user_id=1, user_level=1,
                                  departments={"engineering"})
         assert hasil["status"] == 409
@@ -492,7 +562,7 @@ class TestSunting:
     @pytest.mark.asyncio
     async def test_bukan_pembuat_level_rendah_ditolak(self, repo):
         repo["cop"] = {"id": 9, "createdBy": 1, "purchaseOrderID": 5,
-                       "isChecked": False, "items": []}
+                       "isBapApproved": False, "items": []}
         hasil = await CoP.update(9, {"note": "x"}, user_id=2, user_level=1,
                                  departments={"engineering"})
         assert hasil["status"] == 403
@@ -681,9 +751,12 @@ def repo_penyesuaian(repo, monkeypatch):
         "id": 9,
         "purchaseOrderID": 5,
         "createdBy": 1,
-        "isChecked": True,
+        # BAP sudah disetujui: harga & potongan baru boleh diisi setelahnya.
+        "isBapApproved": True,
+        "bapApprovedBy": 4,
+        "isCopCreated": False,
         "isApproved": False,
-        "checkedBy": 2,
+        "copCreatedBy": None,
         "grossAmount": Decimal("10000000"),
     }
 
@@ -735,6 +808,17 @@ class TestPenyesuaian:
         assert "error" not in hasil
         assert hasil["deductionTotal"] == 2000000
         assert hasil["netAmount"] == 8000000
+
+    @pytest.mark.asyncio
+    async def test_potongan_ditolak_sebelum_bap_disetujui(self, repo_penyesuaian):
+        """GERBANG BAP: harga tak boleh disentuh sebelum progres disahkan."""
+        repo_penyesuaian["cop"]["isBapApproved"] = False
+        repo_penyesuaian["cop"]["bapApprovedBy"] = None
+        hasil = await CoP.set_penyesuaian(
+            9, [_pot(nominal=2000000)], user_id=2, user_level=2,
+            departments={"engineering"},
+        )
+        assert hasil["status"] == 400
 
     @pytest.mark.asyncio
     async def test_tambahan_menambah_nilai_bersih(self, repo_penyesuaian):
@@ -957,9 +1041,10 @@ def repo_cetak(repo, monkeypatch):
         "purchaseOrderID": 5, "projectName": "R501",
         "date": "2026-08-11", "periodStart": None, "periodEnd": None,
         "note": None, "createdBy": 1, "createdByName": "Budi",
-        "checkedByName": "Sari", "approvedByName": "Daniel",
-        "checkedAt": None, "approvedAt": None,
-        "isChecked": True, "isApproved": True,
+        "bapApprovedByName": "Andi", "copCreatedByName": "Sari",
+        "approvedByName": "Daniel",
+        "copCreatedAt": None, "approvedAt": None,
+        "isBapApproved": True, "isCopCreated": True, "isApproved": True,
         "grossAmount": Decimal("52390000"),
         "deductionTotal": Decimal("0"),
         "additionTotal": Decimal("0"),
@@ -1705,7 +1790,10 @@ class TestUrutanDaftar:
         "diperiksa" mendahului "draf" dan daftarnya tidak menyatakan apa-apa.
         """
         hasil = Repo._urutan("keadaan", "asc")
-        assert hasil == "c.isApproved ASC, c.isChecked ASC, c.id DESC"
+        assert hasil == (
+            "c.isApproved ASC, c.isCopCreated ASC, c.isBapApproved ASC, "
+            "c.id DESC"
+        )
 
     @pytest.mark.asyncio
     async def test_urutan_diteruskan_ke_penyimpanan(self, monkeypatch):
@@ -1845,7 +1933,7 @@ class TestCetakSetelahDiperiksa:
                 "id": 9, "name": "001-R501-VIII-2026", "number": 1,
                 "purchaseOrderID": 5, "projectName": "R501",
                 "date": None, "periodStart": None, "periodEnd": None,
-                "isChecked": is_checked, "isApproved": 0,
+                "isBapApproved": 1, "isCopCreated": is_checked, "isApproved": 0,
                 "items": [], "adjustments": [],
                 "grossAmount": Decimal("0"), "deductionTotal": Decimal("0"),
                 "additionTotal": Decimal("0"), "netAmount": Decimal("0"),
@@ -1912,7 +2000,7 @@ class TestPenagihanCoP:
         return {
             "id": 9, "name": "001-R501-VIII-2026", "number": 1,
             "purchaseOrderID": 5, "projectName": "R501",
-            "isChecked": 1, "isApproved": disetujui,
+            "isBapApproved": 1, "isCopCreated": 1, "isApproved": disetujui,
             "items": [], "adjustments": [],
             "netAmount": Decimal("52390000"),
         }
@@ -2267,7 +2355,7 @@ class TestPeriodeBertindih:
     @pytest.mark.asyncio
     async def test_keadaan_disimpulkan_bukan_dikirim_mentah(self, monkeypatch):
         """
-        Layar menampilkan "draf / diperiksa / disetujui", bukan dua angka
+        Layar menampilkan "draf / BAP / dibuat / disetujui", bukan tiga angka
         biner yang harus disimpulkan sendiri di dua tempat berbeda.
         """
 
@@ -2275,13 +2363,16 @@ class TestPeriodeBertindih:
             return [
                 {"id": 1, "name": "001-A", "number": 1, "date": None,
                  "periodStart": None, "periodEnd": None,
-                 "isChecked": 0, "isApproved": 0},
+                 "isBapApproved": 0, "isCopCreated": 0, "isApproved": 0},
                 {"id": 2, "name": "002-A", "number": 2, "date": None,
                  "periodStart": None, "periodEnd": None,
-                 "isChecked": 1, "isApproved": 0},
+                 "isBapApproved": 1, "isCopCreated": 0, "isApproved": 0},
                 {"id": 3, "name": "003-A", "number": 3, "date": None,
                  "periodStart": None, "periodEnd": None,
-                 "isChecked": 1, "isApproved": 1},
+                 "isBapApproved": 1, "isCopCreated": 1, "isApproved": 0},
+                {"id": 4, "name": "004-A", "number": 4, "date": None,
+                 "periodStart": None, "periodEnd": None,
+                 "isBapApproved": 1, "isCopCreated": 1, "isApproved": 1},
             ]
 
         monkeypatch.setattr(
@@ -2292,7 +2383,8 @@ class TestPeriodeBertindih:
         hasil = await CoP.periode_bertindih(7, "2026-08-01", "2026-08-31")
         assert [b["keadaan"] for b in hasil["bertindih"]] == [
             "draft",
-            "diperiksa",
+            "bap",
+            "dibuat",
             "disetujui",
         ]
 

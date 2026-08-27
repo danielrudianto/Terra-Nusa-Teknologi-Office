@@ -173,11 +173,24 @@ certificate_of_payments_table = Table(
         nullable=False,
         server_default="0.0000",
     ),
-    # ---- tiga lapis: dibuat -> diperiksa -> disetujui ----
+    # ---- empat tahap: dibuat -> BAP disetujui -> diperiksa -> CoP disetujui ----
     #
-    # Sama seperti purchase order, dan disengaja: yang mencatat progres
-    # (lapangan) bukan yang memastikan angkanya benar (engineering), dan
-    # bukan pula yang memutuskan ia boleh ditagihkan.
+    # Sama seperti purchase order tetapi satu tahap lebih panjang, dan
+    # disengaja: yang mencatat progres (lapangan) bukan yang memutuskan
+    # progres itu sah, bukan pula yang mengisi harganya, bukan pula yang
+    # menerbitkan tagihannya.
+    #
+    #   dibuat        level 1 engineering — mengisi VOLUME saja
+    #   BAP disetujui level 4 ke atas     — progres lapangannya diakui sah;
+    #                                       BARU setelah ini harga boleh diisi
+    #   diperiksa     level 2 engineering — harga & potongan dimasukkan
+    #   CoP disetujui level 4 ke atas     — boleh ditagihkan
+    #
+    # `isBapApproved` adalah GERBANG PERTAMA: sebelum ia menyala, tidak ada
+    # nilai rupiah yang boleh disentuh — pemeriksaan dan penyesuaian sama-sama
+    # menolak. Ia memisahkan "pekerjaannya memang terjadi" (dicatat orang
+    # lapangan, disahkan atasan) dari "sekian rupiah yang ditagih" (dihitung
+    # pemeriksa, disetujui belakangan).
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
     Column(
         "createdAt",
@@ -186,6 +199,11 @@ certificate_of_payments_table = Table(
         server_default=func.now(),
         default=dt.now,
     ),
+    Column(
+        "isBapApproved", Boolean, nullable=False, server_default=text("0")
+    ),
+    Column("bapApprovedBy", Integer, ForeignKey("users.id"), nullable=True),
+    Column("bapApprovedAt", DateTime, nullable=True),
     Column("isChecked", Boolean, nullable=False, server_default=text("0")),
     Column("checkedBy", Integer, ForeignKey("users.id"), nullable=True),
     Column("checkedAt", DateTime, nullable=True),

@@ -607,9 +607,10 @@
       </div>
 
       <div class="jejak">
-        Dibuat: {{ cop.createdByName or "—" }}
-        · Diperiksa: {{ cop.checkedByName or "—" }}
-        · Disetujui: {{ cop.approvedByName or "—" }}
+        BAP dibuat: {{ cop.createdByName or "—" }}
+        · BAP disetujui: {{ cop.bapApprovedByName or "—" }}
+        · CoP dibuat: {{ cop.copCreatedByName or "—" }}
+        · CoP disetujui: {{ cop.approvedByName or "—" }}
       </div>
     </div>
 

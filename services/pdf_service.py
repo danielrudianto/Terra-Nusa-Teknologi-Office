@@ -727,8 +727,10 @@ def _keterangan_persetujuan(cop: dict) -> str:
     kedua = []
     if cop.get("approvedByName"):
         kedua.append(f"Oleh {cop['approvedByName']}")
-    if cop.get("checkedByName"):
-        kedua.append(f"Diperiksa oleh {cop['checkedByName']}")
+    if cop.get("copCreatedByName"):
+        kedua.append(f"CoP dibuat oleh {cop['copCreatedByName']}")
+    if cop.get("bapApprovedByName"):
+        kedua.append(f"BAP disetujui oleh {cop['bapApprovedByName']}")
     if cop.get("name"):
         kedua.append(str(cop["name"]))
     if kedua:

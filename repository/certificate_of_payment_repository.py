@@ -412,22 +412,75 @@ class CertificateOfPaymentRepository:
             return internal_error()
 
     @staticmethod
-    async def set_checked(cop_id: int, checked: bool, user_id: int):
+    async def bap_approve(cop_id: int, approve: bool, user_id: int):
         """
-        Tandai CoP sudah/belum diperiksa.
+        Setujui / batalkan persetujuan BAP — GERBANG PERTAMA.
 
-        Mencabut pemeriksaan ikut MENGGUGURKAN persetujuannya — sama seperti
-        purchase order, dan karena alasan yang sama: yang menyetujui bertumpu
-        pada pemeriksaan yang ternyata ditarik.
+        Ini yang membuka pengisian harga: sebelum BAP disetujui, tidak ada
+        nilai rupiah yang boleh disentuh. Membatalkannya (approve=False)
+        MENGGUGURKAN seluruh tahap sesudahnya — pembuatan CoP dan
+        persetujuannya bertumpu pada progres yang ternyata ditarik kembali,
+        sama seperti mencabut pemeriksaan pada purchase order.
         """
         try:
             nilai = (
-                {"isChecked": True, "checkedBy": user_id, "checkedAt": dt.now()}
+                {
+                    "isBapApproved": True,
+                    "bapApprovedBy": user_id,
+                    "bapApprovedAt": dt.now(),
+                }
+                if approve
+                else {
+                    "isBapApproved": False,
+                    "bapApprovedBy": None,
+                    "bapApprovedAt": None,
+                    # Tahap-tahap sesudahnya ikut gugur.
+                    "isCopCreated": False,
+                    "copCreatedBy": None,
+                    "copCreatedAt": None,
+                    "isApproved": False,
+                    "approvedBy": None,
+                    "approvedAt": None,
+                    "status": "draft",
+                }
+            )
+            await database.execute(
+                update(certificate_of_payments_table)
+                .where(certificate_of_payments_table.c.id == cop_id)
+                .values(**nilai)
+            )
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="certificate_of_payments",
+                entityID=cop_id,
+                action="approve_bap" if approve else "cabut_bap",
+                userID=user_id,
+            )
+            return {"message": "Persetujuan BAP diperbarui"}
+        except Exception as e:
+            log_error(f"Gagal menyetujui BAP CoP: {str(e)}")
+            return internal_error()
+
+    @staticmethod
+    async def set_checked(cop_id: int, checked: bool, user_id: int):
+        """
+        Tandai CoP DIBUAT / batalkan pembuatannya (tahap harga & potongan).
+
+        Namanya `set_checked` dipertahankan agar rute & pemanggilnya tetap,
+        tetapi tahap ini kini adalah PEMBUATAN CoP: yang menstempelnya adalah
+        pembuat CoP (`copCreatedBy`), bukan lagi pemeriksa. Membatalkannya
+        MENGGUGURKAN persetujuan CoP — yang menyetujui bertumpu pada nilai
+        yang ternyata ditarik.
+        """
+        try:
+            nilai = (
+                {"isCopCreated": True, "copCreatedBy": user_id, "copCreatedAt": dt.now()}
                 if checked
                 else {
-                    "isChecked": False,
-                    "checkedBy": None,
-                    "checkedAt": None,
+                    "isCopCreated": False,
+                    "copCreatedBy": None,
+                    "copCreatedAt": None,
                     "isApproved": False,
                     "approvedBy": None,
                     "approvedAt": None,
@@ -447,14 +500,14 @@ class CertificateOfPaymentRepository:
                 action="set_checked",
                 userID=user_id,
             )
-            return {"message": "Pemeriksaan diperbarui"}
+            return {"message": "Pembuatan CoP diperbarui"}
         except Exception as e:
-            log_error(f"Gagal menandai pemeriksaan CoP: {str(e)}")
+            log_error(f"Gagal menandai pembuatan CoP: {str(e)}")
             return internal_error()
 
     @staticmethod
     async def approve(cop_id: int, user_id: int):
-        """Setujui CoP. Disaring ulang agar dua persetujuan bersamaan tidak lolos keduanya."""
+        """Setujui CoP — GERBANG TERAKHIR. Disaring ulang agar dua persetujuan bersamaan tidak lolos keduanya."""
         try:
             await database.execute(
                 update(certificate_of_payments_table)
@@ -518,24 +571,27 @@ class CertificateOfPaymentRepository:
                        -- order, dan kartu itu memuat nama beserta alamat.
                        pemasok.name    AS supplierName,
                        pemasok.address AS supplierAddress,
-                       pembuat.name   AS createdByName,
-                       pemeriksa.name AS checkedByName,
-                       penyetuju.name AS approvedByName,
+                       pembuat.name      AS createdByName,
+                       penyetujuBap.name AS bapApprovedByName,
+                       pembuatCop.name   AS copCreatedByName,
+                       penyetuju.name    AS approvedByName,
                        -- Jabatan ikut dibaca karena blok tanda tangan
                        -- mencetaknya di bawah nama. Diambil dari kolomnya
                        -- sendiri, BUKAN disimpulkan dari level akses: dua
                        -- orang dapat sama-sama level 4 dengan jabatan
                        -- berbeda, dan menebaknya membuat dokumen resmi
                        -- menyebut jabatan yang salah.
-                       pembuat.position   AS createdByPosition,
-                       pemeriksa.position AS checkedByPosition,
-                       penyetuju.position AS approvedByPosition
+                       pembuat.position      AS createdByPosition,
+                       penyetujuBap.position AS bapApprovedByPosition,
+                       pembuatCop.position   AS copCreatedByPosition,
+                       penyetuju.position    AS approvedByPosition
                 FROM certificate_of_payments c
                 JOIN purchase_orders po ON po.id = c.purchaseOrderID
                 LEFT JOIN suppliers pemasok ON pemasok.id = po.supplierID
-                LEFT JOIN users pembuat   ON pembuat.id   = c.createdBy
-                LEFT JOIN users pemeriksa ON pemeriksa.id = c.checkedBy
-                LEFT JOIN users penyetuju ON penyetuju.id = c.approvedBy
+                LEFT JOIN users pembuat      ON pembuat.id      = c.createdBy
+                LEFT JOIN users penyetujuBap ON penyetujuBap.id = c.bapApprovedBy
+                LEFT JOIN users pembuatCop   ON pembuatCop.id   = c.copCreatedBy
+                LEFT JOIN users penyetuju    ON penyetuju.id    = c.approvedBy
                 WHERE c.id = :id AND c.isDelete = 0
                 """,
                 {"id": cop_id},
@@ -582,11 +638,11 @@ class CertificateOfPaymentRepository:
         "tanggal": "c.date",
         "pembuat": "pembuat.name",
         "nilai": "c.netAmount",
-        # Keadaan bukan satu kolom melainkan disimpulkan dari dua penanda.
-        # Diurutkan sesuai PERJALANAN dokumennya — draf, diperiksa,
-        # disetujui — bukan menurut abjad namanya, karena urutan itulah
-        # yang berarti bagi yang membacanya.
-        "keadaan": "c.isApproved, c.isChecked",
+        # Keadaan bukan satu kolom melainkan disimpulkan dari tiga penanda.
+        # Diurutkan sesuai PERJALANAN dokumennya — draf, BAP disetujui, CoP
+        # dibuat, CoP disetujui — bukan menurut abjad namanya, karena urutan
+        # itulah yang berarti bagi yang membacanya.
+        "keadaan": "c.isApproved, c.isCopCreated, c.isBapApproved",
     }
 
     @staticmethod
@@ -643,16 +699,27 @@ class CertificateOfPaymentRepository:
             # Keadaan dokumen disaring DI SQL.
             #
             # Ia tidak tersimpan sebagai satu kolom melainkan disimpulkan dari
-            # `isChecked`/`isApproved`, dan sebelumnya layar yang menyaringnya
+            # tiga penanda tahap, dan sebelumnya layar yang menyaringnya
             # sendiri. Itu keliru pada daftar berhalaman: yang disaring hanya
             # dua puluh baris yang kebetulan terbuka, dan `total` yang dipakai
             # pemenggal halaman tetap menghitung SEMUANYA. Beranda ponsel yang
             # membaca angka itu akan menyebut jumlah yang tidak pernah cocok
             # dengan isi layarnya.
+            #
+            # Empat tahap perjalanan dokumen:
+            #   draft         belum disetujui BAP-nya
+            #   bap           BAP disetujui, CoP belum dibuat (menunggu harga)
+            #   dibuat        CoP dibuat, belum disetujui
+            #   disetujui     CoP disetujui — siap ditagih
             KEADAAN = {
-                "draft": "c.isChecked = 0",
-                "diperiksa": "c.isChecked = 1 AND c.isApproved = 0",
+                "draft": "c.isBapApproved = 0",
+                "bap": "c.isBapApproved = 1 AND c.isCopCreated = 0",
+                "dibuat": "c.isCopCreated = 1 AND c.isApproved = 0",
                 "disetujui": "c.isApproved = 1",
+                # Alias lama tetap dikenali agar tautan/keping penyaring yang
+                # tersimpan tidak mendadak kosong: "diperiksa" kini berarti
+                # tahap "dibuat".
+                "diperiksa": "c.isCopCreated = 1 AND c.isApproved = 0",
             }
             ke = KEADAAN.get((keadaan or "").strip())
             if ke:
@@ -931,7 +998,7 @@ class CertificateOfPaymentRepository:
             f"""
             SELECT c.id, c.name, c.number, c.date,
                    c.periodStart, c.periodEnd,
-                   c.isChecked, c.isApproved
+                   c.isBapApproved, c.isCopCreated, c.isApproved
             FROM certificate_of_payments c
             WHERE {' AND '.join(syarat)}
             ORDER BY c.periodStart ASC, c.id ASC
