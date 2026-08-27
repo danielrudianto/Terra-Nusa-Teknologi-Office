@@ -87,6 +87,20 @@ DEPARTMENT_MODULES: dict[str, set[str]] = {
         # Procurement tetap memilikinya, tetapi hanya untuk dibaca; lihat
         # `DEPARTMENT_READ_ONLY` di bawah.
         "asset",
+        # Certificate of payment, HANYA-BACA (lihat `DEPARTMENT_READ_ONLY`).
+        #
+        # FAT-lah yang menerbitkan pembelian untuk MENAGIHKAN sebuah CoP yang
+        # sudah disetujui — dan formulir pembelian menawarkan "isi dari CoP"
+        # hanya kepada yang boleh membaca modul ini. Tanpa CoP di wilayahnya,
+        # justru divisi yang menjalankan penagihannya yang tidak melihat
+        # pilihan itu, sementara engineering yang tidak membuat pembelian
+        # melihatnya.
+        #
+        # Membuat, memeriksa, dan menyetujui CoP tetap wilayah engineering:
+        # ketiganya dijaga terpisah oleh `_divisi_cop_terpenuhi` di
+        # controller, sehingga hanya-baca di sini tidak membuka satu pun di
+        # antaranya bagi FAT.
+        "certificate_of_payment",
     },
     "hrd": UMUM
     | {
@@ -162,6 +176,11 @@ DEPARTMENT_READ_ONLY: dict[str, set[str]] = {
     # Engineering membuka SPK untuk memilih baris pekerjaan yang di-CoP-kan,
     # tetapi tidak menerbitkan maupun mengubahnya — itu tetap procurement.
     "engineering": {"purchase_order"},
+    # FAT membuka CoP yang sudah disetujui untuk menagihkannya lewat
+    # pembelian, tetapi tidak membuat, memeriksa, maupun menyetujuinya — itu
+    # tetap engineering. Cerminan dari hubungan engineering↔purchase_order di
+    # atas, arah sebaliknya.
+    "fat": {"certificate_of_payment"},
 }
 
 
