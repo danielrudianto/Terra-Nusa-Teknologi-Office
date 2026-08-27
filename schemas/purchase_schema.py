@@ -9,6 +9,14 @@ class PurchaseBase(BaseModel):
     supplierID: int = Field(..., description="ID of the supplier")
     date: d = Field(..., description="Date of the purchase")
     dueDate: Optional[d] = Field(None, description="Due date of the purchase")
+    # MASA PAJAK pengkreditan PPN masukan — hari pertama bulannya.
+    #
+    # Kosong berarti mengikuti tanggal dokumen. Dibiarkan opsional karena
+    # sebagian besar pembelian memang fakturnya terbit pada bulan yang sama;
+    # yang mengisinya adalah yang fakturnya terlambat.
+    taxPeriod: Optional[d] = Field(
+        None, description="Tax period for crediting input VAT (first day of month)"
+    )
     purchaseOrderName: str = Field(..., description="Name of the purchase order")
     projectName: str = Field(..., description="Name of the project")
     purchaseType: str = Field(..., description="Type of the purchase")
@@ -52,6 +60,7 @@ class PurchaseUpdate(BaseModel):
     supplierID: Optional[int] = None
     date: Optional[d] = None
     dueDate: Optional[d] = None
+    taxPeriod: Optional[d] = None
     purchaseOrderName: Optional[str] = None
     projectName: Optional[str] = None
     purchaseType: Optional[str] = None

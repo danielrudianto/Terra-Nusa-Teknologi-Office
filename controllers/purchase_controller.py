@@ -455,9 +455,15 @@ class PurchaseController:
     # pembayarannya sudah ada. Kasus nyatanya: kode PPh lupa diisi padahal
     # tarifnya 0%. Yang benar-benar mengubah nominal — DPP, PPN, dan TARIF
     # PPh — yang dikunci setelah pembayaran.
+    #
+    # `taxPeriod` juga masuk kelompok BOLEH, dan alasannya sama: ia tidak
+    # mengubah satu rupiah pun pada dokumennya — hanya memindahkan BULAN
+    # pengkreditan PPN masukannya. Justru inilah kolom yang paling sering
+    # perlu dibetulkan belakangan, karena faktur pajaknya kerap baru
+    # diterima setelah pembeliannya dibayar.
     _META_BOLEH = {
         "date", "taxInvoiceName", "invoiceName", "receiptName",
-        "pphCode", "pphTaxObject",
+        "pphCode", "pphTaxObject", "taxPeriod",
     }
     _META_NILAI = {"dpp", "ppn", "pphPercentage"}
     LEVEL_EDIT_META = 5

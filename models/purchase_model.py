@@ -11,6 +11,24 @@ purchases_table = Table(
     Column("supplierID", Integer, nullable=False),
     Column("date", Date(), nullable=False),
     Column("dueDate", Date(), nullable=True),
+    # MASA PAJAK pengkreditan PPN masukan — hari PERTAMA bulannya.
+    #
+    # Terpisah dari `date`, dan itu memang perlu. `date` adalah tanggal
+    # dokumen pembeliannya; masa pajak adalah bulan ketika PPN masukannya
+    # dikreditkan. Keduanya kerap BERBEDA: pemasok menerbitkan faktur pajak
+    # bulan Juli atas invoice bulan Juni, dan yang menentukan dokumen ini
+    # masuk SPT mana adalah fakturnya, bukan invoicenya.
+    #
+    # Sebelum kolom ini ada, laporan PPN mengelompokkan menurut `date` —
+    # sehingga faktur Juli tercatat pada masa Juni, dan angkanya tidak
+    # pernah cocok dengan yang benar-benar dilaporkan.
+    #
+    # NULL berarti IKUT `date`. Bukan sekadar kemudahan: seluruh baris lama
+    # bernilai NULL, dan tanpa arti itu laporan masa-masa yang sudah lewat
+    # akan berubah begitu kolomnya ditambahkan. Artinya ditegakkan di SATU
+    # tempat — `masa_pajak_efektif` pada repository — bukan diulang pada
+    # tiap kueri yang membacanya.
+    Column("taxPeriod", Date(), nullable=True),
     Column("purchaseOrderName", String(100), nullable=False),
     Column("projectName", String(100), nullable=False),
     Column("purchaseType", String(100), nullable=False),

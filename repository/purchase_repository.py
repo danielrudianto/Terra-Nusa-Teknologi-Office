@@ -387,9 +387,33 @@ class PurchaseRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    def masa_pajak_efektif():
+        """
+        Kolom yang menentukan sebuah pembelian masuk MASA PAJAK yang mana.
+
+        `taxPeriod` bila diisi, `date` bila tidak. Ditulis SEKALI di sini dan
+        dipakai seluruh kueri PPN.
+
+        Menyalin `COALESCE(taxPeriod, date)` ke tiap kueri akan membuat
+        keduanya berselisih pada perubahan berikutnya, dan yang tertinggal
+        tidak menimbulkan galat apa pun: hanya satu laporan yang diam-diam
+        mengelompokkan menurut tanggal dokumen sementara laporan di
+        sebelahnya memakai masa pajaknya. Selisih semacam itu baru ketahuan
+        ketika dua angka yang seharusnya sama dibandingkan tangan.
+
+        NULL berarti ikut tanggal dokumen — lihat catatan pada modelnya.
+        """
+        return func.coalesce(
+            purchases_table.c.taxPeriod, purchases_table.c.date
+        )
+
+    @staticmethod
     async def get_ppn_report(month: int, year: int):
         """
         Get PPN report for a specific month and year.
+
+        Dikelompokkan menurut MASA PAJAK, bukan tanggal dokumen: faktur
+        pajak yang terbit bulan berikutnya dikreditkan pada bulan terbitnya.
         """
         try:
             supplier_columns = [
@@ -406,8 +430,12 @@ class PurchaseRepository:
                 purchases_table.c.isDelete == False,
                 purchases_table.c.isInternal == False,
                 purchases_table.c.ppn > 0,
-                func.extract('month', purchases_table.c.date) == month,
-                func.extract('year', purchases_table.c.date) == year
+                func.extract(
+                    "month", PurchaseRepository.masa_pajak_efektif()
+                ) == month,
+                func.extract(
+                    "year", PurchaseRepository.masa_pajak_efektif()
+                ) == year,
             ]
 
             query = (
@@ -464,8 +492,13 @@ class PurchaseRepository:
             # Tanpa `.label()`: kolom agregat ini murni internal, dan uji skema
             # menolak label pada repository ini yang tidak ada di
             # `PurchaseResponse`. Nilainya dibaca lewat posisi kolom.
-            y = func.extract("year", p.date)
-            m = func.extract("month", p.date)
+            # Dikelompokkan menurut MASA PAJAK, sama seperti rinciannya.
+            # Bila yang satu memakai masa pajak dan yang lain tanggal
+            # dokumen, saldo kompensasinya tidak akan pernah cocok dengan
+            # jumlah baris yang ditampilkan di bawahnya.
+            masa = PurchaseRepository.masa_pajak_efektif()
+            y = func.extract("year", masa)
+            m = func.extract("month", masa)
             total = func.coalesce(func.sum(p.dpp * p.ppn / 100), 0)
             query = (
                 select(y, m, total)
@@ -475,7 +508,7 @@ class PurchaseRepository:
                     p.ppn > 0,
                     p.taxInvoiceName.isnot(None),
                     func.trim(p.taxInvoiceName) != "",
-                    p.date < end_date,
+                    masa < end_date,
                 )
                 .group_by(y, m)
             )
