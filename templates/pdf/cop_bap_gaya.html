@@ -1,0 +1,162 @@
+{#
+  Gaya BERSAMA untuk Berita Acara Pemeriksaan.
+
+  Dibagi oleh DUA tempat: halaman kedua `certificate_of_payment.html`
+  (unduh CoP + BAP) dan `berita_acara_pemeriksaan.html` (unduh BAP saja).
+  Isinya — `cop_bap_isi.html` — sudah lama dibagi; gayanya tidak, dan itulah
+  yang membuat BAP unduh-sendiri tampil beda: templat berdiri sendiri masih
+  memakai kelas lama (`table.kepala`, `k-*`, `table.ttd`) yang tidak satu pun
+  dipakai isinya, sehingga seluruh BAP-nya kehilangan gaya.
+
+  Yang dibagi hanya aturan BAP-nya; `@page` dan `body` tetap milik masing-
+  masing templat, karena orientasinya berbeda (CoP potret, BAP-sendiri
+  lanskap).
+#}
+      /* ================= BERITA ACARA PEMERIKSAAN =================
+         Ukurannya dinaikkan dari 7.4pt. Lembar ini dibaca di lapangan,
+         kerap sambil berdiri dan difotokopi lebih dulu — ukuran yang pas di
+         layar tidak selalu terbaca di atas kertas yang sudah lewat mesin. */
+
+      table.bap-judul {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 8pt;
+      }
+      table.bap-judul td { vertical-align: middle; }
+      td.bap-judul__logo { width: 90pt; }
+      td.bap-judul__logo img { height: 36pt; }
+      .bap-judul__nama { font-size: 6.5pt; text-align: center; }
+      td.bap-judul__teks {
+        text-align: center;
+        font-size: 13pt;
+        font-weight: bold;
+      }
+      /* Menyeimbangkan kolom logo supaya judulnya benar-benar di tengah. */
+      td.bap-judul__sisi { width: 90pt; }
+
+      table.bap-kepala {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 8pt;
+        font-size: 8.6pt;
+      }
+      table.bap-kepala td { padding: 1pt 0; vertical-align: top; }
+      td.bk-label { width: 9%; }
+      td.bk-titik { width: 2%; }
+      td.bk-isi { width: 34%; font-weight: bold; }
+      td.bk-label2 { width: 9%; padding-left: 10pt; }
+      td.bk-isi2 { width: 46%; font-weight: bold; }
+
+      /* Lebar kolom ditegakkan: tanpa ini kolom "Pekerjaan" menelan ruang
+         dan tiga belas kolom angka di sebelahnya menyusut sampai
+         persentasenya terpotong. */
+      table.bap { table-layout: fixed; }
+      .bap-w-no { width: 3%; }
+      .bap-w-kerja { width: 20%; }
+      .bap-w-vol { width: 7%; }
+      .bap-w-sat { width: 5%; }
+      .bap-w-bobot { width: 6%; }
+
+      /* Kolom PERIODE INI disorot.
+         Dari tiga belas kolom angka, hanya tiga inilah yang benar-benar
+         diputuskan periode ini; sisanya keterangan yang membantu menilainya. */
+      table.bap .bap-sorot { background: #eef3ff; }
+      table.bap thead th.bap-sorot { background: #dde6ff; }
+
+      table.bap td.kanan { text-align: right; font-weight: bold; }
+
+      /* ---- tanda tangan BAP ---- */
+      table.bap-ttd {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 18pt;
+        break-inside: avoid;
+      }
+      table.bap-ttd td {
+        width: 33.33%;
+        text-align: center;
+        vertical-align: top;
+        padding: 0 8pt;
+        font-size: 8.6pt;
+      }
+      .bt-peran { margin-bottom: 2pt; }
+      .bt-badan { margin-bottom: 42pt; font-weight: bold; }
+      .bt-nama { text-decoration: underline; }
+      .bt-jabatan { font-size: 8pt; }
+      .bt-kosong {
+        border-bottom: 0.7pt solid #000;
+        display: inline-block;
+        min-width: 120pt;
+      }
+
+      .bap-jejak {
+        margin-top: 10pt;
+        font-size: 7pt;
+        color: #555;
+      }
+
+      /*
+        Cap air DRAFT.
+
+        Dokumen yang belum disetujui tetap boleh dicetak — memang perlu,
+        untuk diperiksa sebelum disahkan. Persoalannya lembar itu tidak dapat
+        dibedakan dari yang sudah sah begitu keluar dari pencetak: bentuknya
+        sama persis, lengkap dengan blok tanda tangannya. Satu lembar draf
+        yang sampai ke pemasok sudah cukup untuk dianggap mengikat.
+
+        Warnanya pucat dan letaknya DI BELAKANG isi: cukup terbaca untuk
+        menyadarkan, tidak sampai menutupi angka.
+      */
+      .cap-draf {
+        position: fixed;
+        /* Diputar dari TITIK TENGAHNYA.
+           Tanpa `transform-origin`, WeasyPrint memutar dari pojok kiri atas
+           dan capnya melenceng ke luar halaman — terlihat sebagai potongan
+           huruf di tepi bawah, bukan sebagai cap. */
+        top: 50%;
+        left: 50%;
+        width: 700pt;
+        margin-left: -350pt;
+        margin-top: -60pt;
+        text-align: center;
+        font-size: 96pt;
+        font-weight: bold;
+        letter-spacing: 12pt;
+        color: #9aa3b2;
+        opacity: 0.15;
+        transform: rotate(-45deg);
+        transform-origin: center center;
+        z-index: -1;
+      }
+
+      /* ---- tabel BAP ---- */
+      table.bap {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 8pt;
+      }
+      table.bap th,
+      table.bap td {
+        border: 0.5pt solid #444;
+        padding: 4.5pt 5pt;
+      }
+      table.bap thead th {
+        background: #e9edf3;
+        font-weight: bold;
+        text-align: center;
+        vertical-align: middle;
+      }
+      /* SELURUH angka rata kanan — termasuk persentase.
+         Digit yang sejajar dapat dibandingkan antarbaris tanpa dibaca satu
+         per satu; yang rata kiri memaksa mata menelusuri tiap baris. */
+      table.bap td.angka { text-align: right; }
+      table.bap td.tengah { text-align: center; }
+      table.bap tfoot td {
+        font-weight: bold;
+        background: #f4f6f9;
+      }
+      .bap-pekerjaan { max-width: 150pt; }
+      .bap-ket { display: block; font-size: 7pt; color: #444; }
+
+      .catatan-kaki { margin-top: 10pt; font-size: 8.6pt; }
+      .kecil { font-size: 8pt; color: #444; }

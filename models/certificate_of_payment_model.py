@@ -95,6 +95,21 @@ certificate_of_payments_table = Table(
         ForeignKey("purchase_orders.id"),
         nullable=False,
     ),
+    # VENDOR yang ditagih, disalin dari SPK-nya saat CoP dibuat.
+    #
+    # Disimpan di sini, bukan dibaca ulang lewat join ke SPK, karena
+    # `documentNumber` kini mengurut PER VENDOR + PROYEK dan namanya memuat
+    # id vendor. Penomoran yang harus menyambungkan diri lewat join setiap
+    # kali membuat dua permintaan bersamaan membaca angka yang sama; dengan
+    # kolom sendiri, penyaring urutannya cukup satu tabel.
+    #
+    # NULL hanya pada baris yang belum dibackfill migrasi.
+    Column(
+        "supplierID",
+        Integer,
+        ForeignKey("suppliers.id"),
+        nullable=True,
+    ),
     Column("projectName", String(255), nullable=False),
     Column("date", Date, nullable=False),
     # Periode pekerjaan yang disertifikasi — "minggu 1" dinyatakan sebagai

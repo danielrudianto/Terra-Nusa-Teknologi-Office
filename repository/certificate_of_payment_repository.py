@@ -197,13 +197,17 @@ class CertificateOfPaymentRepository:
     )
 
     @staticmethod
-    async def nomor_dokumen_berikut(project_name: str) -> int:
+    async def nomor_dokumen_berikut(supplier_id, project_name: str) -> int:
         """
-        Urutan DOKUMEN berikutnya dalam satu proyek.
+        Urutan DOKUMEN berikutnya untuk satu VENDOR pada satu PROYEK.
 
-        Tidak pernah kembali ke 1. Bulan dan tahun pada nomornya hanya
-        menerangkan kapan berkasnya terbit; yang membedakan satu dokumen dari
-        yang lain adalah angka ini.
+        Diurutkan per (vendor, proyek), bukan per proyek saja: dua vendor
+        yang mengerjakan proyek yang sama masing-masing punya deretnya
+        sendiri, sehingga nomor 001 milik satu vendor tidak menyerobot nomor
+        vendor lain.
+
+        Tidak pernah kembali ke 1 dalam satu (vendor, proyek). Tahun pada
+        nomornya hanya menerangkan kapan berkasnya terbit.
 
         DOKUMEN TERHAPUS TETAP DIHITUNG — `MAX`, bukan `COUNT`. Nomor yang
         sudah pernah terbit tidak boleh dipakai ulang: salinannya mungkin
@@ -214,34 +218,39 @@ class CertificateOfPaymentRepository:
             """
             SELECT MAX(documentNumber)
             FROM certificate_of_payments
-            WHERE projectName = :proyek
+            WHERE supplierID = :vendor AND projectName = :proyek
             """,
-            {"proyek": project_name or ""},
+            {"vendor": supplier_id, "proyek": project_name or ""},
         )
         return int(terakhir or 0) + 1
 
     @staticmethod
-    def susun_nama(nomor_dokumen: int, project_name: str, tanggal) -> str:
+    def susun_nama(nomor_dokumen: int, supplier_id, project_name: str, tanggal) -> str:
         """
-        Nomor CoP: 001-R501-VIII-2026.
+        Nomor CoP: 002-042-R501-2026.
 
-        Bulan dan tahun diambil dari TANGGAL DOKUMEN, bukan dari hari ini:
-        CoP bertanggal 31 Agustus yang baru sempat dimasukkan tanggal 2
-        September harus tetap bernomor VIII — nomornya menerangkan dokumennya,
-        bukan kapan orang mengetiknya.
+        Susunannya: [urut 3 digit]-[id vendor 3 digit]-[kode proyek]-[tahun].
+        Tidak ada lagi bulan Romawi — yang membedakan dokumen dalam satu
+        (vendor, proyek) adalah angka urutnya, dan tahun cukup menerangkan
+        kapan ia terbit.
+
+        Id vendor DIPAD tiga digit, sama seperti angka urutnya: 2 menjadi
+        042 bukan 42, sehingga nomornya sejajar saat diurutkan dan dibaca.
+
+        Tahun diambil dari TANGGAL DOKUMEN, bukan dari hari ini: CoP
+        bertanggal 31 Desember yang baru dimasukkan 2 Januari harus tetap
+        bertahun dokumennya, bukan tahun orang mengetiknya.
         """
         try:
-            bulan = int(getattr(tanggal, "month", 0)) or 0
             tahun = int(getattr(tanggal, "year", 0)) or 0
         except Exception:
-            bulan, tahun = 0, 0
-        romawi = (
-            CertificateOfPaymentRepository.BULAN_ROMAWI[bulan]
-            if 1 <= bulan <= 12
-            else "-"
-        )
+            tahun = 0
+        try:
+            vid = int(supplier_id)
+        except (TypeError, ValueError):
+            vid = 0
         kode = (project_name or "").strip() or "-"
-        return f"{nomor_dokumen:03d}-{kode}-{romawi}-{tahun or '-'}"
+        return f"{nomor_dokumen:03d}-{vid:03d}-{kode}-{tahun or '-'}"
 
     # ------------------------------------------------------------------
     # Tulis
@@ -267,13 +276,17 @@ class CertificateOfPaymentRepository:
                 # keduanya menyusun nama yang sama — lalu yang kedua ditolak
                 # kolom `name` yang unik, dengan galat yang tidak menyebut
                 # sebabnya.
+                supplier_id = data.get("supplierID")
                 nomor_dokumen = data.get(
                     "documentNumber"
                 ) or await CertificateOfPaymentRepository.nomor_dokumen_berikut(
-                    data.get("projectName") or ""
+                    supplier_id, data.get("projectName") or ""
                 )
                 nama = data.get("name") or CertificateOfPaymentRepository.susun_nama(
-                    nomor_dokumen, data.get("projectName") or "", data["date"]
+                    nomor_dokumen,
+                    supplier_id,
+                    data.get("projectName") or "",
+                    data["date"],
                 )
 
                 cop_id = await database.execute(
@@ -282,6 +295,7 @@ class CertificateOfPaymentRepository:
                         number=nomor,
                         documentNumber=nomor_dokumen,
                         purchaseOrderID=data["purchaseOrderID"],
+                        supplierID=supplier_id,
                         projectName=data.get("projectName") or "",
                         date=data["date"],
                         periodStart=data.get("periodStart"),

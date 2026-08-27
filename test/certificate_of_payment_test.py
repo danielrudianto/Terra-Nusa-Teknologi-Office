@@ -87,6 +87,8 @@ def repo(monkeypatch):
             "projectName": "MICZ",
             "isApproved": True,
             "parentPurchaseOrderID": None,
+            # Vendor yang ditagih — penomoran CoP mengurut per vendor.
+            "supplierID": 42,
             # Jenis B = penyewaan alat kerja, terbit sebagai SPK.
             "purchaseType": "B",
             "customData": None,
@@ -113,7 +115,10 @@ def repo(monkeypatch):
         # kalau tidak, tesnya akan lulus atas kontrak yang sudah tidak
         # berlaku.
         nama = data.get("name") or Repo.susun_nama(
-            1, data.get("projectName") or "", data.get("date")
+            1,
+            data.get("supplierID"),
+            data.get("projectName") or "",
+            data.get("date"),
         )
         return {"certificateOfPaymentID": 99, "name": nama, "number": 1}
 
@@ -174,6 +179,19 @@ class TestPagu:
                                  departments={"engineering"})
         assert "error" not in hasil
         assert repo["items_disimpan"][0]["quantity"] == Decimal("40")
+
+    @pytest.mark.asyncio
+    async def test_vendor_diteruskan_dari_spk_ke_penyimpanan(self, repo):
+        """
+        `supplierID` sampai ke repository, diambil dari SPK-nya.
+
+        Penomoran mengurut per vendor. Bila controller lupa meneruskannya,
+        penyimpanan menerima None — dan seluruh CoP tanpa vendor berbagi satu
+        deret, persis persoalan yang penomoran per vendor ini hendak cegah.
+        """
+        await CoP.create(_muatan(40), user_id=1, user_level=1,
+                         departments={"engineering"})
+        assert repo["dibuat"]["supplierID"] == 42
 
     @pytest.mark.asyncio
     async def test_pas_menghabiskan_pagu_diterima(self, repo):
@@ -1708,98 +1726,95 @@ class TestUrutanDaftar:
 
 class TestPenomoranDokumen:
     """
-    Nomor CoP: 001-R501-VIII-2026.
+    Nomor CoP: 002-042-R501-2026.
 
-    Angka pertama urutan DOKUMEN dalam proyek — berjalan terus, tidak pernah
-    kembali ke 1. Bulan romawi dan tahun menerangkan kapan berkasnya terbit.
+    Susunannya: [urut 3 digit]-[id vendor 3 digit]-[kode proyek]-[tahun].
+    Urutannya berjalan PER VENDOR pada satu PROYEK — tidak pernah kembali ke
+    1 dalam satu (vendor, proyek). Tidak ada lagi bulan Romawi.
     """
 
     def test_bentuk_nomor(self):
         import datetime as d
 
         assert (
-            Repo.susun_nama(1, "R501", d.date(2026, 8, 25)) == "001-R501-VIII-2026"
+            Repo.susun_nama(1, 42, "R501", d.date(2026, 8, 25)) == "001-042-R501-2026"
         )
         assert (
-            Repo.susun_nama(37, "MICZ", d.date(2026, 1, 3)) == "037-MICZ-I-2026"
+            Repo.susun_nama(37, 7, "MICZ", d.date(2026, 1, 3)) == "037-007-MICZ-2026"
         )
         assert (
-            Repo.susun_nama(128, "R501", d.date(2025, 12, 31))
-            == "128-R501-XII-2025"
+            Repo.susun_nama(128, 305, "R501", d.date(2025, 12, 31))
+            == "128-305-R501-2025"
         )
 
-    def test_bulan_diambil_dari_tanggal_dokumen(self):
-        """
-        BUKAN dari hari ini.
-
-        CoP bertanggal 31 Agustus yang baru sempat dimasukkan 2 September
-        harus tetap bernomor VIII: nomornya menerangkan dokumennya, bukan
-        kapan orang mengetiknya.
-        """
+    def test_id_vendor_diisi_nol_di_depan(self):
+        """Vendor 2 menjadi 002, bukan 2 — sejajar saat diurutkan."""
         import datetime as d
 
-        assert "-VIII-" in Repo.susun_nama(9, "R501", d.date(2026, 8, 31))
-        assert "-IX-" in Repo.susun_nama(9, "R501", d.date(2026, 9, 1))
+        assert Repo.susun_nama(1, 2, "P", d.date(2026, 5, 1)) == "001-002-P-2026"
+        # Melewati tiga digit tidak dipotong.
+        assert "-1234-" in Repo.susun_nama(1, 1234, "P", d.date(2026, 5, 1))
 
-    def test_seluruh_dua_belas_bulan(self):
-        import datetime as d
-
-        harap = [
-            "I", "II", "III", "IV", "V", "VI",
-            "VII", "VIII", "IX", "X", "XI", "XII",
-        ]
-        for bulan, romawi in enumerate(harap, start=1):
-            nama = Repo.susun_nama(1, "P", d.date(2026, bulan, 15))
-            assert nama == f"001-P-{romawi}-2026", nama
-
-    def test_nomor_diisi_nol_di_depan(self):
-        import datetime as d
-
-        assert Repo.susun_nama(7, "P", d.date(2026, 5, 1)).startswith("007-")
-        # Melewati tiga digit tidak dipotong: dokumen ke-1234 tetap utuh.
-        assert Repo.susun_nama(1234, "P", d.date(2026, 5, 1)).startswith("1234-")
-
-    def test_proyek_kosong_tidak_menghasilkan_nomor_pincang(self):
+    def test_tanpa_bulan_romawi(self):
         """
-        Proyek kosong menjadi tanda pisah, bukan untai kosong.
+        Bulan tidak lagi muncul di nomor.
 
-        "001--VIII-2026" punya dua tanda hubung berturut-turut dan terbaca
-        seperti nomor yang rusak; "001---VIII-2026" pun tidak lebih baik.
-        Yang penting: bentuknya tetap empat bagian.
+        Yang membedakan dokumen dalam satu (vendor, proyek) adalah angka
+        urutnya; tahun cukup menerangkan kapan ia terbit.
         """
         import datetime as d
 
-        nama = Repo.susun_nama(1, "", d.date(2026, 8, 1))
-        assert nama == "001---VIII-2026" or nama.count("-") >= 3
-        assert "VIII" in nama
+        for bulan in range(1, 13):
+            nama = Repo.susun_nama(1, 42, "P", d.date(2026, bulan, 15))
+            assert nama == "001-042-P-2026", nama
+
+    def test_tahun_diambil_dari_tanggal_dokumen(self):
+        """
+        BUKAN dari hari ini: CoP bertanggal 31 Desember yang baru dimasukkan
+        2 Januari harus tetap bertahun dokumennya.
+        """
+        import datetime as d
+
+        assert Repo.susun_nama(9, 42, "R501", d.date(2026, 12, 31)).endswith("-2026")
+        assert Repo.susun_nama(9, 42, "R501", d.date(2027, 1, 1)).endswith("-2027")
+
+    def test_urut_diisi_nol_di_depan(self):
+        import datetime as d
+
+        assert Repo.susun_nama(7, 42, "P", d.date(2026, 5, 1)).startswith("007-")
+        assert Repo.susun_nama(1234, 42, "P", d.date(2026, 5, 1)).startswith("1234-")
 
     @pytest.mark.asyncio
-    async def test_nomor_dokumen_memakai_max_bukan_count(self, monkeypatch):
+    async def test_nomor_dokumen_diurut_per_vendor_dan_proyek(self, monkeypatch):
         """
-        Dokumen TERHAPUS tetap memakan nomornya.
+        Penyaringnya HARUS menyebut vendor DAN proyek.
 
-        Dengan COUNT, menghapus dokumen ke-3 membuat dokumen berikutnya
-        kembali bernomor 003 — padahal salinan yang lama mungkin sudah
-        beredar, dan dua berkas berbeda bernomor sama tidak dapat
-        diselesaikan belakangan.
+        Diurutkan per proyek saja, dokumen dua vendor pada satu proyek
+        berbagi satu deret — nomor 001 milik satu vendor menyerobot vendor
+        lain, dan dua CoP berbeda dapat bernomor sama.
         """
-        sql_terpakai = {}
+        terpakai = {}
 
         async def _fetch_val(query, values=None):
-            sql_terpakai["q"] = " ".join(str(query).split())
+            terpakai["q"] = " ".join(str(query).split())
+            terpakai["v"] = values or {}
             return 12
 
         monkeypatch.setattr(
             "repository.certificate_of_payment_repository.database.fetch_val",
             _fetch_val,
         )
-        hasil = await Repo.nomor_dokumen_berikut("R501")
+        hasil = await Repo.nomor_dokumen_berikut(42, "R501")
         assert hasil == 13
-        assert "MAX(documentNumber)" in sql_terpakai["q"]
-        assert "COUNT" not in sql_terpakai["q"].upper()
+        assert "MAX(documentNumber)" in terpakai["q"]
+        assert "COUNT" not in terpakai["q"].upper()
+        assert "supplierID = :vendor" in terpakai["q"]
+        assert "projectName = :proyek" in terpakai["q"]
+        assert terpakai["v"].get("vendor") == 42
+        assert terpakai["v"].get("proyek") == "R501"
 
     @pytest.mark.asyncio
-    async def test_proyek_pertama_mulai_dari_satu(self, monkeypatch):
+    async def test_vendor_proyek_pertama_mulai_dari_satu(self, monkeypatch):
         async def _fetch_val(query, values=None):
             return None
 
@@ -1807,7 +1822,7 @@ class TestPenomoranDokumen:
             "repository.certificate_of_payment_repository.database.fetch_val",
             _fetch_val,
         )
-        assert await Repo.nomor_dokumen_berikut("BARU") == 1
+        assert await Repo.nomor_dokumen_berikut(42, "BARU") == 1
 
 
 class TestCetakSetelahDiperiksa:

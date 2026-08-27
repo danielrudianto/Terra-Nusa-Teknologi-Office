@@ -367,6 +367,10 @@ class CertificateOfPaymentController:
                 {
                     "number": nomor,
                     "purchaseOrderID": induk_id,
+                    # Vendor diambil dari SPK-nya, bukan dari kiriman layar:
+                    # penomoran mengurut per vendor, dan vendor yang keliru
+                    # menempatkan dokumen pada deret milik pihak lain.
+                    "supplierID": spk.get("supplierID"),
                     "projectName": data.get("projectName") or spk.get("projectName") or "",
                     "date": data.get("date"),
                     "periodStart": data.get("periodStart"),
