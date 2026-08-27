@@ -322,7 +322,24 @@ class CertificateOfPaymentRepository:
             # baru diantre.
             await CertificateOfPaymentRepository.hitung_ulang_total(cop_id)
 
-            return {"certificateOfPaymentID": cop_id, "name": data["name"], "number": nomor}
+            # `nama`, BUKAN `data["name"]`.
+            #
+            # Nama dokumen disusun DI DALAM fungsi ini — pemanggilnya tidak
+            # pernah mengirimkannya, dan memang tidak boleh: nomor dokumennya
+            # harus diambil di dalam transaksi supaya dua permintaan yang
+            # bersamaan tidak menyusun nama yang sama.
+            #
+            # Membacanya kembali dari `data` melempar KeyError, dan lemparan
+            # itu terjadi SESUDAH transaksinya berhasil disimpan — sehingga
+            # dokumennya benar-benar tercatat sementara layar menerima galat
+            # 500. Yang menekan simpan lalu mencobanya lagi, dan tiap
+            # percobaan menambah satu CoP.
+            return {
+                "certificateOfPaymentID": cop_id,
+                "name": nama,
+                "number": nomor,
+                "documentNumber": nomor_dokumen,
+            }
         except Exception as e:
             log_error(f"Gagal membuat certificate of payment: {str(e)}")
             return internal_error()

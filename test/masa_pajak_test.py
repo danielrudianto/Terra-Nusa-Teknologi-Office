@@ -124,3 +124,77 @@ def test_rekap_bulanan_tetap_memakai_tanggal_dokumen():
         "rekap bulanan ikut bergeser ke masa pajak; seharusnya tetap "
         "memakai tanggal dokumen"
     )
+
+
+class TestJawabanSimpanCoP:
+    """
+    Jawaban `create` hanya boleh menyebut nilai yang BENAR-BENAR ada.
+
+    Kegagalan di sini punya bentuk yang paling menyesatkan: penyimpanannya
+    BERHASIL — transaksinya sudah commit — lalu penyusunan jawabannya
+    melempar, dan layar menerima galat 500. Dokumennya tercatat, tetapi yang
+    menekan simpan mengira gagal, lalu mencobanya lagi. Tiap percobaan
+    menambah satu dokumen.
+    """
+
+    def _blok_create(self) -> str:
+        import os
+
+        akar = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        s = open(
+            os.path.join(akar, "repository", "certificate_of_payment_repository.py"),
+            encoding="utf-8",
+        ).read()
+        i = s.index("async def create(data: Dict[str, Any], items")
+        j = s.find("\n    @staticmethod", i)
+        return s[i:j]
+
+    def _kunci_dikirim(self) -> set:
+        import os
+        import re
+
+        akar = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        c = open(
+            os.path.join(akar, "controllers", "certificate_of_payment_controller.py"),
+            encoding="utf-8",
+        ).read()
+        i = c.index("hasil = await CertificateOfPaymentRepository.create(")
+        return set(re.findall(r'"(\w+)":', c[i : i + 600]))
+
+    def test_jawaban_tidak_membaca_kunci_yang_tak_pernah_dikirim(self):
+        """
+        `data["name"]` adalah bentuk kegagalan itu.
+
+        Nama dokumen disusun DI DALAM `create` — pemanggilnya tidak pernah
+        mengirimkannya, dan memang tidak boleh, karena nomornya harus
+        diambil di dalam transaksi. Membacanya kembali dari `data` melempar
+        KeyError sesudah dokumennya tersimpan.
+        """
+        import re
+
+        blok = self._blok_create()
+        dikirim = self._kunci_dikirim()
+
+        # Komentar dibuang lebih dulu: penjelasan yang MENYEBUT bentuk
+        # kelirunya bukan pemakaian, dan menandainya membuat catatan yang
+        # menerangkan sebuah bug tidak dapat ditulis tanpa memicu bug palsu.
+        tanpa_komentar = re.sub(r"#[^\n]*", "", blok)
+
+        dibaca = set(re.findall(r'data\["(\w+)"\]', tanpa_komentar))
+        # `data.get(...)` sah: ia menjawab None, bukan melempar.
+        liar = dibaca - dikirim
+        assert not liar, (
+            f"`create` membaca data[{sorted(liar)}] yang tidak pernah dikirim "
+            f"pemanggilnya; kunci yang dikirim: {sorted(dikirim)}"
+        )
+
+    def test_jawaban_menyebut_nama_dan_nomor_dokumen(self):
+        """
+        Layar memakai keduanya untuk menyebut dokumen yang baru tersimpan.
+        Menghilangkannya membuat layar menampilkan "undefined".
+        """
+        blok = self._blok_create()
+        i = blok.index('"certificateOfPaymentID": cop_id')
+        jawaban = blok[i : i + 260]
+        assert '"name": nama' in jawaban, "jawaban tidak menyebut nama dokumen"
+        assert '"number": nomor' in jawaban, "jawaban tidak menyebut nomor"
