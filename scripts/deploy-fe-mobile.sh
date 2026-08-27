@@ -75,19 +75,40 @@ if [[ $LEWATI_TARIK -eq 0 ]]; then
 fi
 
 # ---------------------------------------------------------------------
-# 2. Paket
+# 2. Paket — HANYA saat berubah
 # ---------------------------------------------------------------------
 echo "==> Menyelaraskan paket"
 
-# `npm ci` menolak bila package-lock.json tidak sejalan dengan package.json —
-# dan itu justru yang diinginkan di server: yang terpasang harus persis sama
-# dengan yang diuji, bukan versi terbaru yang kebetulan cocok.
+# `npm ci` MENGHAPUS node_modules lalu memasang ulang dari nol SETIAP kali
+# dipanggil. Di server kecil itu satu-dua menit yang terbuang bila paketnya
+# tidak berubah — dan paket jarang berubah antar deploy.
 #
-# `node_modules` dibuang lebih dulu bila pemasangan sebelumnya terputus.
-if ! npm ci --silent; then
-  kuning "    npm ci gagal — membersihkan node_modules dan mengulang"
-  rm -rf node_modules
-  npm ci --silent || gagal "npm ci"
+# Pemasangan karena itu hanya dijalankan bila `package-lock.json` benar-benar
+# berbeda dari yang terpasang terakhir, atau bila node_modules belum ada.
+# Penandanya sama persis dengan yang dipakai `deploy-fe.sh`, dan keduanya
+# BERBAGI node_modules yang sama (sama-sama dari frontend-src) — sehingga
+# setelah salah satunya memasang, yang lain melewatinya.
+#
+# `npm ci` (bukan `npm install`) tetap dipakai saat memang memasang: ia menolak
+# bila lock tidak sejalan dengan package.json — yang di server justru
+# diinginkan, supaya yang terpasang persis sama dengan yang diuji.
+PENANDA="node_modules/.deploy-lock-hash"
+LOCK_SEKARANG="$(sha256sum package-lock.json | awk '{print $1}')"
+
+pasang() {
+  if ! npm ci --silent; then
+    kuning "    npm ci gagal — membersihkan node_modules dan mengulang"
+    rm -rf node_modules
+    npm ci --silent || gagal "npm ci"
+  fi
+  echo "$LOCK_SEKARANG" > "$PENANDA"
+}
+
+if [[ -d node_modules && -f "$PENANDA" && "$(cat "$PENANDA" 2>/dev/null)" == "$LOCK_SEKARANG" ]]; then
+  echo "    paket tidak berubah — pemasangan dilewati"
+else
+  echo "    paket berubah atau node_modules belum ada — memasang"
+  pasang
 fi
 
 # ---------------------------------------------------------------------
@@ -102,6 +123,11 @@ if [[ "${TERSEDIA_MB:-0}" -lt 2048 ]]; then
   kuning "    memori tersedia hanya ${TERSEDIA_MB} MB; build dapat terhenti"
   kuning "    pertimbangkan menambah swap, atau bangun di mesin lain"
 fi
+
+# Cache build Angular (.angular/cache) SENGAJA TIDAK dibuang: ia menyimpan
+# hasil kompilasi berkas yang tidak berubah, dan itulah yang membuat build
+# kedua dan seterusnya jauh lebih cepat daripada yang pertama. Bila suatu saat
+# cache tampak rusak (jarang), cukup hapus manual: `rm -rf .angular/cache`.
 
 # `npm run build`, BUKAN `npx ng build`.
 #
