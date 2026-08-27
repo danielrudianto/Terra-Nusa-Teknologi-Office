@@ -66,21 +66,42 @@ if [[ $LEWATI_TARIK -eq 0 ]]; then
 fi
 
 # ---------------------------------------------------------------------
-# 2. Paket
+# 2. Paket — HANYA saat berubah
 # ---------------------------------------------------------------------
 echo "==> Menyelaraskan paket"
 
-# `npm ci` menolak bila package-lock.json tidak sejalan dengan package.json —
-# dan itu justru yang diinginkan di server: yang terpasang harus persis sama
-# dengan yang diuji, bukan versi terbaru yang kebetulan cocok.
+# `npm ci` MENGHAPUS node_modules lalu memasang ulang dari nol SETIAP kali
+# dipanggil. Di server kecil itu satu-dua menit yang terbuang bila paketnya
+# tidak berubah sama sekali — dan paket jarang berubah antar deploy.
 #
-# `node_modules` dibuang lebih dulu karena pemasangan yang pernah terputus
-# meninggalkan folder setengah jadi, dan gejalanya berupa ENOTEMPTY yang
-# tidak menyebut sebabnya.
-if ! npm ci --silent; then
-  kuning "    npm ci gagal — membersihkan node_modules dan mengulang"
-  rm -rf node_modules
-  npm ci --silent || gagal "npm ci"
+# Karena itu pemasangan hanya dijalankan bila `package-lock.json` benar-benar
+# berbeda dari yang terpasang terakhir, atau bila node_modules memang belum
+# ada. Sidik jari lock disimpan DI DALAM node_modules: begitu foldernya dibuang
+# (mis. `npm ci` yang mengulang), penandanya ikut hilang, sehingga tidak pernah
+# ada yang "dilewati" di atas folder yang sebetulnya kosong.
+#
+# `npm ci` (bukan `npm install`) tetap dipakai saat memang memasang: ia menolak
+# bila lock tidak sejalan dengan package.json — yang di server justru
+# diinginkan, supaya yang terpasang persis sama dengan yang diuji.
+PENANDA="node_modules/.deploy-lock-hash"
+LOCK_SEKARANG="$(sha256sum package-lock.json | awk '{print $1}')"
+
+pasang() {
+  if ! npm ci --silent; then
+    kuning "    npm ci gagal — membersihkan node_modules dan mengulang"
+    rm -rf node_modules
+    npm ci --silent || gagal "npm ci"
+  fi
+  # Penanda ditulis SESUDAH pemasangan berhasil — bila build/pemasangan
+  # terputus, penanda lama tidak tertinggal menipu deploy berikutnya.
+  echo "$LOCK_SEKARANG" > "$PENANDA"
+}
+
+if [[ -d node_modules && -f "$PENANDA" && "$(cat "$PENANDA" 2>/dev/null)" == "$LOCK_SEKARANG" ]]; then
+  echo "    paket tidak berubah — pemasangan dilewati"
+else
+  echo "    paket berubah atau node_modules belum ada — memasang"
+  pasang
 fi
 
 # ---------------------------------------------------------------------
@@ -96,6 +117,12 @@ if [[ "${TERSEDIA_MB:-0}" -lt 2048 ]]; then
   kuning "    memori tersedia hanya ${TERSEDIA_MB} MB; build dapat terhenti"
   kuning "    pertimbangkan menambah swap, atau bangun di mesin lain"
 fi
+
+# Cache build Angular (.angular/cache) SENGAJA TIDAK dibuang: ia menyimpan
+# hasil kompilasi berkas yang tidak berubah, dan itulah yang membuat build
+# kedua dan seterusnya jauh lebih cepat daripada yang pertama. Membersihkannya
+# tiap deploy membuat setiap build dingin dari nol. Bila suatu saat cache
+# tampak rusak (jarang), cukup hapus manual: `rm -rf .angular/cache`.
 
 # `npm run build`, BUKAN `npx ng build`.
 #
