@@ -630,7 +630,12 @@ def _lengkapi(data: dict) -> dict:
     # Nomor BAP mengikuti nomor CoP: keduanya terbit berpasangan, dan
     # penomoran terpisah hanya menciptakan dua urutan yang harus dicocokkan
     # tangan setiap kali dokumennya dicari.
-    keluar["nomorBap"] = cop.get("number")
+    #
+    # Dipakai NOMOR LENGKAPNYA (`name`, mis. "002-042-R501-2026"), bukan
+    # urutan mentahnya (`number`, yang cuma "2"): satu angka telanjang tidak
+    # dapat ditelusuri, sedangkan nomor lengkap menyebut vendor, proyek, dan
+    # tahunnya sekaligus — sama persis dengan yang tercetak sebagai No. CoP.
+    keluar["nomorBap"] = cop.get("name") or cop.get("number")
     keluar["nomorAdendum"] = "Ada" if kontrak.get("adaAdendum") else None
 
     # Syarat kontrak dihitung DI SINI, bukan di dalam templat.
