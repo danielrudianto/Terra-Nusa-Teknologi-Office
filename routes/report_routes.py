@@ -3,28 +3,39 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from repository.laba_rugi_repository import LabaRugiRepository
-from utils.auth_utils import User
+from utils.auth_utils import get_current_user, User
 from utils.errors import error_detail
-from utils.permission import require
 
 router = APIRouter()
 
 
 @router.get("/laba-rugi")
 async def laba_rugi(
-    # Sama seperti posisi keuangan: laporan seluruh keuangan perusahaan hanya
-    # untuk FAT (modul `finance_status`, baca level 4). Membukanya lebih luas
-    # menjadikan halaman ini pintu belakang ke angka yang sudah ditutup.
-    current_user: Annotated[User, Depends(require("finance_status", "read"))],
+    current_user: Annotated[User, Depends(get_current_user)],
     month: int = Query(..., ge=1, le=12),
     year: int = Query(..., ge=2000, le=2100),
 ):
     """
     Laba rugi konsolidasi (akrual) — bulan berjalan + akumulasi tahun berjalan.
 
+    HANYA pemilik usaha (level 5). Digate langsung ke LEVEL, bukan ke modul
+    divisi: laba rugi menyeluruh adalah angka pemilik, dan owner belum tentu
+    berada di divisi FAT — memakai izin `finance_status` justru bisa menutup
+    aksesnya sendiri. Batasnya ditegakkan di server, bukan sekadar disembunyikan
+    di sidenav.
+
     "Versi kita" untuk dicocokkan dengan pembukuan akuntan; tiap baris dapat
     ditelusuri ke kategori dokumennya. Lihat `repository/laba_rugi_repository`.
     """
+    if int(current_user["authenticationLevel"] or 1) < 5:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "FORBIDDEN",
+                "message": "Laporan laba rugi hanya untuk pemilik usaha (level 5).",
+            },
+        )
+
     hasil = await LabaRugiRepository.laba_rugi(month, year)
     if isinstance(hasil, dict) and "error" in hasil:
         raise HTTPException(
