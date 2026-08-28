@@ -102,7 +102,11 @@ KATEGORI_BEBAN = {
 #:  * 5.1.8.3 PPh 21 — sudah termasuk di dalam gaji BRUTO yang dihitung dari
 #:    slip gaji. Setorannya bukan biaya tambahan, hanya bagian bruto yang
 #:    dipotong dari karyawan lalu disetorkan.
-KATEGORI_DIKECUALIKAN = {"5.1.8.1", "5.1.8.3"}
+#:  * 5.1.1 Pembelian aset — BUKAN biaya: asetnya tidak hilang, hanya berpindah
+#:    menjadi aktiva tetap di neraca. Yang masuk laba rugi hanyalah
+#:    PENYUSUTANNYA (dihitung dari daftar aset). Membebankannya penuh sekaligus
+#:    berarti menghitung dua kali — sekali saat beli, sekali lewat penyusutan.
+KATEGORI_DIKECUALIKAN = {"5.1.8.1", "5.1.8.3", "5.1.1"}
 
 
 def _grup_label(kode):
@@ -354,6 +358,11 @@ async def _agregasi(a: d, b: d) -> dict:
     for r in baris_pembelian:
         nilai = float(r["nilai"] or 0)
         if nilai == 0:
+            continue
+        # Pembelian aset (5.1.1) dsb. dikecualikan — dikapitalisasi, bukan
+        # dibebankan. Diperiksa di SINI juga, bukan hanya di loop beban:
+        # pembelian aset masuk lewat Purchase Order bertipe 5.1.1.
+        if str(r["purchaseType"]) in KATEGORI_DIKECUALIKAN:
             continue
         grup, label = _grup_label_pembelian(r["purchaseType"])
         _tambah(grup, label, nilai)
