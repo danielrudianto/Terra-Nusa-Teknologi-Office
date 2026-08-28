@@ -164,6 +164,55 @@ def _grup_label_pembelian(kode):
     return _grup_label(kode)
 
 
+#: LABEL (bahasa Indonesia) -> SLUG stabil untuk i18n di layar.
+#:
+#: Baris digabung di server berdasarkan label, lalu tiap baris membawa `kategori`
+#: berupa slug ini. Layar menerjemahkan `labaRugi.baris.<slug>`, dengan label di
+#: sini sebagai cadangan bila terjemahannya belum ada. Slug sengaja terpisah
+#: dari kode purchaseType: satu label bisa berasal dari beberapa kode (mis. F
+#: pembelian dan F beban sama-sama "Material proyek"), dan yang digabung adalah
+#: labelnya.
+LABEL_KE_SLUG = {
+    "Transportasi proyek": "transportasiProyek",
+    "Sewa alat proyek": "sewaAlatProyek",
+    "Bahan bakar proyek": "bahanBakarProyek",
+    "Tenaga kerja proyek": "tenagaKerjaProyek",
+    "Koordinasi, konsumsi & akomodasi": "koordinasiKonsumsiAkomodasi",
+    "Material proyek": "materialProyek",
+    "Perlengkapan & peralatan proyek": "perlengkapanPeralatanProyek",
+    "Pekerjaan subkontrak": "pekerjaanSubkontrak",
+    "Pembelian material & jasa": "pembelianMaterialJasa",
+    "Pembelian barang utilitas kantor": "pembelianUtilitasKantor",
+    "Perawatan aset": "perawatanAset",
+    "Sewa dibayar di muka": "sewaDibayarDiMuka",
+    "Beban karyawan": "bebanKaryawan",
+    "Logistik": "logistik",
+    "Penanganan dokumen & ATK": "penangananDokumenAtk",
+    "Utilitas (listrik, air, dll)": "utilitas",
+    "Biaya administrasi": "biayaAdministrasi",
+    "Pembulatan": "pembulatan",
+    "Perangkat lunak": "perangkatLunak",
+    "Sosial & kemasyarakatan": "sosialKemasyarakatan",
+    "Iklan": "iklan",
+    "Merchandise promosi": "merchandisePromosi",
+    "Media sosial": "mediaSosial",
+    "Legal (akta, SBU)": "legal",
+    "Asuransi": "asuransi",
+    "Rekrutmen": "rekrutmen",
+    "Pelatihan": "pelatihan",
+    "Kesehatan": "kesehatan",
+    "Bunga": "bunga",
+    "Denda": "denda",
+    "Pajak — PPh 23 & 4(2)": "pajakPph23",
+    "Pajak — SPT Tahunan": "pajakSptTahunan",
+    "Pajak — Jasa lapor SPT": "pajakJasaLaporSpt",
+    "Pajak — Denda": "pajakDenda",
+    "Pajak atas bunga": "pajakAtasBunga",
+    "Penyusutan aset tetap": "penyusutanAsetTetap",
+    "Beban gaji": "bebanGaji",
+}
+
+
 def _bulan_dalam_rentang(a: d, b: d):
     """
     Daftar (tahun, bulan) yang tercakup rentang [a, b].
@@ -449,11 +498,16 @@ async def _agregasi(a: d, b: d) -> dict:
         _tambah(GRUP_USAHA, "Beban gaji", gaji)
 
     def _rincian(m):
-        # label dipakai sekaligus sebagai `kategori` (kunci penggabungan di
-        # layar) — unik dalam satu grup, dan stabil antara bulan & YTD.
+        # `kategori` = slug stabil untuk i18n (label sebagai cadangan). Slug
+        # juga jadi kunci penggabungan bulan & YTD di layar; yang tak terpetakan
+        # memakai labelnya sendiri sebagai kunci (mis. "Lainnya (X)").
         return sorted(
             [
-                {"kategori": lbl, "label": lbl, "nilai": round(v, 2)}
+                {
+                    "kategori": LABEL_KE_SLUG.get(lbl, lbl),
+                    "label": lbl,
+                    "nilai": round(v, 2),
+                }
                 for lbl, v in m.items()
                 if v
             ],
