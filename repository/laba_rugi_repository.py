@@ -17,7 +17,7 @@ tanpa PPN maupun PPh.
 
 from datetime import date as d, timedelta
 
-from sqlalchemy import select, func, and_, tuple_
+from sqlalchemy import select, func, and_, or_
 
 from utils.database import database
 from utils.logger_utils import log_error
@@ -200,9 +200,19 @@ async def _gaji_rentang(a: d, b: d) -> float:
     pasangan = _bulan_dalam_rentang(a, b)  # [(tahun, bulan), ...]
     if not pasangan:
         return 0.0
-    periode = tuple_(
-        salary_slips_table.c.year, salary_slips_table.c.month
-    ).in_(pasangan)
+    # OR dari pasangan (tahun, bulan) — sengaja BUKAN tuple_().in_(): IN
+    # komposit tidak selalu ter-bind benar di driver async `databases` dan bisa
+    # diam-diam tidak cocok apa pun (gaji tampak 0 tanpa error). Bentuk OR ini
+    # portabel dan pasti jalan.
+    periode = or_(
+        *[
+            and_(
+                salary_slips_table.c.year == y,
+                salary_slips_table.c.month == m,
+            )
+            for (y, m) in pasangan
+        ]
+    )
 
     # Komponen tetap pada baris slip.
     pokok = await database.fetch_val(
