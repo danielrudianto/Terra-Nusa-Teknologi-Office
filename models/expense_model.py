@@ -17,6 +17,19 @@ expenses_table = Table(
     Column("date", Date(), nullable=False),
     Column("dueDate", Date(), nullable=True),
     Column("purchaseType", String(100), nullable=False),
+    # MASA yang DITANGGUNG beban ini — hari PERTAMA periodenya.
+    #
+    # Untuk beban berkala yang tanggal BAYARnya kerap berbeda dari periode yang
+    # ditanggung: setoran PPN/PPh, iuran BPJS, premi asuransi, SPT Tahunan.
+    # Contoh: PPN masa Mei baru disetor Juni — `date` = tanggal setor (Juni),
+    # `masaPajak` = 1 Mei. Untuk yang tahunan (SPT Tahunan) dipakai 1 Januari
+    # tahun pajaknya.
+    #
+    # NULL berarti IKUT `date` — dan itu MAYORITAS beban (barang, jasa, dll.
+    # yang periodenya memang sama dengan tanggal dokumennya). Dengan begitu
+    # baris lama tidak perlu diisi ulang, dan hanya kategori berkala yang
+    # meminta pengisiannya di layar.
+    Column("masaPajak", Date(), nullable=True, default=None),
     # DECIMAL(17,4) di basis data; lihat keterangan di purchase_model.
     Column("dpp", Float(), nullable=False),
     # PERSEN, bukan rupiah — sama seperti `purchases.ppn`.

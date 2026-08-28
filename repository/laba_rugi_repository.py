@@ -82,6 +82,8 @@ KATEGORI_BEBAN = {
     "6.5.1": (GRUP_USAHA, "Rekrutmen"),
     "6.5.2": (GRUP_USAHA, "Pelatihan"),
     "6.5.3": (GRUP_USAHA, "Kesehatan"),
+    "6.5.4": (GRUP_USAHA, "BPJS Ketenagakerjaan"),
+    "6.5.5": (GRUP_USAHA, "BPJS Kesehatan"),
 
     # --- Bunga, denda, pajak -> Beban/Pendapatan Lain ---
     "5.1.10": (GRUP_LAIN, "Bunga"),
@@ -106,11 +108,17 @@ KATEGORI_BEBAN = {
 #:  * 5.1.8.3 PPh 21 — sudah termasuk di dalam gaji BRUTO yang dihitung dari
 #:    slip gaji. Setorannya bukan biaya tambahan, hanya bagian bruto yang
 #:    dipotong dari karyawan lalu disetorkan.
+#:  * 5.1.8.2 PPh 23 & 4(2) — PPh yang DIPOTONG dari pembayaran ke vendor.
+#:    Angka itu sudah termasuk di dalam DPP pembelian/beban yang dicatat
+#:    (biaya = DPP penuh; PPh hanyalah bagian DPP yang dialihkan ke negara,
+#:    bukan tambahan). Mencatatnya lagi sebagai beban = menghitung dua kali.
+#:    (Pengecualian: bila PPh benar-benar DITANGGUNG perusahaan/gross-up, itu
+#:    biaya nyata — tetapi kasus normal adalah dipotong, jadi dikecualikan.)
 #:  * 5.1.1 Pembelian aset — BUKAN biaya: asetnya tidak hilang, hanya berpindah
 #:    menjadi aktiva tetap di neraca. Yang masuk laba rugi hanyalah
 #:    PENYUSUTANNYA (dihitung dari daftar aset). Membebankannya penuh sekaligus
 #:    berarti menghitung dua kali — sekali saat beli, sekali lewat penyusutan.
-KATEGORI_DIKECUALIKAN = {"5.1.8.1", "5.1.8.3", "5.1.1"}
+KATEGORI_DIKECUALIKAN = {"5.1.8.1", "5.1.8.2", "5.1.8.3", "5.1.1"}
 
 
 def _grup_label(kode):
@@ -201,6 +209,8 @@ LABEL_KE_SLUG = {
     "Rekrutmen": "rekrutmen",
     "Pelatihan": "pelatihan",
     "Kesehatan": "kesehatan",
+    "BPJS Ketenagakerjaan": "bpjsKetenagakerjaan",
+    "BPJS Kesehatan": "bpjsKesehatan",
     "Bunga": "bunga",
     "Denda": "denda",
     "Pajak — PPh 23 & 4(2)": "pajakPph23",
