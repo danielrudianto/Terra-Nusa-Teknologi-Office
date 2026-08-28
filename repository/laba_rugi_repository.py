@@ -1,0 +1,230 @@
+"""
+Laba rugi konsolidasi — "versi kita".
+
+BUKAN pembukuan resmi dan BUKAN keputusan akuntansi final: angkanya disusun
+dari dokumen yang sudah ada di sistem (faktur penjualan, pembelian, beban)
+supaya dapat DICOCOKKAN dengan pembukuan akuntan. Tiap baris dapat ditelusuri
+balik ke kategori dokumennya, sehingga selisih dengan akuntan mudah dilacak.
+
+Basis AKRUAL: diakui pada TANGGAL DOKUMEN (`date`), bukan tanggal bayar.
+
+Yang TIDAK dihitung sebagai biaya:
+  * PPN — dapat dikreditkan, bukan beban;
+  * PPh — potongan pajak pihak lain, bukan pengurang biaya di sini.
+Karena itu nilai tiap dokumen memakai DPP (+ PBBKB, + nilai lain pembelian),
+tanpa PPN maupun PPh.
+"""
+
+from datetime import date as d, timedelta
+
+from sqlalchemy import select, func, and_
+
+from utils.database import database
+from utils.logger_utils import log_error
+from utils.errors import internal_error
+from models.expense_model import expenses_table
+from models.purchase_model import purchases_table
+from models.sales_invoice_model import sales_invoice_tables
+
+
+GRUP_HPP = "hpp"          # Beban Pokok Proyek (harga pokok)
+GRUP_USAHA = "beban_usaha"  # Beban Usaha (operasional)
+GRUP_LAIN = "beban_lain"    # Pendapatan/Beban Lain (bunga, denda, pajak)
+
+
+#: Pemetaan kategori beban (`expenses.purchaseType`) -> baris laba-rugi,
+#: beserta LABEL yang tampil di laporan.
+#:
+#: Inilah yang dicocokkan dengan akuntan: bila sebuah kategori menurut mereka
+#: masuk baris lain, cukup pindahkan grup-nya di sini — satu tempat.
+KATEGORI_BEBAN = {
+    # --- Beban proyek langsung -> Harga Pokok ---
+    "A": (GRUP_HPP, "Transportasi proyek"),
+    "B": (GRUP_HPP, "Sewa alat proyek"),
+    "C": (GRUP_HPP, "Bahan bakar proyek"),
+    "D": (GRUP_HPP, "Tenaga kerja proyek"),
+    "E": (GRUP_HPP, "Koordinasi, konsumsi & akomodasi"),
+    "F": (GRUP_HPP, "Material proyek"),
+    # 'G' SENGAJA di Beban Usaha, bukan Harga Pokok.
+    #
+    # Isinya barang utilitas kantor (mis. alat kebersihan untuk gudang yang
+    # disewa), bukan biaya yang menempel ke sebuah proyek. Kodenya tetap 'G'
+    # supaya data lama tidak perlu diubah; hanya LABEL dan penempatannya di
+    # laporan yang berbeda.
+    "G": (GRUP_USAHA, "Pembelian barang utilitas kantor"),
+
+    # --- Beban kantor & administrasi -> Beban Usaha ---
+    "5.1.1": (GRUP_USAHA, "Pembelian aset"),
+    "5.1.2": (GRUP_USAHA, "Perawatan aset"),
+    "5.1.3": (GRUP_USAHA, "Sewa dibayar di muka"),
+    "5.1.4": (GRUP_USAHA, "Beban karyawan"),
+    "5.1.5": (GRUP_USAHA, "Logistik"),
+    "5.1.6": (GRUP_USAHA, "Penanganan dokumen & ATK"),
+    "5.1.7": (GRUP_USAHA, "Utilitas (listrik, air, dll)"),
+    "5.1.9": (GRUP_USAHA, "Biaya administrasi"),
+    "5.1.11": (GRUP_USAHA, "Pembulatan"),
+    "5.1.12": (GRUP_USAHA, "Perangkat lunak"),
+    "5.1.14": (GRUP_USAHA, "Sosial & kemasyarakatan"),
+    "6.3.1": (GRUP_USAHA, "Iklan"),
+    "6.3.2": (GRUP_USAHA, "Merchandise promosi"),
+    "6.3.3": (GRUP_USAHA, "Media sosial"),
+    "6.4.1": (GRUP_USAHA, "Legal (akta, SBU)"),
+    "6.4.2": (GRUP_USAHA, "Asuransi"),
+    "6.5.1": (GRUP_USAHA, "Rekrutmen"),
+    "6.5.2": (GRUP_USAHA, "Pelatihan"),
+    "6.5.3": (GRUP_USAHA, "Kesehatan"),
+
+    # --- Bunga, denda, pajak -> Beban/Pendapatan Lain ---
+    "5.1.10": (GRUP_LAIN, "Bunga"),
+    "5.1.13": (GRUP_LAIN, "Denda"),
+    "5.1.8.1": (GRUP_LAIN, "Pajak — PPN"),
+    "5.1.8.2": (GRUP_LAIN, "Pajak — PPh 23 & 4(2)"),
+    "5.1.8.3": (GRUP_LAIN, "Pajak — PPh 21"),
+    "5.1.8.4": (GRUP_LAIN, "Pajak — SPT Tahunan"),
+    "5.1.8.5": (GRUP_LAIN, "Pajak — Jasa lapor SPT"),
+    "5.1.8.6": (GRUP_LAIN, "Pajak — Denda"),
+    "5.1.8.7": (GRUP_LAIN, "Pajak atas bunga"),
+}
+
+
+def _grup_label(kode):
+    """
+    Grup & label sebuah kategori. Yang tak dikenal masuk Beban Usaha dengan
+    kodenya sebagai label — lebih baik terlihat sebagai baris tak terpetakan
+    daripada diam-diam hilang dari total.
+    """
+    return KATEGORI_BEBAN.get(str(kode), (GRUP_USAHA, f"Lainnya ({kode})"))
+
+
+async def _agregasi(a: d, b: d) -> dict:
+    """Susun satu laba-rugi untuk rentang tanggal [a, b] (inklusif)."""
+
+    # Pendapatan usaha — DPP faktur penjualan yang belum dihapus.
+    pendapatan = await database.fetch_val(
+        select(func.coalesce(func.sum(sales_invoice_tables.c.dpp), 0)).where(
+            and_(
+                sales_invoice_tables.c.isDelete == False,  # noqa: E712
+                sales_invoice_tables.c.date >= a,
+                sales_invoice_tables.c.date <= b,
+            )
+        )
+    )
+
+    # Pembelian material & jasa -> Harga Pokok. `isInternal` dikecualikan agar
+    # mutasi internal tidak terhitung sebagai biaya.
+    pembelian = await database.fetch_val(
+        select(
+            func.coalesce(
+                func.sum(
+                    purchases_table.c.dpp
+                    + purchases_table.c.pbbkb
+                    + func.coalesce(purchases_table.c.otherValue, 0)
+                ),
+                0,
+            )
+        ).where(
+            and_(
+                purchases_table.c.isDelete == False,  # noqa: E712
+                purchases_table.c.isInternal == False,  # noqa: E712
+                purchases_table.c.date >= a,
+                purchases_table.c.date <= b,
+            )
+        )
+    )
+
+    # Beban, dijumlahkan per kategori.
+    rows = await database.fetch_all(
+        select(
+            expenses_table.c.purchaseType,
+            func.coalesce(
+                func.sum(expenses_table.c.dpp + expenses_table.c.pbbkb), 0
+            ).label("nilai"),
+        )
+        .where(
+            and_(
+                expenses_table.c.isDelete == False,  # noqa: E712
+                expenses_table.c.date >= a,
+                expenses_table.c.date <= b,
+            )
+        )
+        .group_by(expenses_table.c.purchaseType)
+    )
+
+    pembelian = float(pembelian or 0)
+    hpp_rinci = (
+        [
+            {
+                "kategori": "pembelian",
+                "label": "Pembelian material & jasa",
+                "nilai": pembelian,
+            }
+        ]
+        if pembelian
+        else []
+    )
+    usaha_rinci = []
+    lain_rinci = []
+    for r in rows:
+        nilai = float(r["nilai"] or 0)
+        if nilai == 0:
+            continue
+        grup, label = _grup_label(r["purchaseType"])
+        baris = {"kategori": r["purchaseType"], "label": label, "nilai": nilai}
+        if grup == GRUP_HPP:
+            hpp_rinci.append(baris)
+        elif grup == GRUP_LAIN:
+            lain_rinci.append(baris)
+        else:
+            usaha_rinci.append(baris)
+
+    # Rincian diurutkan dari yang terbesar — yang paling menentukan di atas.
+    hpp_rinci.sort(key=lambda x: x["nilai"], reverse=True)
+    usaha_rinci.sort(key=lambda x: x["nilai"], reverse=True)
+    lain_rinci.sort(key=lambda x: x["nilai"], reverse=True)
+
+    pendapatan = float(pendapatan or 0)
+    hpp_total = round(sum(x["nilai"] for x in hpp_rinci), 2)
+    usaha_total = round(sum(x["nilai"] for x in usaha_rinci), 2)
+    lain_total = round(sum(x["nilai"] for x in lain_rinci), 2)
+
+    laba_kotor = round(pendapatan - hpp_total, 2)
+    laba_usaha = round(laba_kotor - usaha_total, 2)
+    laba_sebelum_pajak = round(laba_usaha - lain_total, 2)
+
+    return {
+        "pendapatan": round(pendapatan, 2),
+        "hpp": {"total": hpp_total, "rincian": hpp_rinci},
+        "labaKotor": laba_kotor,
+        "bebanUsaha": {"total": usaha_total, "rincian": usaha_rinci},
+        "labaUsaha": laba_usaha,
+        "bebanLain": {"total": lain_total, "rincian": lain_rinci},
+        "labaSebelumPajak": laba_sebelum_pajak,
+    }
+
+
+class LabaRugiRepository:
+    """Laba rugi konsolidasi: bulan berjalan + akumulasi tahun berjalan."""
+
+    @staticmethod
+    async def laba_rugi(month: int, year: int) -> dict:
+        try:
+            awal_bulan = d(year, month, 1)
+            # Hari terakhir bulan = sehari sebelum tanggal 1 bulan berikutnya.
+            awal_bulan_berikut = (
+                d(year + 1, 1, 1) if month == 12 else d(year, month + 1, 1)
+            )
+            akhir_bulan = awal_bulan_berikut - timedelta(days=1)
+            awal_tahun = d(year, 1, 1)
+
+            bulan = await _agregasi(awal_bulan, akhir_bulan)
+            ytd = await _agregasi(awal_tahun, akhir_bulan)
+
+            return {
+                "month": month,
+                "year": year,
+                "bulan": bulan,
+                "ytd": ytd,
+            }
+        except Exception as e:
+            log_error(f"Gagal menyusun laba rugi: {str(e)}")
+            return internal_error()

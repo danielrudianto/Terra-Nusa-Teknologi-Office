@@ -39,6 +39,7 @@ from routes.finance_status_routes import router as finance_status_router
 from routes.user_avatar_routes import router as user_avatar_router
 from routes.audit_log_routes import router as audit_log_router
 from routes.push_routes import router as push_router
+from routes.report_routes import router as report_router
 
 # Create a router instance
 router = APIRouter()
@@ -103,3 +104,4 @@ router.include_router(master_equipment_router, prefix="/master-equipment", tags=
 router.include_router(user_avatar_router, prefix="/user-avatars", tags=["User Avatars"])
 router.include_router(audit_log_router, prefix="/audit-logs", tags=["Audit Logs"])
 router.include_router(push_router, prefix="/push", tags=["Push Notifications"])
+router.include_router(report_router, prefix="/reports", tags=["Reports"])
