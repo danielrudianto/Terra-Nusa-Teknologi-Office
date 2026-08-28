@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from repository.laba_rugi_repository import LabaRugiRepository
+from repository.audit_log_repository import AuditLogRepository
 from utils.auth_utils import get_current_user, User
 from utils.errors import error_detail
 
@@ -35,6 +36,10 @@ async def laba_rugi(
                 "message": "Laporan laba rugi hanya untuk pemilik usaha (level 5).",
             },
         )
+
+    await AuditLogRepository.catat_akses_laporan(
+        "laba_rugi", f"Laba rugi {month}/{year}"
+    )
 
     hasil = await LabaRugiRepository.laba_rugi(month, year)
     if isinstance(hasil, dict) and "error" in hasil:

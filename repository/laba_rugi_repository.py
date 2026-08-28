@@ -25,6 +25,7 @@ from utils.errors import internal_error
 from models.expense_model import expenses_table
 from models.purchase_model import purchases_table
 from models.sales_invoice_model import sales_invoice_tables
+from models.asset_model import asset_table
 
 
 GRUP_HPP = "hpp"          # Beban Pokok Proyek (harga pokok)
@@ -94,6 +95,75 @@ def _grup_label(kode):
     daripada diam-diam hilang dari total.
     """
     return KATEGORI_BEBAN.get(str(kode), (GRUP_USAHA, f"Lainnya ({kode})"))
+
+
+def _bulan_dalam_rentang(a: d, b: d):
+    """
+    Daftar (tahun, bulan) yang tercakup rentang [a, b].
+
+    `a` diasumsikan jatuh pada awal bulan (pemakaiannya di laba-rugi selalu
+    tanggal 1). Dipakai penyusutan, yang dihitung PER BULAN, bukan sekadar
+    dijumlah atas rentang tanggal seperti dokumen biasa.
+    """
+    hasil = []
+    y, m = a.year, a.month
+    while d(y, m, 1) <= b:
+        hasil.append((y, m))
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return hasil
+
+
+async def _penyusutan_rentang(a: d, b: d) -> float:
+    """
+    Penyusutan garis lurus seluruh aset tetap untuk bulan-bulan dalam [a, b].
+
+    Metode: nilai perolehan dibagi rata sepanjang masa manfaat (kolom
+    `depreciation`, dalam TAHUN) x 12 bulan — tanpa nilai sisa, garis lurus
+    ke nol, sejalan dengan penyusutan fiskal. Penyusutan DIMULAI pada bulan
+    perolehan dan BERHENTI saat aset sudah habis disusutkan atau sudah dijual.
+
+    Aset dengan masa manfaat 0 (mis. tanah) tidak disusutkan.
+
+    CATATAN penting untuk pencocokan dengan akuntan: bila pembelian aset juga
+    sudah dicatat sebagai beban langsung (kategori 5.1.1 "Pembelian aset"),
+    memasukkan penyusutan di sini berpotensi menghitung dua kali. Baris ini
+    sengaja terpisah dan berlabel jelas supaya selisihnya mudah ditelusuri.
+    """
+    rows = await database.fetch_all(
+        select(
+            asset_table.c.value,
+            asset_table.c.depreciation,
+            asset_table.c.purchaseDate,
+            asset_table.c.soldDate,
+        ).where(asset_table.c.purchaseDate <= b)
+    )
+    if not rows:
+        return 0.0
+
+    bulan_list = _bulan_dalam_rentang(a, b)
+    total = 0.0
+    for r in rows:
+        tahun_manfaat = int(r["depreciation"] or 0)
+        nilai = float(r["value"] or 0)
+        if tahun_manfaat <= 0 or nilai <= 0:
+            continue
+        pd = r["purchaseDate"]
+        if pd is None:
+            continue
+        per_bulan = nilai / (tahun_manfaat * 12)
+        # Indeks bulan absolut (tahun*12 + bulan) agar perbandingannya ringkas.
+        mulai_idx = pd.year * 12 + pd.month            # bulan perolehan (ikut disusut)
+        habis_idx = mulai_idx + tahun_manfaat * 12     # bulan pertama TANPA penyusutan
+        sold = r["soldDate"]
+        jual_idx = (sold.year * 12 + sold.month) if sold else None
+        for (yy, mm) in bulan_list:
+            idx = yy * 12 + mm
+            if idx < mulai_idx or idx >= habis_idx:
+                continue
+            if jual_idx is not None and idx >= jual_idx:
+                continue
+            total += per_bulan
+    return round(total, 2)
 
 
 async def _agregasi(a: d, b: d) -> dict:
@@ -176,6 +246,18 @@ async def _agregasi(a: d, b: d) -> dict:
             lain_rinci.append(baris)
         else:
             usaha_rinci.append(baris)
+
+    # Penyusutan aset tetap — beban non-kas, dihitung dari daftar aset (bukan
+    # dari dokumen beban), maka ditambahkan terpisah ke Beban Usaha.
+    penyusutan = await _penyusutan_rentang(a, b)
+    if penyusutan:
+        usaha_rinci.append(
+            {
+                "kategori": "penyusutan",
+                "label": "Penyusutan aset tetap",
+                "nilai": penyusutan,
+            }
+        )
 
     # Rincian diurutkan dari yang terbesar — yang paling menentukan di atas.
     hpp_rinci.sort(key=lambda x: x["nilai"], reverse=True)

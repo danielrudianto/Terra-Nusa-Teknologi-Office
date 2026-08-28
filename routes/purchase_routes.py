@@ -9,6 +9,7 @@ from schemas.purchase_schema import (
     PurchaseListResponse
 )
 from controllers.purchase_controller import PurchaseController
+from repository.audit_log_repository import AuditLogRepository
 from utils.logger_utils import log_error
 from utils.auth_utils import User
 
@@ -94,6 +95,9 @@ async def get_purchase_report_by_project(
     """
     Get a report of purchases by project name.
     """
+    await AuditLogRepository.catat_akses_laporan(
+        "pembelian", f"Laporan pembelian proyek: {projectName}"
+    )
     purchases = await PurchaseController.get_purchase_report_by_project(projectName)
     if "error" in purchases:
         raise HTTPException(status_code=purchases["status"], detail=purchases["error"])

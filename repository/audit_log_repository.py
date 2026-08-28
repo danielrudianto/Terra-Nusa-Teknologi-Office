@@ -133,6 +133,32 @@ class AuditLogRepository:
             return False
 
     @staticmethod
+    async def catat_akses_laporan(nama: str, keterangan: str = None):
+        """
+        Catat satu AKSES laporan ke jejak audit (muncul di halaman Aktivitas).
+
+        Dipasang di endpoint laporan yang datanya dilihat/diunduh pengguna.
+        Karena berkas laporan (Excel/PDF) disusun di sisi peramban, tidak ada
+        endpoint "unduh" tersendiri untuk dijadikan sangkutan; yang dapat
+        dijamin server adalah SIAPA mengambil datanya, KAPAN, dan dari IP mana.
+        Semuanya terisi otomatis dari konteks permintaan (lihat
+        `audit_context`) — pemanggil cukup menyebut laporan apa dan periodenya.
+
+        `action` sengaja "access", bukan "download": satu titik sadap ini
+        mencakup baik membuka maupun mengunduh, dan tak dapat dilewati walau
+        seseorang menarik datanya langsung lewat API tanpa menekan tombol.
+
+        `entityID` 0 karena laporan bukan satu baris tabel melainkan rekap
+        lintas dokumen; awalan `laporan:` pada `entity` memudahkan penyaringan.
+        """
+        return await AuditLogRepository.record(
+            entity=f"laporan:{nama}",
+            entityID=0,
+            action="access",
+            note=keterangan,
+        )
+
+    @staticmethod
     async def get_by_entity(entity: str, entityID: int, limit: int = 50):
         """Riwayat satu dokumen, terbaru lebih dulu."""
         try:
