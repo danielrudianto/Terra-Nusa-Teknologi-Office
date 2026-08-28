@@ -355,6 +355,18 @@ async def _agregasi(a: d, b: d) -> dict:
             }
         )
 
+    # Beban gaji — dari slip gaji (tabel tersendiri), bukan dari dokumen beban,
+    # maka ditambahkan terpisah ke Beban Usaha.
+    gaji = await _gaji_rentang(a, b)
+    if gaji:
+        usaha_rinci.append(
+            {
+                "kategori": "gaji",
+                "label": "Beban gaji",
+                "nilai": gaji,
+            }
+        )
+
     # Rincian diurutkan dari yang terbesar — yang paling menentukan di atas.
     hpp_rinci.sort(key=lambda x: x["nilai"], reverse=True)
     usaha_rinci.sort(key=lambda x: x["nilai"], reverse=True)
