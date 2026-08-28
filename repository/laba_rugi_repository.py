@@ -17,7 +17,7 @@ tanpa PPN maupun PPh.
 
 from datetime import date as d, timedelta
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, tuple_
 
 from utils.database import database
 from utils.logger_utils import log_error
@@ -26,6 +26,10 @@ from models.expense_model import expenses_table
 from models.purchase_model import purchases_table
 from models.sales_invoice_model import sales_invoice_tables
 from models.asset_model import asset_table
+from models.salary_slip_model import (
+    salary_slips_table,
+    salary_slips_allowance_table,
+)
 
 
 GRUP_HPP = "hpp"          # Beban Pokok Proyek (harga pokok)
@@ -78,7 +82,7 @@ KATEGORI_BEBAN = {
     # --- Bunga, denda, pajak -> Beban/Pendapatan Lain ---
     "5.1.10": (GRUP_LAIN, "Bunga"),
     "5.1.13": (GRUP_LAIN, "Denda"),
-    "5.1.8.1": (GRUP_LAIN, "Pajak — PPN"),
+    # 5.1.8.1 (PPN) SENGAJA tidak di sini — lihat KATEGORI_DIKECUALIKAN.
     "5.1.8.2": (GRUP_LAIN, "Pajak — PPh 23 & 4(2)"),
     "5.1.8.3": (GRUP_LAIN, "Pajak — PPh 21"),
     "5.1.8.4": (GRUP_LAIN, "Pajak — SPT Tahunan"),
@@ -86,6 +90,19 @@ KATEGORI_BEBAN = {
     "5.1.8.6": (GRUP_LAIN, "Pajak — Denda"),
     "5.1.8.7": (GRUP_LAIN, "Pajak atas bunga"),
 }
+
+
+#: Kategori beban yang SENGAJA tidak dihitung sebagai biaya di laba-rugi ini,
+#: karena sudah tercermin di tempat lain — memasukkannya berarti menghitung
+#: dua kali.
+#:
+#:  * 5.1.8.1 PPN — laporan memakai DPP di semua baris dan mengecualikan PPN
+#:    (dapat dikreditkan). Setoran PPN adalah selisih pajak keluaran-masukan
+#:    yang dititipkan ke negara, bukan pengurang laba.
+#:  * 5.1.8.3 PPh 21 — sudah termasuk di dalam gaji BRUTO yang dihitung dari
+#:    slip gaji. Setorannya bukan biaya tambahan, hanya bagian bruto yang
+#:    dipotong dari karyawan lalu disetorkan.
+KATEGORI_DIKECUALIKAN = {"5.1.8.1", "5.1.8.3"}
 
 
 def _grup_label(kode):
@@ -166,6 +183,72 @@ async def _penyusutan_rentang(a: d, b: d) -> float:
     return round(total, 2)
 
 
+async def _gaji_rentang(a: d, b: d) -> float:
+    """
+    Total beban gaji untuk bulan-bulan dalam [a, b], dari slip gaji.
+
+    Diakui per PERIODE slip (`month`/`year`), bukan tanggal bayar — sejalan
+    dengan basis akrual laporan ini. Gaji disimpan di tabelnya sendiri
+    (`salary_slips`), bukan sebagai dokumen beban, sehingga tanpa perhitungan
+    ini gaji sama sekali tak muncul di laba rugi.
+
+    Beban = gaji BRUTO yang ditanggung perusahaan: gaji pokok + tunjangan
+    transport + tunjangan makan + lembur + tunjangan lain. Potongan (PPh 21,
+    BPJS karyawan, dsb) TIDAK dikurangkan — itu bagian dari bruto yang dipotong
+    dari karyawan lalu disetorkan, bukan pengurang biaya perusahaan.
+    """
+    pasangan = _bulan_dalam_rentang(a, b)  # [(tahun, bulan), ...]
+    if not pasangan:
+        return 0.0
+    periode = tuple_(
+        salary_slips_table.c.year, salary_slips_table.c.month
+    ).in_(pasangan)
+
+    # Komponen tetap pada baris slip.
+    pokok = await database.fetch_val(
+        select(
+            func.coalesce(
+                func.sum(
+                    salary_slips_table.c.basicSalary
+                    + salary_slips_table.c.transportationAllowanceRate
+                    * salary_slips_table.c.transportationAllowanceQuantity
+                    + salary_slips_table.c.mealAllowanceRate
+                    * salary_slips_table.c.mealAllowanceQuantity
+                    + salary_slips_table.c.overtimeRate
+                    * salary_slips_table.c.overtimeQuantity
+                ),
+                0,
+            )
+        ).where(
+            and_(
+                salary_slips_table.c.isDelete == False,  # noqa: E712
+                periode,
+            )
+        )
+    )
+
+    # Tunjangan tambahan (tabel terpisah), dijumlahkan untuk slip pada periode
+    # yang sama dan belum dihapus.
+    tunjangan = await database.fetch_val(
+        select(func.coalesce(func.sum(salary_slips_allowance_table.c.amount), 0))
+        .select_from(
+            salary_slips_allowance_table.join(
+                salary_slips_table,
+                salary_slips_table.c.id
+                == salary_slips_allowance_table.c.salarySlipID,
+            )
+        )
+        .where(
+            and_(
+                salary_slips_table.c.isDelete == False,  # noqa: E712
+                periode,
+            )
+        )
+    )
+
+    return round(float(pokok or 0) + float(tunjangan or 0), 2)
+
+
 async def _agregasi(a: d, b: d) -> dict:
     """Susun satu laba-rugi untuk rentang tanggal [a, b] (inklusif)."""
 
@@ -237,6 +320,9 @@ async def _agregasi(a: d, b: d) -> dict:
     for r in rows:
         nilai = float(r["nilai"] or 0)
         if nilai == 0:
+            continue
+        # PPN & PPh 21 sengaja tidak dihitung — lihat KATEGORI_DIKECUALIKAN.
+        if str(r["purchaseType"]) in KATEGORI_DIKECUALIKAN:
             continue
         grup, label = _grup_label(r["purchaseType"])
         baris = {"kategori": r["purchaseType"], "label": label, "nilai": nilai}
