@@ -147,6 +147,12 @@ def _grup_label_pembelian(kode):
     k = str(kode)
     if k in KATEGORI_PEMBELIAN_PROYEK:
         return GRUP_HPP, KATEGORI_PEMBELIAN_PROYEK[k]
+    # Subkontrak dicatat sebagai H1/H2 di data (berkualifikasi / tidak
+    # berkualifikasi — beda tarif PPh), bukan "H" polos. Semuanya tetap
+    # subkontrak PROYEK, jadi cocokkan awalan 'H' agar tidak jatuh ke
+    # "Lainnya" di Beban Usaha.
+    if k.upper().startswith("H"):
+        return GRUP_HPP, "Pekerjaan subkontrak"
     return _grup_label(kode)
 
 
