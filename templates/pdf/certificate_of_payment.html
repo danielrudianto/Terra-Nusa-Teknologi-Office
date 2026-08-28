@@ -606,10 +606,14 @@
         </div>
       </div>
 
+      <!--
+        HANYA rantai CoP. Rantai BAP (dibuat & disetujui) dicatat pada lembar
+        BAP-nya sendiri — lembar ini adalah CoP, dan menyebut siapa yang
+        membuat atau menyetujui BAP di sini membuatnya seolah menanggung
+        keputusan yang sebenarnya tercatat di lembar lain.
+      -->
       <div class="jejak">
-        BAP dibuat: {{ cop.createdByName or "—" }}
-        · BAP disetujui: {{ cop.bapApprovedByName or "—" }}
-        · CoP dibuat: {{ cop.copCreatedByName or "—" }}
+        CoP dibuat: {{ cop.copCreatedByName or "—" }}
         · CoP disetujui: {{ cop.approvedByName or "—" }}
       </div>
     </div>

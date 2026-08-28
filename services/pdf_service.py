@@ -710,15 +710,26 @@ def _lengkapi(data: dict) -> dict:
 
 def _keterangan_persetujuan(cop: dict) -> str:
     """
-    "Disetujui secara elektronik pada 12 Agustus 2026, 14.05 WIB · Diperiksa
-    oleh Budi".
+    Jejak persetujuan elektronik pada lembar BAP — HANYA orang-orang BAP.
+
+    "Disetujui secara elektronik pada 12 Agustus 2026, 14.05 WIB · Oleh Budi
+    · BAP dibuat oleh Ani · 002-042-R501-2026".
+
+    Dipakai hanya oleh `cop_bap_isi.html`, lembar Berita Acara Pemeriksaan.
+    Karena itu isinya penyetuju dan pembuat BAP-nya, BUKAN siapa yang membuat
+    atau menyetujui CoP — rantai CoP dicatat pada lembar CoP-nya sendiri.
+    Menyebut tahap yang bukan miliknya membuat satu lembar seolah menanggung
+    keputusan yang sebenarnya tercatat di lembar lain.
+
+    Muncul begitu BAP disetujui (gerbang pertama), tidak menunggu CoP-nya —
+    BAP memang dapat diunduh dan sah lebih dahulu.
 
     Waktunya disusun dari bagian LOKAL. `isoformat()` maupun konversi UTC
     memundurkan tanggalnya tujuh jam bagi WIB — dokumen yang disetujui pukul
     05.00 akan tercetak disetujui sehari sebelumnya.
     """
-    kapan = cop.get("approvedAt")
-    if not kapan or not cop.get("isApproved"):
+    kapan = cop.get("bapApprovedAt")
+    if not kapan or not cop.get("isBapApproved"):
         return ""
     try:
         tanggal = (
@@ -730,12 +741,10 @@ def _keterangan_persetujuan(cop: dict) -> str:
 
     bagian = [f"Disetujui secara elektronik pada {tanggal}"]
     kedua = []
-    if cop.get("approvedByName"):
-        kedua.append(f"Oleh {cop['approvedByName']}")
-    if cop.get("copCreatedByName"):
-        kedua.append(f"CoP dibuat oleh {cop['copCreatedByName']}")
     if cop.get("bapApprovedByName"):
-        kedua.append(f"BAP disetujui oleh {cop['bapApprovedByName']}")
+        kedua.append(f"Oleh {cop['bapApprovedByName']}")
+    if cop.get("createdByName"):
+        kedua.append(f"BAP dibuat oleh {cop['createdByName']}")
     if cop.get("name"):
         kedua.append(str(cop["name"]))
     if kedua:
