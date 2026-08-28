@@ -462,9 +462,23 @@ class ProjectRepository:
                     GROUP BY projectName
                 ) b ON b.projectName = p.code
                 LEFT JOIN (
+                    -- HANYA draft yang BELUM jadi pembelian.
+                    --
+                    -- Draft adalah akrual: biaya yang sudah terjadi tetapi
+                    -- fakturnya belum masuk. Begitu fakturnya masuk, draft-nya
+                    -- DIKONVERSI menjadi `purchases` (ditandai `convertedAt`
+                    -- dan disambungkan lewat `purchaseID`) — dan sejak itu
+                    -- biayanya sudah terhitung pada `beli`.
+                    --
+                    -- Tanpa saringan `convertedAt IS NULL`, draft yang sudah
+                    -- dikonversi ikut terjumlah SEKALI LAGI di sini, sehingga
+                    -- biaya proyek tercatat dua kali dan marginnya tampak
+                    -- lebih buruk daripada yang sebenarnya. Mesin konversinya
+                    -- sudah ada; kueri ini yang belum memakainya.
                     SELECT projectName, SUM(dpp) AS draft
                     FROM purchase_draft
                     WHERE isDelete = 0
+                      AND convertedAt IS NULL
                     GROUP BY projectName
                 ) d ON d.projectName = p.code
                 LEFT JOIN (

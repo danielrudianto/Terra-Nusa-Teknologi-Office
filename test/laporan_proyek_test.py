@@ -96,6 +96,28 @@ def test_kueri_draft_lama_tidak_lagi_dijalankan():
     assert "PurchaseDraft.get_by_project" not in dipanggil, sorted(dipanggil)
 
 
+def test_ringkasan_margin_tak_hitung_draft_terkonversi():
+    """
+    `ringkasan_margin` menjumlahkan draft LANGSUNG dari SQL — jalur terpisah
+    dari payload detail yang dijaga test-test di atas.
+
+    Draft adalah akrual: begitu fakturnya masuk ia DIKONVERSI menjadi
+    `purchases` (ditandai `convertedAt`). Tanpa saringan `convertedAt IS NULL`
+    di subkueri draft, draft yang sudah dikonversi terjumlah DUA KALI — sekali
+    sebagai `beli`, sekali lagi sebagai `draft` — dan margin proyek tampak
+    lebih buruk daripada yang sebenarnya. Pernah terjadi; jangan sampai balik.
+    """
+    from repository.project_repository import ProjectRepository
+
+    sumber = inspect.getsource(ProjectRepository.ringkasan_margin)
+    assert "purchase_draft" in sumber, "subkueri draft hilang dari ringkasan_margin"
+    assert "convertedAt IS NULL" in sumber, (
+        "subkueri draft pada ringkasan_margin HARUS mengecualikan draft yang "
+        "sudah dikonversi menjadi pembelian (convertedAt IS NULL) — kalau "
+        "tidak, biayanya terhitung dua kali."
+    )
+
+
 def test_muatan_memuat_seluruh_sumber_biaya():
     """Empat sumber yang dibaca layar; hilang satu membuat biayanya kurang."""
     sumber = _sumber()
