@@ -127,76 +127,141 @@ class PaymentOutgoingRepository:
             *( (salary_slips_table.c.month == num, name) for num, name in month_names.items() ),
             else_=literal('Unknown')
         )
-        
-        query = select(
-            payments_outgoing_table,
-            func.coalesce(
-                purchases_table.c.invoiceName, 
-                reimbursements_table.c.name,
-                func.concat(
-                    literal('Salary '),
-                    employees_table.c.name,
-                    literal(' '),
-                    month_case,
-                    literal(' '),
-                    salary_slips_table.c.year.cast(String)
-                ), 
-                expenses_table.c.invoiceName
-            ).label("documentName"),
-            bank_accounts_table.c.bankAccountName.label("bankAccountName"),
-            bank_accounts_table.c.bankAccountNumber.label("bankAccountNumber"),
-            bank_accounts_table.c.bankName.label("bankName")
-        ).outerjoin(
-            purchases_table, payments_outgoing_table.c.purchaseID == purchases_table.c.id
-        ).outerjoin(
-            reimbursements_table, payments_outgoing_table.c.reimbursementID == reimbursements_table.c.id
-        ).outerjoin(
-            salary_slips_table, payments_outgoing_table.c.salarySlipID == salary_slips_table.c.id
-        ).outerjoin(
-            employees_table, salary_slips_table.c.userID == employees_table.c.id
-        ).outerjoin(
-            expenses_table, payments_outgoing_table.c.expenseID == expenses_table.c.id
-        ).outerjoin(
-            bank_accounts_table, payments_outgoing_table.c.bankAccountID == bank_accounts_table.c.id
-        ).where(
-            or_(*or_conditions)
-        ).limit(pageSize).offset((page - 1) * pageSize)
 
-        
-        if sortBy == "date":
-            if sortByDirection == "desc":
-                query = query.order_by(payments_outgoing_table.c.date.desc())
-            else:
-                query = query.order_by(payments_outgoing_table.c.date.asc())
-        elif sortBy == "amount":
-            if sortByDirection == "desc":
-                query = query.order_by(payments_outgoing_table.c.amount.desc())
-            else:
-                query = query.order_by(payments_outgoing_table.c.amount.asc())
+        # Nama dokumen: nota pembelian, reimbursement, gaji, atau beban.
+        document_name = func.coalesce(
+            purchases_table.c.invoiceName,
+            reimbursements_table.c.name,
+            func.concat(
+                literal('Salary '),
+                employees_table.c.name,
+                literal(' '),
+                month_case,
+                literal(' '),
+                salary_slips_table.c.year.cast(String)
+            ),
+            expenses_table.c.invoiceName
+        )
+
+        # Lawan transaksi: opponent beban, pemasok pembelian, atau pegawai
+        # (gaji). Reimbursement tidak punya lawan tunggal — dibiarkan kosong.
+        opponent_name = func.coalesce(
+            expense_opponents_table.c.name,
+            suppliers_table.c.name,
+            employees_table.c.name,
+        )
+
+        # Rangkaian join dipakai BERSAMA oleh kueri data dan kueri hitung,
+        # supaya penyaring yang menyentuh tabel tertaut (mis. cari nama lawan)
+        # berlaku sama pada keduanya — kalau tidak, jumlah halaman berselisih
+        # dengan isinya.
+        sumber = (
+            payments_outgoing_table
+            .outerjoin(
+                purchases_table,
+                payments_outgoing_table.c.purchaseID == purchases_table.c.id,
+            )
+            .outerjoin(
+                suppliers_table,
+                purchases_table.c.supplierID == suppliers_table.c.id,
+            )
+            .outerjoin(
+                reimbursements_table,
+                payments_outgoing_table.c.reimbursementID == reimbursements_table.c.id,
+            )
+            .outerjoin(
+                salary_slips_table,
+                payments_outgoing_table.c.salarySlipID == salary_slips_table.c.id,
+            )
+            .outerjoin(
+                employees_table,
+                salary_slips_table.c.userID == employees_table.c.id,
+            )
+            .outerjoin(
+                expenses_table,
+                payments_outgoing_table.c.expenseID == expenses_table.c.id,
+            )
+            .outerjoin(
+                expense_opponents_table,
+                expenses_table.c.opponentID == expense_opponents_table.c.id,
+            )
+            .outerjoin(
+                bank_accounts_table,
+                payments_outgoing_table.c.bankAccountID == bank_accounts_table.c.id,
+            )
+        )
+
+        where_clauses = []
+        if or_conditions:
+            where_clauses.append(or_(*or_conditions))
+
+        # Rentang tanggal — dokumen yang dibayar antara dua tanggal.
+        if filterObject.get("dateFrom"):
+            where_clauses.append(
+                payments_outgoing_table.c.date >= filterObject["dateFrom"]
+            )
+        if filterObject.get("dateTo"):
+            where_clauses.append(
+                payments_outgoing_table.c.date <= filterObject["dateTo"]
+            )
+
+        # Pencarian — terutama nama lawan transaksi, ikut nama dokumennya.
+        kata = (filterObject.get("keyword") or "").strip()
+        if kata:
+            pola = f"%{kata}%"
+            where_clauses.append(
+                or_(
+                    expense_opponents_table.c.name.ilike(pola),
+                    suppliers_table.c.name.ilike(pola),
+                    employees_table.c.name.ilike(pola),
+                    purchases_table.c.invoiceName.ilike(pola),
+                    reimbursements_table.c.name.ilike(pola),
+                    expenses_table.c.invoiceName.ilike(pola),
+                )
+            )
+
+        query = (
+            select(
+                payments_outgoing_table,
+                document_name.label("documentName"),
+                opponent_name.label("opponentName"),
+                bank_accounts_table.c.bankAccountName.label("bankAccountName"),
+                bank_accounts_table.c.bankAccountNumber.label("bankAccountNumber"),
+                bank_accounts_table.c.bankName.label("bankName"),
+            )
+            .select_from(sumber)
+        )
+        if where_clauses:
+            query = query.where(and_(*where_clauses))
+        query = query.limit(pageSize).offset((page - 1) * pageSize)
+
+        # Sort: tanggal (bawaan), jumlah, atau nama dokumen.
+        if sortBy == "amount":
+            arah = payments_outgoing_table.c.amount
+        elif sortBy == "documentName":
+            arah = document_name
         else:
-            query = query.order_by(payments_outgoing_table.c.date.desc())
-    
+            arah = payments_outgoing_table.c.date
+        query = query.order_by(
+            arah.desc() if sortByDirection == "desc" else arah.asc()
+        )
+
         result = await database.fetch_all(query)
-        
-        #Not the count
-        total_query = select(func.count()).select_from(payments_outgoing_table).where(
-            or_(*or_conditions))
+
+        # Hitungan memakai join & penyaring yang sama; DISTINCT karena join ke
+        # tabel tertaut, walau satu-ke-satu, tetap dijaga agar tidak menggandakan.
+        total_query = (
+            select(func.count(func.distinct(payments_outgoing_table.c.id)))
+            .select_from(sumber)
+        )
+        if where_clauses:
+            total_query = total_query.where(and_(*where_clauses))
         total = await database.fetch_val(total_query)
 
         return {
             "data": result,
             "count": total
         }
-        
-
-        # or_conditions = []
-        # if(keyword is not None and keyword != ""):
-        #     or_conditions.append(purchases_table.c.purchaseOrderName.ilike(f"%{keyword}%"))
-        #     or_conditions.append(purchases_table.c.invoiceName.ilike(f"%{keyword}%"))
-        #     or_conditions.append(purchases_table.c.receiptName.ilike(f"%{keyword}%"))
-        #     or_conditions.append(purchases_table.c.taxInvoiceName.ilike(f"%{keyword}%"))
-        #     or_conditions.append(suppliers_table.c.name.ilike(f"%{keyword}%"))
-        # conditions.append(or_(*or_conditions))
 
     @staticmethod
     async def get_mutation(startDate: d, endDate: d, page: int, pageSize: int, bankAccountID: int):

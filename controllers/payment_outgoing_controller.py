@@ -686,6 +686,52 @@ class PaymentOutgoingController:
             return internal_error()
 
     @staticmethod
+    async def delete_payment(id: int, userID: int, userLevel: int = 1):
+        """
+        Hapus satu pembayaran secara LUNAK — hanya pemilik usaha (level 5).
+
+        Barisnya tetap disimpan (`isDelete`), bukan dibuang: jejak siapa
+        menyetujui berapa adalah kontrol internal. `isApprove` ikut dimatikan
+        di repository, lalu status lunas dokumen yang ditagihnya dihitung
+        ulang — pembayaran yang dihapus tidak lagi dijumlahkan.
+        """
+        if int(userLevel or 1) < 5:
+            return app_error(
+                ErrorCode.FORBIDDEN,
+                "Hanya pemilik usaha (level 5) yang dapat menghapus pembayaran.",
+                403,
+            )
+        try:
+            payment = await PaymentOutgoingRepository.get_payment_by_id(id)
+            if isinstance(payment, dict) and "error" in payment:
+                return {
+                    "error": payment["error"],
+                    "status": payment.get("status", 500),
+                }
+            if not payment:
+                return {"error": "Payment not found", "status": 404}
+            if payment.isDelete:
+                return app_error(
+                    ErrorCode.VALIDATION, "Pembayaran ini sudah dihapus.", 400
+                )
+
+            hasil = await PaymentOutgoingRepository.soft_delete_payment(id, userID)
+            if isinstance(hasil, dict) and "error" in hasil:
+                return {
+                    "error": hasil["error"],
+                    "status": hasil.get("status", 500),
+                }
+
+            # Status lunas dokumennya dihitung ulang; aman diulang karena
+            # hasilnya diturunkan dari pembayaran yang tersimpan.
+            await PaymentOutgoingController.selaraskan_status_lunas(payment, userID)
+
+            return {"message": "Pembayaran dihapus."}
+        except Exception as e:
+            log_error(f"Error deleting payment {id}: {str(e)}")
+            return internal_error()
+
+    @staticmethod
     async def selaraskan_dokumen(jenis: str, dokumen_id: int, userID: int):
         """
         Hitung ulang status lunas satu dokumen, atas permintaan pengguna.

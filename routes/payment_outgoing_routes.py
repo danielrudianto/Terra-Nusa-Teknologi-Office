@@ -78,17 +78,27 @@ async def get_payments(
     user: Annotated[dict, Depends(require("payment_outgoing", "read"))],
     sortBy: str = "createdAt",
     sortByDirection: str = "desc",
-    isPending: bool = False, 
-    isApproved: bool = False, 
-    isRejected: bool = False, 
+    isPending: bool = False,
+    isApproved: bool = False,
+    isRejected: bool = False,
+    dateFrom: str = None,
+    dateTo: str = None,
+    keyword: str = None,
 ):
     """
     Get a list of payments with pagination, filtering, and sorting.
+
+    `dateFrom`/`dateTo` menyaring rentang tanggal pembayaran; `keyword`
+    mencari terutama pada nama lawan transaksi (opponent/pemasok/pegawai),
+    ikut nama dokumennya.
     """
     filterObject = {
         "isApproved": isApproved,
         "isPending": isPending,
         "isRejected": isRejected,
+        "dateFrom": dateFrom,
+        "dateTo": dateTo,
+        "keyword": keyword,
     }
     result = await PaymentOutgoingController.get_payments(
         page, pageSize, filterObject, sortBy, sortByDirection
@@ -209,7 +219,35 @@ async def reject_payment_status(
     if "error" in result:
         log_error(f"Error rejecting payment with ID {paymentID}: {result['error']}")
         raise HTTPException(status_code=500, detail="Internal server error")
-    
+
+    return result
+
+
+@router.delete("/{paymentID}")
+async def delete_payment(
+    paymentID: int,
+    user: Annotated[dict, Depends(require("payment_outgoing", "approve"))],
+):
+    """
+    Hapus satu pembayaran — HANYA pemilik usaha (level 5).
+
+    Penghapusannya lunak (`isDelete`): barisnya tetap disimpan sebagai jejak
+    kas, tetapi tidak lagi dijumlahkan. Status lunas dokumen yang ditagihnya
+    dihitung ulang, sehingga yang tadinya lunas bisa kembali belum lunas.
+
+    Batas level ditegakkan di controller — objek pengguna berupa Record yang
+    tidak punya `.get()`, dan level yang tidak terbaca dianggap paling rendah.
+    """
+    userID = user["id"]
+    userLevel = int(user["authenticationLevel"] or 1)
+    result = await PaymentOutgoingController.delete_payment(
+        paymentID, userID, userLevel
+    )
+    if "error" in result:
+        log_error(f"Error deleting payment with ID {paymentID}: {result['error']}")
+        raise HTTPException(
+            status_code=result.get("status", 500), detail=error_detail(result)
+        )
     return result
 
 
