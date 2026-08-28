@@ -30,6 +30,10 @@ from models.salary_slip_model import (
     salary_slips_table,
     salary_slips_allowance_table,
 )
+from models.reimbursement_model import (
+    reimbursements_table,
+    reimbursement_items_table,
+)
 
 
 GRUP_HPP = "hpp"          # Beban Pokok Proyek (harga pokok)
@@ -392,6 +396,45 @@ async def _agregasi(a: d, b: d) -> dict:
         if str(r["purchaseType"]) in KATEGORI_DIKECUALIKAN:
             continue
         grup, label = _grup_label(r["purchaseType"])
+        _tambah(grup, label, nilai)
+
+    # Reimbursement — pengeluaran karyawan yang diganti perusahaan (mis.
+    # transport, konsumsi). Tabel tersendiri, tidak masuk `expenses` maupun
+    # `purchases`, jadi tanpa ini biayanya hilang dari laba rugi. Nilainya =
+    # jumlah item; dirouting per `purchaseType` seperti pembelian (proyek ->
+    # HPP, kantor -> Beban Usaha). HANYA yang sudah di-approve (biaya yang
+    # benar-benar diakui), belum dihapus.
+    baris_reimburse = await database.fetch_all(
+        select(
+            reimbursements_table.c.purchaseType,
+            func.coalesce(
+                func.sum(reimbursement_items_table.c.amount), 0
+            ).label("nilai"),
+        )
+        .select_from(
+            reimbursements_table.join(
+                reimbursement_items_table,
+                reimbursements_table.c.id
+                == reimbursement_items_table.c.reimbursementID,
+            )
+        )
+        .where(
+            and_(
+                reimbursements_table.c.isDelete == False,  # noqa: E712
+                reimbursements_table.c.isApprove == True,  # noqa: E712
+                reimbursements_table.c.date >= a,
+                reimbursements_table.c.date <= b,
+            )
+        )
+        .group_by(reimbursements_table.c.purchaseType)
+    )
+    for r in baris_reimburse:
+        nilai = float(r["nilai"] or 0)
+        if nilai == 0:
+            continue
+        if str(r["purchaseType"]) in KATEGORI_DIKECUALIKAN:
+            continue
+        grup, label = _grup_label_pembelian(r["purchaseType"])
         _tambah(grup, label, nilai)
 
     # Penyusutan aset tetap — beban non-kas, dari daftar aset (bukan dokumen
