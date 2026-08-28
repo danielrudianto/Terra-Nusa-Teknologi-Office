@@ -174,3 +174,43 @@ class PushSubscriptionRepository:
         except Exception as e:
             log_error(f"Gagal menentukan penyetuju: {str(e)}")
             return []
+
+    @staticmethod
+    async def penerima_tagihan_ids(
+        kecuali_user_ids: List[int] | None = None,
+    ) -> List[int]:
+        """
+        Pengguna yang MENERBITKAN tagihan atas CoP yang sudah disetujui.
+
+        Penagihan CoP dikerjakan divisi FAT (keuangan/akuntansi/pajak):
+        formulir pembelian menawarkan "isi dari CoP" hanya kepada yang boleh
+        membaca modul `certificate_of_payment`, dan itu wilayah FAT — lihat
+        catatan pada `constants/department_modules.py`. SELURUH level FAT ikut,
+        termasuk level 1: menagihkan CoP yang sudah disetujui adalah pekerjaan
+        FAT sehari-hari, bukan keputusan yang perlu level tertentu.
+
+        Bentuknya cerminan `pemeriksa_ids`: divisi diambil sekali untuk semua
+        lalu dipadankan di memori, bukan lewat JOIN yang menggandakan baris
+        bagi pengguna berdivisi lebih dari satu.
+        """
+        try:
+            rows = await database.fetch_all(
+                select(users_table.c.id).where(
+                    users_table.c.isDeleted == False  # noqa: E712
+                )
+            )
+            dept_rows = await database.fetch_all(select(user_departments_table))
+            divisi: dict[int, set[str]] = {}
+            for d in dept_rows:
+                divisi.setdefault(d["userID"], set()).add(d["department"])
+
+            kecuali = {int(u) for u in (kecuali_user_ids or []) if u is not None}
+            hasil: List[int] = []
+            for r in rows:
+                uid = r["id"]
+                if "fat" in divisi.get(uid, set()) and uid not in kecuali:
+                    hasil.append(uid)
+            return hasil
+        except Exception as e:
+            log_error(f"Gagal menentukan penerima tagihan: {str(e)}")
+            return []

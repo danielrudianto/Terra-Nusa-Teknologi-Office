@@ -1,100 +1,227 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Panduan untuk Claude Code (claude.ai/code) saat bekerja di repo ini.
+Pelengkap `README.md` — baca README dulu untuk gambaran utuh; file ini fokus ke
+hal yang mudah bikin salah langkah.
 
-## What This Is
+## Apa Ini
 
-A Bun + Elysia.js financial and HR management system for Terra Nusa Teknologi (TNT). Core domains: purchases, payments, expenses, sales invoices, salary slips, employee records, attendance, and bank account management. Migrated from Python + FastAPI.
+Backend TerraBot: sistem manajemen keuangan & HR PT Alpha Konstruksi Nusantara
+(AKN). Domain inti: purchase order, pembelian, pembayaran (masuk/keluar),
+reimbursement, expense, sales invoice, certificate of payment (CoP), slip gaji,
+karyawan, absensi, proyek, tender, rekrutmen, pajak (PPh/PPN), dan bank.
 
-## Running the Application
+**Stack:** Python 3.10+ · FastAPI · SQLAlchemy Core + pustaka `databases` (async)
+· MySQL · Redis · Meilisearch · WeasyPrint (PDF) · O365/MSAL (email) · pywebpush.
+
+> Repo ini SUDAH sepenuhnya Python. Kalau ketemu sisa artefak Node/Bun
+> (`bun.lock`, `prisma/`, `tsconfig.json`, `package.json`), itu bekas migrasi
+> lama — abaikan, jangan dijadikan acuan.
+
+## Menjalankan
+
+Butuh Python 3.10+ (kode pakai sintaks `int | None`).
 
 ```bash
-bun install
-bun run dev          # runs on port 7500 with --watch
-bun run start        # production
+python3 -m venv env
+./env/bin/pip install -r requirements.txt
+./env/bin/python main.py          # jalan di :7500 (atur lewat PORT)
 ```
 
-**First-time setup** (requires MySQL, Meilisearch, and Redis running):
+- Dokumentasi interaktif: `/docs`.
+- `reload` menyala otomatis KECUALI `APP_ENV=production` (lihat `main.py`).
+- Butuh MySQL, Redis, dan Meilisearch aktif di `127.0.0.1`. Startup lifespan di
+  `main.py` connect DB, setup + sync Meilisearch (item, equipment, supplier),
+  lalu sync Redis. Kegagalan tiap servis dicatat log, tapi lihat catatan view
+  `balance` di bawah — yang itu bikin app GAGAL nyala.
+
+Paket yang dikompilasi (`bcrypt`, `hiredis`) dan WeasyPrint (Pango) perlu pustaka
+sistem — lihat README bagian "Menjalankan".
+
+## Arsitektur — alur satu arah
+
+```
+routes/        titik masuk HTTP + penjaga izin (Depends)
+controllers/   aturan bisnis, orkestrasi
+repository/    SATU-SATUNYA lapis yang baca/tulis DB (async via `databases`)
+models/        definisi tabel SQLAlchemy Core (bukan ORM session)
+schemas/       Pydantic — bentuk payload masuk & keluar
+services/      mail_service (O365), pdf_service (WeasyPrint), user_service
+utils/         auth, permission, database, redis, meilisearch, errors,
+               audit_context, logger, login_guard, webpush
+constants/     matriks izin & modul departemen
+startup/       create_tables, sync helper, otorisasi Microsoft
+scripts/       cek_skema.py, backup/restore, deploy.sh, konfigurasi nginx
+sql/           perubahan skema manual (diterapkan langsung ke DB)
+test/          uji pytest (berkas *_test.py)
+```
+
+Alur: `routes → controllers → repository → models`. **Rute tidak pernah
+menyentuh DB langsung** — semua kueri lewat repository. `main.py` meng-`include`
+`routes/routes.py`, yang mengumpulkan semua APIRouter per domain.
+
+## Autentikasi
+
+- JWT via PyJWT. `SECRET_KEY` + `ALGORITHM` (HS256) dari `.env`.
+- Dependency `get_current_user` (`utils/auth_utils.py`) mendekode token, memuat
+  user, dan **MENOLAK akun nonaktif/terhapus** (`isActive`/`isDeleted`) — ini
+  satu-satunya pintu yang dilewati semua permintaan bertoken, jadi jangan
+  duplikasi cek itu di tiap rute.
+- Access token `ACCESS_TOKEN_EXPIRE_MINUTES` (default 60), refresh
+  `REFRESH_TOKEN_EXPIRE_MINUTES` (default 7 hari, 10080).
+- Logika login sebenarnya ada di `routes/auth_routes.py`. `authenticate_user()`
+  di `auth_utils.py` **kode mati — jangan dipanggil** (pakai kolom yang tidak
+  ada + `.first()` yang bukan cara pustaka ini membaca baris).
+- Rate-limit login di `utils/login_guard.py`: 5 percobaan gagal → kunci 15 menit,
+  per-email dan per-IP, hitungan di Redis. Bila Redis mati, pembatas dilewati
+  (biar tidak mengunci semua orang).
+
+## Izin (RBAC)
+
+Pakai `utils/permission.py`. Untuk memagari rute:
+
+```python
+async def approve(id: int, current_user = Depends(require("expenses", "approve"))):
+```
+
+`require(module, action)` mengembalikan objek user yang sama seperti
+`get_current_user`, jadi isi rute tidak perlu diubah.
+
+**Urutan penentuan:** (1) izin khusus per-user menang; (2) modul harus dalam
+wilayah departemen user; (3) level user ≥ level minimum modul (matriks di
+`constants/permission_matrix.py`).
+
+- **Level 1–5** (1 terendah, 4 = general manager, 5 = pemilik).
+- `MODUL_WILAYAH_MUTLAK` (`salary_slip`, `employees`, `employee_profile`,
+  `employee_form`, `hr_recruitment`) menegakkan batas departemen untuk SEMUA
+  level di bawah 5 — data paling sensitif.
+- `LEVEL_BOLEH_SETUJU_SENDIRI = 5`: hanya pemilik yang boleh menyetujui dokumen
+  buatannya sendiri; selebihnya pembuat ≠ penyetuju.
+- **Menyembunyikan tombol di UI bukan pengamanan** — cek di server inilah yang
+  menentukan. Setiap rute yang mengubah data harus lewat `require(...)`.
+
+## Pola penting
+
+**Soft delete di mana-mana.** Kebanyakan tabel pakai `isDelete`/`deletedAt`/
+`deletedBy` (users: `isActive`/`isDeleted`). Selalu filter yang belum terhapus.
+
+**Jejak audit.** Perubahan tercatat di `audit_logs` beserta pelaku, waktu, dan
+kolom yang berubah. Pelaku diisi otomatis lewat `ContextVar` yang disetel
+middleware `audit_context` dari token — controller/repository tidak perlu
+meneruskannya. Gagal mencatat audit TIDAK menggagalkan tindakan utama.
+
+**Uang = `Decimal` (MySQL DECIMAL).** Presisi penting (IDR). Hati-hati campur
+`float` vs `Decimal` — lolos uji tapi bisa gagal di produksi.
+
+## Gotcha yang tidak terlihat dari kode
+
+Semuanya pernah menjatuhkan sesuatu. Ringkas dari README:
+
+- **Baris = `databases.Record`, bukan `dict`.** Tidak punya `.get()`. Pakai
+  `row["kolom"]` atau `getattr(row, "kolom", bawaan)`.
+- **Kolom JSON jangan di-`json.dumps` dulu** — SQLAlchemy menyandikannya sendiri;
+  kalau tidak, tersandi dua kali.
+- **Default kolom sisi-Python tidak berlaku** (mis. `default=dt.now`) karena
+  `databases` menjalankan kueri terkompilasi. Isi `createdAt` manual.
+- **Label subkueri harus disebut dua kali** (di kueri + di kelas jawaban).
+- **View `balance` & `mutation` wajib ada.** `balance` dimuat `autoload_with`,
+  jadi app **gagal nyala** kalau view-nya tidak ada — bukan cuma satu halaman
+  rusak. Definisi di `sql/`. `mutation` dipakai kalender/saldo (akses via raw
+  query, tidak ada di model).
+- **Dump berisi `DEFINER`** → impor sebagai user biasa gagal galat 1227.
+
+## Alur Certificate of Payment (CoP) — 4 tahap, 2 approval
+
+Alur BARU (hasil rework, SQL `sql/cop-alur-bap.sql` sudah diterapkan di
+produksi). Rutenya di `routes/certificate_of_payment_routes.py`.
+
+1. **BAP dibuat** — engineering L1 (isi volume).
+2. **Setujui BAP** — L4+ (`bapApprovedBy`). Harga baru boleh diisi SETELAH ini.
+3. **CoP dibuat** — engineering L2+ (`copCreatedBy`, isi harga & potongan).
+4. **Setujui CoP** — L4+ (`approvedBy`). Siap ditagih.
+
+Dua approval tidak boleh orang yang sama dan tidak boleh pembuatnya. Kolom lama
+`checkedBy/isChecked/checkedAt` → `copCreatedBy/isCopCreated/copCreatedAt`; kolom
+baru `isBapApproved/bapApprovedBy/bapApprovedAt`. Penomoran CoP:
+`[urut]-[IDvendor]-[proyek]-[tahun]` (mis. `002-042-R501-2026`), per vendor+proyek.
+Nomor BAP mengikuti nomor CoP lengkap.
+
+## Perubahan skema & deploy
+
+Skema diubah lewat berkas `.sql` mentah di `sql/`, diterapkan MANUAL ke DB.
+Tidak ada ORM migration otomatis.
+
 ```bash
-bunx prisma db pull         # sync schema from existing DB
-bunx prisma generate        # regenerate TypeScript client
+git pull
+./env/bin/pip install -r requirements.txt
+./env/bin/python scripts/cek_skema.py       # JANGAN dilewati
+sudo systemctl restart terrabot
 ```
 
-## Architecture
+`cek_skema.py` menandai kolom yang belum ada — kalau dilewati, kolom hilang jadi
+galat 500 tanpa menyebut kolom mana. App jalan sebagai layanan systemd
+(`terrabot`) di balik Nginx; MySQL/Redis/Meilisearch hanya mendengarkan
+`127.0.0.1`.
 
-**MVC + Repository pattern:**
-- `src/routes/` — Elysia route groups, one file per domain
-- `src/controllers/` — business logic and orchestration
-- `src/repository/` — Prisma-based data access (static async methods)
-- `src/utils/` — database, auth, meilisearch, redis, logger, guard, pagination
+> **Deliverable:** perubahan dikirim sebagai berkas/tarball; Daniel yang commit
+> & deploy sendiri. Asisten tidak push ke repo dan tidak punya akses server/DB.
 
-**Entry point:** `src/index.ts` — Elysia app with CORS, startup hooks (Prisma, Meilisearch, Redis), all routes registered here.
+## Uji
 
-**Auth guard:** `src/utils/guard.ts` — Elysia `derive` plugin that decodes the Bearer token and injects `user` into route context. Every protected route checks `if (!user) return set.status = 401`.
+```bash
+./env/bin/python -m pytest test/ -q
+```
 
-**External services** (all expected at localhost):
-- MySQL — `DATABASE_URL` in `.env` (format: `mysql://user:pass@localhost/tnt`)
-- Meilisearch on `:7700` — supplier full-text search
-- Redis on `:6379` — bank account caching
+Berkas uji berakhiran `*_test.py` di `test/` (`asyncio_mode=auto`). Uji
+memeriksa ATURAN, bukan cuma jalannya kode: sandi di-hash, dokumen yang sudah
+disetujui tidak bisa diubah, jejak audit menyertakan pelaku. Uji lolos tidak
+menjamin bebas masalah tipe (`float` vs `Decimal`, `Record` vs `dict`).
 
-## Key Patterns
+## Kelompok rute (prefix di `routes/routes.py`)
 
-**Soft delete everywhere:** All tables use `isDelete` (Boolean or TinyInt) and `deletedAt`/`deletedBy`. Always filter with `isDelete: false` (or `isDelete: 0` for TinyInt tables like `income`, `purchase_draft`, `payment_incoming`).
+`/auth` · `/permissions` · `/user-access` · `/users` · `/user-avatars` ·
+`/clients` · `/suppliers` · `/tenders` · `/payment-plans` · `/purchases` ·
+`/purchase-orders` · `/purchase-draft` · `/reimbursements` · `/banks` ·
+`/expenses` · `/expense-opponents` · `/outgoing-payments` · `/incoming-payments` ·
+`/interpayments` · `/loans` · `/income` · `/sales-invoices` ·
+`/certificate-of-payments` · `/assets` · `/taxes` · `/employees` ·
+`/employee-profiles` · `/employee-forms` · `/hr` (rekrutmen) · `/salary-slips` ·
+`/calendar` · `/agenda` · `/projects` · `/finance-status` · `/dashboard` ·
+`/master-items` · `/master-equipment` · `/audit-logs` · `/push`
 
-**TinyInt vs Boolean:** Some older tables store booleans as `Int @db.TinyInt` (0/1) instead of MySQL BOOLEAN. Check the Prisma schema for the actual type before querying.
+## Locale Indonesia
 
-**Auth flow:** JWT tokens — access token (12h), refresh token (7 days). Tokens use `SECRET_KEY` and `ALGORITHM` from `.env`. `decodeToken()` in `src/utils/auth.ts` returns `null` on invalid/expired tokens.
-
-**Pagination:** All list endpoints accept `page`, `pageSize`, `sortBy`, `sortByDirection` query params. Use `paginationParams()` and `paginationMeta()` from `src/utils/pagination.ts`.
-
-**Error responses:** Route handlers return `{ detail: "..." }` on error with `set.status` set. Controllers return `{ error: "...", status: N }` — routes unpack these into HTTP responses.
-
-**Decimal fields:** Financial amounts in the DB are `Decimal` type (MySQL DECIMAL). Prisma returns them as `Prisma.Decimal` objects — convert to number with `.toNumber()` before returning in JSON if needed.
-
-**Calendar route:** Uses `prisma.$queryRaw` with `Prisma.join()` for complex multi-table joins and the `mutation` MySQL view (balance tracking). The mutation view is NOT in the Prisma schema — access only via raw queries. If `mutation` view doesn't exist the balance query fails silently and returns 0.
-
-**bankAccounts filter:** The `/calendar` endpoints accept `bankAccounts` as a comma-separated string (e.g. `?bankAccounts=1,2,3`). Empty/absent means no filter (all accounts).
-
-## Route Modules
-
-All prefixes registered in `src/index.ts`:
-- `/auth` — login, refresh token
-- `/clients`, `/suppliers` — client and supplier CRUD
-- `/employees` — employee records
-- `/banks` — bank accounts (with Redis caching)
-- `/assets`, `/expense-opponents`, `/income`
-- `/loans`, `/interpayments`
-- `/purchases`, `/purchase-orders`, `/purchase-draft`
-- `/expenses`, `/reimbursements`
-- `/sales-invoices`
-- `/outgoing-payments`, `/incoming-payments`
-- `/salary-slips`
-- `/taxes` — PPH/PPN reporting endpoints
-- `/calendar` — Monthly summary, daily detail, and download/export; aggregates from payment_outgoing, payment_incoming, interpayments, and the `mutation` MySQL view
-- `/attendance` — Employee attendance CRUD with month/date/employee filtering
-
-## Database Schema
-
-Schema in `prisma/schema.prisma` is generated from the actual DB via `bunx prisma db pull`. If you add a column via SQL migration, re-run `prisma db pull` then `prisma generate` to update TypeScript types.
-
-**Audit trail** on most tables: `createdAt`, `createdBy`, `updatedAt`, `updatedBy`, `deletedAt`, `deletedBy`, `isDelete`.
-
-## Indonesian Locale Specifics
-
-- Employee tax categories: `TK/0`, `TK/1`, `TK/2`, `TK/3`, `K/0`, `K/1`, `K/2`, `K/3`
-- Meilisearch has Indonesian location/equipment synonyms configured in `src/utils/meilisearch.ts`
-- Currency is IDR — Decimal precision matters for financial calculations
+- Kategori pajak karyawan: `TK/0`–`TK/3`, `K/0`–`K/3`.
+- Meilisearch punya sinonim lokasi/alat berbahasa Indonesia (`utils/meilisearch*.py`).
+- Mata uang IDR — presisi `Decimal` penting.
+- Seluruh dokumen cetak (PO, slip gaji, rekap) berbahasa Indonesia.
+- Pembukuan resmi AKN = **ACCURATE** (TerraBot tidak menggantikannya); standar
+  akuntansi **SAK ETAP**, bukan PSAK penuh.
 
 ## Environment
 
-`.env` file (gitignored) — required variables:
-```
-DATABASE_URL=mysql://user:pass@localhost/tnt
-SECRET_KEY=...
+`.env` (gitignored) — TANPA spasi di sekitar `=` (systemd menolak `KUNCI = nilai`):
+
+```ini
+APP_ENV=production
+PORT=7500
+DATABASE_URL=mysql://pengguna:sandi@localhost/tnt
+SECRET_KEY=                 # openssl rand -hex 32 ; menandatangani semua token
 ALGORITHM=HS256
-MEILISEARCH_MASTER_KEY=...
+ACCESS_TOKEN_EXPIRE_MINUTES=60
+REFRESH_TOKEN_EXPIRE_MINUTES=10080
+MEILISEARCH_MASTER_KEY=
+MICROSOFT_CLIENT_ID=
+MICROSOFT_CLIENT_SECRET=
+CORS_ORIGINS=              # bila diisi, MENGGANTIKAN daftar asal, bukan menambah
+SLOW_REQUEST_MS=1000       # ambang catat permintaan lambat
 ```
+
+`APP_ENV` menentukan dua hal: `reload` mati di produksi, dan alamat `localhost`
+dikeluarkan dari daftar CORS.
 
 ## Logging
 
-Use `logInfo()`, `logWarning()`, `logError()` from `src/utils/logger.ts`. Color-coded console output.
+Pakai `log_info()`, `log_error()` (dan `log_warning` bila ada) dari
+`utils/logger_utils.py`. Middleware di `main.py` mencatat permintaan yang lebih
+lambat dari `SLOW_REQUEST_MS` dan selalu mengirim header `X-Response-Time-ms`.

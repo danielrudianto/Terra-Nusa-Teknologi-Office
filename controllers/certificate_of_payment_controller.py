@@ -381,6 +381,49 @@ class CertificateOfPaymentController:
                 siap,
                 user_id,
             )
+
+            # Beri tahu para penyetuju: ada BAP baru yang menunggu persetujuan.
+            #
+            # Efek samping, BUKAN bagian dari pembuatannya: tugas terpisah dan
+            # dibungkus try, supaya push yang gagal tidak pernah menggagalkan
+            # penyimpanan CoP yang sudah benar. Pembuatnya dikecualikan — BAP
+            # tidak disetujui oleh yang membuatnya.
+            if isinstance(hasil, dict) and "error" not in hasil:
+                try:
+                    import asyncio
+                    from repository.push_subscription_repository import (
+                        PushSubscriptionRepository,
+                    )
+                    from utils.webpush import kirim_ke_pengguna, push_aktif
+
+                    if push_aktif():
+                        penyetuju = await PushSubscriptionRepository.penyetuju_ids(
+                            kecuali_user_ids=[user_id]
+                        )
+                        if penyetuju:
+                            nama = hasil.get("name") or "CoP"
+                            proyek = (
+                                data.get("projectName")
+                                or spk.get("projectName")
+                                or ""
+                            )
+                            label = nama + (f" — {proyek}" if proyek else "")
+                            cop_id = hasil.get("certificateOfPaymentID")
+                            asyncio.create_task(
+                                kirim_ke_pengguna(
+                                    penyetuju,
+                                    judul="BAP minta disetujui",
+                                    pesan=f"{label} — BAP menunggu persetujuan "
+                                    "sebelum harga dapat diisi.",
+                                    url=f"/Certificate-of-payment/View/{cop_id}",
+                                    tag=f"cop-bap-approve-{cop_id}",
+                                )
+                            )
+                except Exception as push_err:
+                    log_error(
+                        f"Gagal menjadwalkan notifikasi BAP baru: {str(push_err)}"
+                    )
+
             return hasil
         except Exception as e:
             log_error(f"Gagal membuat CoP: {str(e)}")
@@ -656,9 +699,41 @@ class CertificateOfPaymentController:
                         403,
                     )
 
-            return await CertificateOfPaymentRepository.bap_approve(
+            hasil = await CertificateOfPaymentRepository.bap_approve(
                 cop_id, approve, user_id
             )
+
+            # Kabar ke pembuat CoP: BAP-nya disetujui, harga sekarang boleh
+            # diisi. Hanya saat DISETUJUI (bukan saat dibatalkan), dan pembuat
+            # dikecualikan bila ia sendiri yang menyetujui.
+            if approve and isinstance(hasil, dict) and "error" not in hasil:
+                try:
+                    import asyncio
+                    from utils.webpush import kirim_ke_pengguna, push_aktif
+
+                    if push_aktif():
+                        pembuat = cop.get("createdBy")
+                        if pembuat is not None and int(pembuat) != int(user_id):
+                            nama = cop.get("name") or f"CoP #{cop_id}"
+                            proyek = cop.get("projectName") or ""
+                            label = nama + (f" — {proyek}" if proyek else "")
+                            asyncio.create_task(
+                                kirim_ke_pengguna(
+                                    [int(pembuat)],
+                                    judul="BAP disetujui",
+                                    pesan=f"{label} — BAP sudah disetujui. "
+                                    "Silakan isi harga dan potongannya.",
+                                    url=f"/Certificate-of-payment/View/{cop_id}",
+                                    tag=f"cop-bap-approved-{cop_id}",
+                                )
+                            )
+                except Exception as push_err:
+                    log_error(
+                        f"Gagal menjadwalkan notifikasi BAP disetujui: "
+                        f"{str(push_err)}"
+                    )
+
+            return hasil
         except Exception as e:
             log_error(f"Gagal menyetujui BAP CoP: {str(e)}")
             return internal_error()
@@ -700,9 +775,52 @@ class CertificateOfPaymentController:
                     400,
                 )
 
-            return await CertificateOfPaymentRepository.set_checked(
+            hasil = await CertificateOfPaymentRepository.set_checked(
                 cop_id, checked, user_id
             )
+
+            # Kabar ke penyetuju: CoP sudah dibuat (harga terisi) dan menunggu
+            # persetujuan final. Hanya saat DIBUAT (bukan saat dibatalkan).
+            # Yang tidak dapat menyetujui CoP ini dikecualikan: pembuat CoP
+            # (user_id), pembuat dokumennya, dan penyetuju BAP-nya — ketiganya
+            # memang ditolak server bila mencoba menyetujui.
+            if checked and isinstance(hasil, dict) and "error" not in hasil:
+                try:
+                    import asyncio
+                    from repository.push_subscription_repository import (
+                        PushSubscriptionRepository,
+                    )
+                    from utils.webpush import kirim_ke_pengguna, push_aktif
+
+                    if push_aktif():
+                        penyetuju = await PushSubscriptionRepository.penyetuju_ids(
+                            kecuali_user_ids=[
+                                user_id,
+                                cop.get("createdBy"),
+                                cop.get("bapApprovedBy"),
+                            ]
+                        )
+                        if penyetuju:
+                            nama = cop.get("name") or f"CoP #{cop_id}"
+                            proyek = cop.get("projectName") or ""
+                            label = nama + (f" — {proyek}" if proyek else "")
+                            asyncio.create_task(
+                                kirim_ke_pengguna(
+                                    penyetuju,
+                                    judul="CoP minta disetujui",
+                                    pesan=f"{label} sudah dibuat dan menunggu "
+                                    "persetujuan.",
+                                    url=f"/Certificate-of-payment/View/{cop_id}",
+                                    tag=f"cop-approve-{cop_id}",
+                                )
+                            )
+                except Exception as push_err:
+                    log_error(
+                        f"Gagal menjadwalkan notifikasi CoP dibuat: "
+                        f"{str(push_err)}"
+                    )
+
+            return hasil
         except Exception as e:
             log_error(f"Gagal menandai pembuatan CoP: {str(e)}")
             return internal_error()
@@ -774,7 +892,64 @@ class CertificateOfPaymentController:
                         403,
                     )
 
-            return await CertificateOfPaymentRepository.approve(cop_id, user_id)
+            hasil = await CertificateOfPaymentRepository.approve(cop_id, user_id)
+
+            # Kabar bahwa CoP disetujui dan siap ditagih:
+            #   * pembuat CoP — dokumennya tembus;
+            #   * tim tagihan (seluruh FAT) — ada CoP yang boleh langsung
+            #     diterbitkan tagihannya.
+            # Penyetujunya sendiri dikecualikan; ia baru menekan tombolnya.
+            if isinstance(hasil, dict) and "error" not in hasil:
+                try:
+                    import asyncio
+                    from repository.push_subscription_repository import (
+                        PushSubscriptionRepository,
+                    )
+                    from utils.webpush import kirim_ke_pengguna, push_aktif
+
+                    if push_aktif():
+                        nama = cop.get("name") or f"CoP #{cop_id}"
+                        proyek = cop.get("projectName") or ""
+                        label = nama + (f" — {proyek}" if proyek else "")
+                        pembuat = cop.get("createdBy")
+
+                        if pembuat is not None and int(pembuat) != int(user_id):
+                            asyncio.create_task(
+                                kirim_ke_pengguna(
+                                    [int(pembuat)],
+                                    judul="CoP disetujui",
+                                    pesan=f"{label} telah disetujui dan siap "
+                                    "ditagihkan.",
+                                    url=f"/Certificate-of-payment/View/{cop_id}",
+                                    tag=f"cop-approved-{cop_id}",
+                                )
+                            )
+
+                        # Tim tagihan: pembuat CoP dikecualikan agar tidak
+                        # menerima dua kabar bila ia kebetulan juga di FAT.
+                        tagihan = (
+                            await PushSubscriptionRepository.penerima_tagihan_ids(
+                                kecuali_user_ids=[user_id, pembuat]
+                            )
+                        )
+                        if tagihan:
+                            asyncio.create_task(
+                                kirim_ke_pengguna(
+                                    tagihan,
+                                    judul="CoP siap ditagih",
+                                    pesan=f"{label} sudah disetujui dan siap "
+                                    "diterbitkan tagihannya.",
+                                    url=f"/Certificate-of-payment/View/{cop_id}",
+                                    tag=f"cop-siap-tagih-{cop_id}",
+                                )
+                            )
+                except Exception as push_err:
+                    log_error(
+                        f"Gagal menjadwalkan notifikasi CoP disetujui: "
+                        f"{str(push_err)}"
+                    )
+
+            return hasil
         except Exception as e:
             log_error(f"Gagal menyetujui CoP: {str(e)}")
             return internal_error()
