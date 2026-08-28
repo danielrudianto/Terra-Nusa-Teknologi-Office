@@ -114,6 +114,42 @@ def _grup_label(kode):
     return KATEGORI_BEBAN.get(str(kode), (GRUP_USAHA, f"Lainnya ({kode})"))
 
 
+#: Pemetaan `purchases.purchaseType` untuk pembelian PROYEK -> Harga Pokok.
+#:
+#: Kode ini sama dengan kartu "project" pada pembuatan Purchase Order. Tujuannya
+#: memecah Harga Pokok per jenis, bukan melebur semua pembelian jadi satu baris
+#: "material & jasa".
+#:
+#: Catatan 'G': pada PEMBELIAN, G = perlengkapan & peralatan proyek (palu,
+#: cangkul, sepatu — kartu "Equipments"). Ini BEDA dari 'G' pada BEBAN kantor
+#: (`KATEGORI_BEBAN`), yang bermakna barang utilitas kantor. Keduanya memang
+#: dokumen berbeda, jadi kodenya boleh bermakna beda sesuai sumbernya.
+KATEGORI_PEMBELIAN_PROYEK = {
+    "A": "Transportasi proyek",
+    "B": "Sewa alat proyek",
+    "C": "Bahan bakar proyek",
+    "D": "Tenaga kerja proyek",
+    "E": "Koordinasi, konsumsi & akomodasi",
+    "F": "Material proyek",
+    "G": "Perlengkapan & peralatan proyek",
+    "H": "Pekerjaan subkontrak",
+}
+
+
+def _grup_label_pembelian(kode):
+    """
+    Grup & label untuk `purchases.purchaseType`.
+
+    Pembelian proyek (A–H) masuk Harga Pokok dengan labelnya sendiri; pembelian
+    kantor (kode 5.1.x / 6.x) mengikuti pemetaan beban `KATEGORI_BEBAN` agar
+    jatuh ke Beban Usaha, bukan Harga Pokok.
+    """
+    k = str(kode)
+    if k in KATEGORI_PEMBELIAN_PROYEK:
+        return GRUP_HPP, KATEGORI_PEMBELIAN_PROYEK[k]
+    return _grup_label(kode)
+
+
 def _bulan_dalam_rentang(a: d, b: d):
     """
     Daftar (tahun, bulan) yang tercakup rentang [a, b].
@@ -273,10 +309,23 @@ async def _agregasi(a: d, b: d) -> dict:
         )
     )
 
-    # Pembelian material & jasa -> Harga Pokok. `isInternal` dikecualikan agar
-    # mutasi internal tidak terhitung sebagai biaya.
-    pembelian = await database.fetch_val(
+    # Akumulasi per grup, DIGABUNG berdasarkan label: pembelian dan beban bisa
+    # menyumbang ke label yang sama (mis. "Material proyek" dari pembelian F
+    # dan beban F), dan pembaca mengharapkan satu baris, bukan dua.
+    hpp_map: dict = {}
+    usaha_map: dict = {}
+    lain_map: dict = {}
+
+    def _tambah(grup, label, nilai):
+        m = {GRUP_HPP: hpp_map, GRUP_USAHA: usaha_map, GRUP_LAIN: lain_map}[grup]
+        m[label] = m.get(label, 0.0) + nilai
+
+    # Pembelian, DIPECAH per purchaseType. `isInternal` dikecualikan agar mutasi
+    # internal tidak terhitung sebagai biaya. Nilai memakai DPP + PBBKB (pajak
+    # BBM, hangus jadi biaya) + nilai lain — tanpa PPN.
+    baris_pembelian = await database.fetch_all(
         select(
+            purchases_table.c.purchaseType,
             func.coalesce(
                 func.sum(
                     purchases_table.c.dpp
@@ -284,8 +333,9 @@ async def _agregasi(a: d, b: d) -> dict:
                     + func.coalesce(purchases_table.c.otherValue, 0)
                 ),
                 0,
-            )
-        ).where(
+            ).label("nilai"),
+        )
+        .where(
             and_(
                 purchases_table.c.isDelete == False,  # noqa: E712
                 purchases_table.c.isInternal == False,  # noqa: E712
@@ -293,7 +343,14 @@ async def _agregasi(a: d, b: d) -> dict:
                 purchases_table.c.date <= b,
             )
         )
+        .group_by(purchases_table.c.purchaseType)
     )
+    for r in baris_pembelian:
+        nilai = float(r["nilai"] or 0)
+        if nilai == 0:
+            continue
+        grup, label = _grup_label_pembelian(r["purchaseType"])
+        _tambah(grup, label, nilai)
 
     # Beban, dijumlahkan per kategori.
     rows = await database.fetch_all(
@@ -312,21 +369,6 @@ async def _agregasi(a: d, b: d) -> dict:
         )
         .group_by(expenses_table.c.purchaseType)
     )
-
-    pembelian = float(pembelian or 0)
-    hpp_rinci = (
-        [
-            {
-                "kategori": "pembelian",
-                "label": "Pembelian material & jasa",
-                "nilai": pembelian,
-            }
-        ]
-        if pembelian
-        else []
-    )
-    usaha_rinci = []
-    lain_rinci = []
     for r in rows:
         nilai = float(r["nilai"] or 0)
         if nilai == 0:
@@ -335,42 +377,36 @@ async def _agregasi(a: d, b: d) -> dict:
         if str(r["purchaseType"]) in KATEGORI_DIKECUALIKAN:
             continue
         grup, label = _grup_label(r["purchaseType"])
-        baris = {"kategori": r["purchaseType"], "label": label, "nilai": nilai}
-        if grup == GRUP_HPP:
-            hpp_rinci.append(baris)
-        elif grup == GRUP_LAIN:
-            lain_rinci.append(baris)
-        else:
-            usaha_rinci.append(baris)
+        _tambah(grup, label, nilai)
 
-    # Penyusutan aset tetap — beban non-kas, dihitung dari daftar aset (bukan
-    # dari dokumen beban), maka ditambahkan terpisah ke Beban Usaha.
+    # Penyusutan aset tetap — beban non-kas, dari daftar aset (bukan dokumen
+    # beban), ditambahkan ke Beban Usaha.
     penyusutan = await _penyusutan_rentang(a, b)
     if penyusutan:
-        usaha_rinci.append(
-            {
-                "kategori": "penyusutan",
-                "label": "Penyusutan aset tetap",
-                "nilai": penyusutan,
-            }
-        )
+        _tambah(GRUP_USAHA, "Penyusutan aset tetap", penyusutan)
 
-    # Beban gaji — dari slip gaji (tabel tersendiri), bukan dari dokumen beban,
-    # maka ditambahkan terpisah ke Beban Usaha.
+    # Beban gaji — dari slip gaji (tabel tersendiri), juga Beban Usaha.
     gaji = await _gaji_rentang(a, b)
     if gaji:
-        usaha_rinci.append(
-            {
-                "kategori": "gaji",
-                "label": "Beban gaji",
-                "nilai": gaji,
-            }
+        _tambah(GRUP_USAHA, "Beban gaji", gaji)
+
+    def _rincian(m):
+        # label dipakai sekaligus sebagai `kategori` (kunci penggabungan di
+        # layar) — unik dalam satu grup, dan stabil antara bulan & YTD.
+        return sorted(
+            [
+                {"kategori": lbl, "label": lbl, "nilai": round(v, 2)}
+                for lbl, v in m.items()
+                if v
+            ],
+            key=lambda x: x["nilai"],
+            reverse=True,
         )
 
     # Rincian diurutkan dari yang terbesar — yang paling menentukan di atas.
-    hpp_rinci.sort(key=lambda x: x["nilai"], reverse=True)
-    usaha_rinci.sort(key=lambda x: x["nilai"], reverse=True)
-    lain_rinci.sort(key=lambda x: x["nilai"], reverse=True)
+    hpp_rinci = _rincian(hpp_map)
+    usaha_rinci = _rincian(usaha_map)
+    lain_rinci = _rincian(lain_map)
 
     pendapatan = float(pendapatan or 0)
     hpp_total = round(sum(x["nilai"] for x in hpp_rinci), 2)
