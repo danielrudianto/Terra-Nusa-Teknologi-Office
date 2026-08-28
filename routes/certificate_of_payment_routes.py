@@ -260,9 +260,15 @@ def _nama_berkas(nama_cop: str, akhiran: str) -> str:
 async def unduh_pdf(
     cop_id: int,
     current_user: Annotated[User, Depends(require("certificate_of_payment", "read"))],
+    bap: bool = True,
 ):
     """
-    Certificate of Payment beserta lampiran BAP — satu berkas, dua orientasi.
+    Certificate of Payment, dengan atau tanpa lampiran BAP.
+
+    `bap=true` (bawaan) — CoP beserta lampiran BAP dalam satu berkas, dua
+    orientasi; inilah dokumen resminya. `bap=false` — lembar CoP saja, dipakai
+    saat BAP sudah diunduh terpisah dan yang diminta hanya lembar nilainya.
+    Bawaannya `true` supaya tautan lama tetap menghasilkan dokumen yang sama.
 
     Level 1 ditolak controller: lembar ini memuat harga satuan dan nilai
     kontrak, dan orang lapangan memang tidak pernah menerimanya.
@@ -275,8 +281,8 @@ async def unduh_pdf(
         )
     )
     return _pdf(
-        CoPDocumentService.render(data, sertakan_bap=True),
-        _nama_berkas(data["cop"]["name"], ""),
+        CoPDocumentService.render(data, sertakan_bap=bap),
+        _nama_berkas(data["cop"]["name"], "" if bap else "-CoP"),
     )
 
 
