@@ -106,7 +106,10 @@ class TaxController:
             masukan_rows = bersih(dari_pembelian, "purchases")
             for b in masukan_rows:
                 b.setdefault("sumber", "purchase")
-            masukan_rows += bersih(dari_beban, "expenses")
+            beban_rows = bersih(dari_beban, "expenses")
+            for b in beban_rows:
+                b.setdefault("sumber", "expense")
+            masukan_rows += beban_rows
 
             def nilai_ppn(row):
                 """PPN = DPP × persen / 100. `ppn` selalu tersimpan sebagai persen."""
@@ -131,6 +134,13 @@ class TaxController:
 
             kreditable_total = sum(nilai_ppn(r) for r in kreditable)
             tanpa_faktur_total = sum(nilai_ppn(r) for r in tanpa_faktur)
+
+            # Porsi masukan yang berasal dari BEBAN (di antara yang dapat
+            # dikreditkan) — untuk mencocokkan berapa PPN beban pada masa ini.
+            ppn_beban_kreditable = sum(
+                nilai_ppn(r) for r in kreditable if r.get("sumber") == "expense"
+            )
+            ppn_pembelian_kreditable = kreditable_total - ppn_beban_kreditable
 
             # Selisih masa ini saja, sebelum kompensasi antar masa.
             selisih_bulan_ini = keluaran_total - kreditable_total
@@ -207,6 +217,10 @@ class TaxController:
                     "total": kreditable_total,
                     "rows": urut(kreditable),
                 },
+                # Rincian masukan kreditable per sumber, agar PPN beban pada
+                # masa ini dapat dicocokkan terpisah dari pembelian.
+                "masukanBeban": ppn_beban_kreditable,
+                "masukanPembelian": ppn_pembelian_kreditable,
                 "masukanTanpaFaktur": {
                     "total": tanpa_faktur_total,
                     "rows": urut(tanpa_faktur),
