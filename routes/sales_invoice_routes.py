@@ -104,10 +104,14 @@ async def set_tax_invoice_name(
     data: SalesInvoiceTaxInvoiceUpdate,
     current_user: Annotated[User, Depends(require("sales_invoice", "update"))]
 ):
-    """Set nomor faktur pajak PPN pada sales invoice."""
+    """Set nomor faktur pajak PPN pada sales invoice, beserta masa pajaknya.
+
+    `taxPeriod` boleh kosong — kosong berarti fakturnya dilaporkan pada masa
+    tanggal invoicenya sendiri.
+    """
     user_id = current_user["id"]
     return await SalesInvoiceController.set_tax_invoice_name(
-        sales_invoice_id, data.taxInvoiceName, user_id
+        sales_invoice_id, data.taxInvoiceName, user_id, data.taxPeriod
     )
 
 

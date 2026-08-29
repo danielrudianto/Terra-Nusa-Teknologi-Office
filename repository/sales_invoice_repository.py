@@ -365,6 +365,23 @@ class SalesInvoiceRepository:
             raise
 
     @staticmethod
+    def masa_pajak_efektif():
+        """
+        Masa pajak yang BERLAKU untuk sebuah faktur penjualan.
+
+        `taxPeriod` bila diisi, `date` bila tidak. Ditulis SEKALI di sini dan
+        dipakai bersama oleh seluruh laporan PPN keluaran.
+
+        Menyalin `COALESCE(taxPeriod, date)` ke tiap kueri akan membuat satu
+        laporan tertinggal saat aturannya berubah — dan laporan yang
+        tertinggal itu justru yang paling sulit ketahuan salahnya, karena
+        angkanya tetap masuk akal, hanya jatuh di bulan yang keliru.
+        """
+        return func.coalesce(
+            sales_invoice_tables.c.taxPeriod, sales_invoice_tables.c.date
+        )
+
+    @staticmethod
     async def get_ppn_keluaran(month: int, year: int):
         """
         PPN keluaran: faktur penjualan ber-PPN pada satu periode.
@@ -389,6 +406,7 @@ class SalesInvoiceRepository:
                     si.ppn,
                     si.pphPercentage,
                     si.taxInvoiceName,
+                    si.taxPeriod,
                     si.projectName,
                     si.spkNumber,
                     clients_table.c.name.label("client_name"),
@@ -402,8 +420,14 @@ class SalesInvoiceRepository:
                     si.isDelete == False,
                     si.isApprove == True,
                     si.ppn > 0,
-                    func.extract("month", si.date) == month,
-                    func.extract("year", si.date) == year,
+                    # Faktur masuk ke masa tempat ia DILAPORKAN, bukan tanggal
+                    # invoicenya — lihat `masa_pajak_efektif`.
+                    func.extract(
+                        "month", SalesInvoiceRepository.masa_pajak_efektif()
+                    ) == month,
+                    func.extract(
+                        "year", SalesInvoiceRepository.masa_pajak_efektif()
+                    ) == year,
                 )
                 .order_by(si.date.asc())
             )
@@ -433,8 +457,9 @@ class SalesInvoiceRepository:
             si = sales_invoice_tables.c
             # Tanpa `.label()`, dibaca lewat posisi kolom — seragam dengan
             # laporan bulanan pembelian/beban.
-            y = func.extract("year", si.date)
-            m = func.extract("month", si.date)
+            masa = SalesInvoiceRepository.masa_pajak_efektif()
+            y = func.extract("year", masa)
+            m = func.extract("month", masa)
             total = func.coalesce(func.sum(si.dpp * si.ppn / 100), 0)
             query = (
                 select(y, m, total)
@@ -442,7 +467,10 @@ class SalesInvoiceRepository:
                     si.isDelete == False,
                     si.isApprove == True,
                     si.ppn > 0,
-                    si.date < end_date,
+                    # Batasnya ikut masa juga: faktur bertanggal Desember yang
+                    # dilaporkan Januari milik masa Januari, dan ikut terbawa
+                    # hanya bila Januari termasuk rentangnya.
+                    masa < end_date,
                 )
                 .group_by(y, m)
             )
@@ -628,21 +656,55 @@ class SalesInvoiceRepository:
 
     @staticmethod
     async def set_tax_invoice_name(
-        sales_invoice_id: int, tax_invoice_name: str, user_id: int
+        sales_invoice_id: int,
+        tax_invoice_name: str,
+        user_id: int,
+        tax_period=None,
     ) -> Dict[str, Any]:
-        """Set nomor faktur pajak PPN pada sebuah invoice."""
+        """
+        Set nomor faktur pajak PPN pada sebuah invoice, beserta masa pajaknya.
+
+        `tax_period` DINORMALKAN di sini, bukan di layar: bila masanya jatuh
+        pada bulan yang sama dengan tanggal invoicenya, yang disimpan adalah
+        NULL — bukan salinan tanggalnya. Dua tempat menyimpan keterangan yang
+        sama adalah dua tempat yang bisa berbeda, dan yang berbeda diam-diam
+        di sini berarti faktur pindah masa tanpa ada yang mengubahnya.
+
+        Normalisasinya diletakkan di lapisan ini supaya berlaku untuk SEMUA
+        pemanggil — layar mana pun, dan pemanggil di kemudian hari yang tidak
+        tahu aturan ini.
+        """
         try:
-            lama = await database.fetch_val(
-                select(sales_invoice_tables.c.taxInvoiceName).where(
-                    sales_invoice_tables.c.id == sales_invoice_id
-                )
+            sebelum = await database.fetch_one(
+                select(
+                    sales_invoice_tables.c.taxInvoiceName,
+                    sales_invoice_tables.c.taxPeriod,
+                    sales_invoice_tables.c.date,
+                ).where(sales_invoice_tables.c.id == sales_invoice_id)
             )
+            if not sebelum:
+                return {"error": "Sales invoice not found", "status": 404}
+
+            lama = sebelum["taxInvoiceName"]
+            masa_lama = sebelum["taxPeriod"]
+            tanggal = sebelum["date"]
+
+            masa_baru = tax_period
+            if masa_baru is not None and tanggal is not None:
+                if (masa_baru.year, masa_baru.month) == (tanggal.year, tanggal.month):
+                    masa_baru = None
+                else:
+                    # Masa pajak adalah BULAN, bukan hari. Disimpan sebagai
+                    # tanggal 1 supaya dua faktur pada masa yang sama tidak
+                    # pernah tersimpan sebagai dua nilai yang berbeda.
+                    masa_baru = masa_baru.replace(day=1)
 
             query = (
                 sales_invoice_tables.update()
                 .where(sales_invoice_tables.c.id == sales_invoice_id)
                 .values(
                     taxInvoiceName=tax_invoice_name,
+                    taxPeriod=masa_baru,
                     updatedAt=dt.now(),
                     updatedBy=user_id,
                 )
@@ -658,12 +720,21 @@ class SalesInvoiceRepository:
             mengubah = bool((lama or "").strip()) and (lama or "").strip() != (
                 tax_invoice_name or ""
             ).strip()
+            perubahan = {"taxInvoiceName": {"from": lama, "to": tax_invoice_name}}
+            # Masa pajak hanya dicatat bila memang bergeser: memindahkan
+            # faktur ke masa lain menggeser angka pada SPT dua bulan
+            # sekaligus, jadi jejaknya harus ada.
+            if masa_lama != masa_baru:
+                perubahan["taxPeriod"] = {
+                    "from": str(masa_lama) if masa_lama else None,
+                    "to": str(masa_baru) if masa_baru else None,
+                }
             await AuditLogRepository.record(
                 entity="sales_invoices",
                 entityID=sales_invoice_id,
                 action="update",
                 userID=user_id,
-                changes={"taxInvoiceName": {"from": lama, "to": tax_invoice_name}},
+                changes=perubahan,
                 note="Koreksi faktur pajak" if mengubah else "Isi faktur pajak",
             )
             return {"message": "Tax invoice number saved successfully"}

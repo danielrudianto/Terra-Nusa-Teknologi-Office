@@ -233,8 +233,13 @@ class SalesInvoiceController:
             log_error(f"Error approving sales invoice {sales_invoice_id}: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error")
     @staticmethod
-    async def set_tax_invoice_name(sales_invoice_id: int, tax_invoice_name: str, user_id: int) -> Dict:
-        """Set nomor faktur pajak PPN."""
+    async def set_tax_invoice_name(
+        sales_invoice_id: int,
+        tax_invoice_name: str,
+        user_id: int,
+        tax_period=None,
+    ) -> Dict:
+        """Set nomor faktur pajak PPN, beserta masa pajaknya bila berbeda."""
         log_info(f"Setting tax invoice name for sales invoice ID: {sales_invoice_id}")
         try:
             if sales_invoice_id < 1:
@@ -243,7 +248,7 @@ class SalesInvoiceController:
                 raise HTTPException(status_code=400, detail="Tax invoice name is required")
 
             result = await SalesInvoiceRepository.set_tax_invoice_name(
-                sales_invoice_id, tax_invoice_name.strip(), user_id
+                sales_invoice_id, tax_invoice_name.strip(), user_id, tax_period
             )
             if "error" in result:
                 raise HTTPException(status_code=result.get("status", 500), detail=result["error"])

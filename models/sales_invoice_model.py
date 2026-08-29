@@ -20,6 +20,17 @@ sales_invoice_tables = Table(
     Column("bpjs", Float, nullable=False, default=0.0),
     Column("spkNumber", String(100), nullable=False),
     Column("taxInvoiceName", String(100), nullable=True, default=None),
+    # MASA PAJAK faktur keluaran.
+    #
+    # Tanggal faktur penjualan dan masa pajak tempat fakturnya DILAPORKAN
+    # tidak selalu sama: nomor faktur pajak sering baru terbit setelah
+    # invoicenya jalan, dan yang menentukan masa adalah kapan ia dilaporkan.
+    #
+    # NULL berarti "ikut `date`" — itu keadaan yang normal, dan sengaja
+    # disimpan NULL alih-alih menyalin tanggalnya, supaya tidak ada dua
+    # sumber kebenaran yang bisa berbeda diam-diam. Bacanya lewat
+    # `masa_pajak_efektif()`, bukan kolom ini langsung.
+    Column("taxPeriod", Date, nullable=True, default=None),
     Column("incomeTaxInvoiceName", String(100), nullable=True, default=None),
     Column("description", String(100), nullable=True),
     # Faktur dicetak terpisah dari lampirannya.

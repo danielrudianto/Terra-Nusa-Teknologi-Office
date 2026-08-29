@@ -22,6 +22,8 @@ class SalesInvoiceBase(BaseModel):
     # basis data, tetapi tidak pernah sampai ke sini — pilihan penggunanya
     # hilang tanpa galat apa pun.
     separatedInvoice: bool = False
+    # Masa pajak faktur keluaran; NULL/None berarti ikut `date`.
+    taxPeriod: Optional[d] = None
     isApprove: bool = False
     isDelete: bool = False
 
@@ -43,6 +45,7 @@ class SalesInvoiceUpdate(BaseModel):
     description: Optional[str] = None
     bankAccountID: Optional[int] = None
     taxInvoiceName: Optional[str] = None
+    taxPeriod: Optional[d] = None
     incomeTaxInvoiceName: Optional[str] = None
     separatedInvoice: Optional[bool] = None
     isApprove: bool = False
@@ -74,8 +77,15 @@ class SalesInvoiceWithPaymentsResponse(SalesInvoiceWithClientResponse):
 
 
 class SalesInvoiceTaxInvoiceUpdate(BaseModel):
-    """Set nomor faktur pajak PPN."""
+    """
+    Set nomor faktur pajak PPN, beserta masa pajaknya.
+
+    `taxPeriod` opsional dan boleh dikosongkan: kosong berarti fakturnya
+    dilaporkan pada masa tanggal invoicenya sendiri — keadaan yang normal.
+    Diisi hanya bila fakturnya jatuh ke masa yang berbeda.
+    """
     taxInvoiceName: str
+    taxPeriod: Optional[d] = None
 
 
 class SalesInvoiceIncomeTaxUpdate(BaseModel):
