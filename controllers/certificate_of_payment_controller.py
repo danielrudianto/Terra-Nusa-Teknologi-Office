@@ -1360,13 +1360,29 @@ class CertificateOfPaymentController:
             # ---- nilai kontrak: induk + seluruh adendum yang disetujui ----
             nilai_induk = Decimal("0")
             nilai_adendum = Decimal("0")
+            # Nilai PER adendum, bukan hanya jumlahnya.
+            #
+            # Lembar ini menyebut "Addendum #" satu baris saja, sehingga dua
+            # adendum tercetak sebagai satu angka gabungan dan yang membacanya
+            # tidak dapat mencocokkannya dengan berkas adendum mana pun.
+            per_adendum: Dict[Any, Decimal] = {}
             for b in baris_kontrak:
                 nilai = _d(b["quantity"]) * _d(b["price"])
                 if b["addendumNumber"] is None:
                     nilai_induk += nilai
                 else:
                     nilai_adendum += nilai
+                    nomor_ad = b["addendumNumber"]
+                    per_adendum[nomor_ad] = per_adendum.get(nomor_ad, Decimal("0")) + nilai
             nilai_kontrak = nilai_induk + nilai_adendum
+
+            # Diurutkan sebagai teks: nomor adendum tidak dijamin berupa
+            # angka, dan mengurutkan campuran angka & teks menimbulkan galat
+            # yang hanya muncul pada SPK tertentu.
+            daftar_adendum = [
+                {"nomor": k, "nilai": float(v)}
+                for k, v in sorted(per_adendum.items(), key=lambda x: str(x[0]))
+            ]
 
             # ---- baris BAP ----
             def _bagi(a: Decimal, b: Decimal) -> Decimal:
@@ -1426,7 +1442,19 @@ class CertificateOfPaymentController:
             # Tarifnya pernah 10% dan kini 11%; menuliskannya di sini berarti
             # setiap dokumen lama tercetak ulang dengan tarif yang keliru.
             tarif_ppn = _d(spk.get("ppn"))
+            # DASAR PPN sengaja memakai `bersih` YANG TERSIMPAN — yaitu
+            # sebelum PPh. PPh adalah pemotongan atas penghasilan pemasok,
+            # bukan pengurang dasar pengenaan PPN; mengurangkannya lebih dulu
+            # akan mengecilkan PPN yang justru tidak boleh mengecil.
             ppn = bersih * tarif_ppn / Decimal("100")
+
+            # PPh periode ini: tarif SPK x progres KOTOR periode ini.
+            #
+            # Dasarnya progres kotor — sama dengan dasar yang dipakai baris
+            # PPh pada blok syarat kontrak di atas, dan sama dengan yang
+            # dipotong pemberi kerja pada pembayarannya.
+            tarif_pph = _d(spk.get("pphPercentage"))
+            pph_periode = kotor * tarif_pph / Decimal("100")
 
             penyesuaian = []
             for a in cop.get("adjustments") or []:
@@ -1455,9 +1483,13 @@ class CertificateOfPaymentController:
             # Karena itu ketiganya dibentuk di sini, bukan diserahkan pada
             # perulangan daftar penyesuaian. Kategori di luar ketiganya
             # (denda, lain-lain) tetap dicetak menyusul apa adanya.
-            # PPh TIDAK termasuk: ia dipotong pada pembelian, bukan di sini.
-            # Tarifnya tetap tercetak pada blok syarat kontrak di atas
-            # sebagai keterangan — lihat catatan pada KATEGORI_POTONGAN.
+            #
+            # PPh TIDAK di sini, melainkan DI BAWAH PPN. Ia bukan pengurang
+            # nilai pekerjaan: uang muka dan retensi mengurangi apa yang
+            # menjadi hak pemasok atas periode ini, sedangkan PPh dipotong
+            # dari hak itu lalu disetorkan ke negara atas namanya. Menaruhnya
+            # di antara keduanya membuat orang membacanya sebagai potongan
+            # nilai pekerjaan, dan itu pertanyaan yang berulang.
             POKOK = ("uang_muka", "retensi")
             baku: Dict[str, Decimal] = {k: Decimal("0") for k in POKOK}
             potongan_lain: List[Dict[str, Any]] = []
@@ -1532,6 +1564,7 @@ class CertificateOfPaymentController:
                     "adendum": float(nilai_adendum),
                     "total": float(nilai_kontrak),
                     "adaAdendum": nilai_adendum > 0,
+                    "daftarAdendum": daftar_adendum,
                 },
                 "bap": bap,
                 "bapTotal": {
@@ -1541,6 +1574,24 @@ class CertificateOfPaymentController:
                     "bobotSaatIni": float(bobot_kini),
                     "bobotAkumulatif": float(bobot_akum),
                 },
+                # PPh MENGURANGI total lembar ini, tetapi TIDAK mengubah nilai
+                # tersimpan CoP-nya.
+                #
+                # Keduanya menyatakan hal yang berbeda, dan dua-duanya benar:
+                #
+                #   * `totalDibayar` di sini = yang benar-benar DITRANSFER ke
+                #     pemasok, setelah PPh-nya dipotong untuk disetorkan ke
+                #     negara atas namanya. Itulah angka yang dicocokkan dengan
+                #     bukti transfer, dan itulah yang diterbilangkan.
+                #
+                #   * `netAmount` yang tersimpan tetap BRUTO — ia nilai
+                #     pekerjaannya, dan itulah yang menjadi DPP tagihan serta
+                #     pembelian yang terbit dari CoP ini. PPh adalah titipan,
+                #     bukan pengurang nilai pekerjaan.
+                #
+                # Selisih keduanya persis sebesar `pph`. Yang membandingkan
+                # lembar ini dengan daftar CoP akan menemukan selisih itu, dan
+                # baris PPh di bawah PPN-lah yang menjelaskannya.
                 "nilai": {
                     "kotor": float(kotor),
                     "persenProgres": float(bobot_kini),
@@ -1549,7 +1600,9 @@ class CertificateOfPaymentController:
                     "bersih": float(bersih),
                     "tarifPpn": float(tarif_ppn),
                     "ppn": float(ppn),
-                    "totalDibayar": float(bersih + ppn),
+                    "tarifPph": float(tarif_pph),
+                    "pph": float(pph_periode),
+                    "totalDibayar": float(bersih + ppn - pph_periode),
                 },
                 "penyesuaian": penyesuaian,
                 "pengurangan": {

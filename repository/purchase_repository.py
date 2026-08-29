@@ -6,6 +6,7 @@ from models.purchase_order_model import purchase_orders_table
 from models.supplier_model import suppliers_table
 from models.payment_outgoing_model import payments_outgoing_table
 from datetime import date, datetime as dt
+from utils.pajak import MASA_PAJAK_AWAL
 
 class PurchaseRepository:
     @staticmethod
@@ -436,6 +437,8 @@ class PurchaseRepository:
                 func.extract(
                     "year", PurchaseRepository.masa_pajak_efektif()
                 ) == year,
+                # Masa sebelum batas tidak disajikan sama sekali.
+                PurchaseRepository.masa_pajak_efektif() >= MASA_PAJAK_AWAL,
             ]
 
             query = (
@@ -509,6 +512,8 @@ class PurchaseRepository:
                     p.taxInvoiceName.isnot(None),
                     func.trim(p.taxInvoiceName) != "",
                     masa < end_date,
+                    # Kompensasi antar masa hanya dihitung sejak batas.
+                    masa >= MASA_PAJAK_AWAL,
                 )
                 .group_by(y, m)
             )

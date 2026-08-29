@@ -1167,7 +1167,15 @@ class CertificateOfPaymentRepository:
 
     @staticmethod
     async def riwayat_pembayaran(purchase_order_id: int, sampai_nomor: int):
-        """Seluruh CoP pada SPK ini sampai nomor tertentu — untuk tabel akumulasi."""
+        """
+        Seluruh CoP pada SPK ini sampai nomor tertentu — untuk tabel akumulasi.
+
+        Dicari pada SELURUH RANTAI SPK, bukan hanya SPK induknya. CoP yang
+        melekat pada adendum tetap pembayaran atas pekerjaan yang sama, dan
+        akumulasi yang melewatkannya menyatakan jumlah yang lebih kecil
+        daripada yang benar-benar sudah dibayarkan — persis pada tabel yang
+        dipakai memastikan tidak ada pembayaran ganda.
+        """
         try:
             ids = await CertificateOfPaymentRepository.rantai_ids(purchase_order_id)
             if not ids:
@@ -1176,13 +1184,13 @@ class CertificateOfPaymentRepository:
                 """
                 SELECT number, name, date, grossAmount, netAmount
                 FROM certificate_of_payments
-                WHERE purchaseOrderID = :po
+                WHERE purchaseOrderID IN :ids
                   AND isDelete = 0
                   AND status <> 'cancelled'
                   AND number <= :nomor
                 ORDER BY number
                 """,
-                {"po": ids[0], "nomor": sampai_nomor},
+                {"ids": tuple(ids), "nomor": sampai_nomor},
             )
             return [dict(r) for r in baris]
         except Exception as e:

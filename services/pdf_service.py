@@ -636,7 +636,16 @@ def _lengkapi(data: dict) -> dict:
     # dapat ditelusuri, sedangkan nomor lengkap menyebut vendor, proyek, dan
     # tahunnya sekaligus — sama persis dengan yang tercetak sebagai No. CoP.
     keluar["nomorBap"] = cop.get("name") or cop.get("number")
-    keluar["nomorAdendum"] = "Ada" if kontrak.get("adaAdendum") else None
+    # NOMOR ADENDUM pada kepala lembar: sebut nomornya, bukan "Ada".
+    #
+    # "Ada" memberi tahu bahwa sesuatu ada tanpa memberi tahu yang mana, dan
+    # yang membacanya tetap harus membuka SPK-nya untuk mengetahui adendum
+    # keberapa yang dimaksud — padahal nomornya sudah dipegang di sini.
+    daftar_adendum = kontrak.get("daftarAdendum") or []
+    keluar["nomorAdendum"] = (
+        ", ".join(f"#{a.get('nomor')}" for a in daftar_adendum)
+        or ("Ada" if kontrak.get("adaAdendum") else None)
+    )
 
     # Syarat kontrak dihitung DI SINI, bukan di dalam templat.
     #
@@ -673,12 +682,20 @@ def _lengkapi(data: dict) -> dict:
     }
 
     # Akumulasi: persentase tiap pembayaran terhadap nilai kontrak.
+    #
+    # Nomor barisnya DIURUTKAN ULANG 1, 2, 3 …, bukan memakai nomor CoP-nya.
+    # Nomor CoP dapat berlubang — CoP yang dibatalkan tetap memakai nomornya
+    # — sehingga tabel akumulasi bisa dimulai dari "Pembayaran 2" tanpa ada
+    # "Pembayaran 1" di atasnya, dan yang membacanya akan mencari lembar yang
+    # tidak pernah ada. Yang dinyatakan tabel ini adalah URUTAN pembayaran
+    # yang benar-benar terjadi, jadi urutan itulah yang dicetak.
     riwayat = []
     akumulasi = Decimal("0")
-    for r in data.get("riwayat") or []:
+    for urut, r in enumerate(data.get("riwayat") or [], start=1):
         net = _D(r.get("net"))
         akumulasi += net
         baris = dict(r)
+        baris["urut"] = urut
         baris["persen"] = float(net / total) if total else 0.0
         riwayat.append(baris)
     keluar["riwayat"] = riwayat

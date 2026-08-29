@@ -7,6 +7,7 @@ from utils.logger_utils import log_error
 from datetime import datetime as dt
 from models.sales_invoice_model import sales_invoice_tables
 from models.client_model import clients_table
+from utils.pajak import MASA_PAJAK_AWAL
 from models.payment_incoming_model import payment_incoming_table
 from schemas.sales_invoice_schema import SalesInvoiceCreate, SalesInvoiceUpdate, SalesInvoiceWithClientResponse
 
@@ -428,6 +429,9 @@ class SalesInvoiceRepository:
                     func.extract(
                         "year", SalesInvoiceRepository.masa_pajak_efektif()
                     ) == year,
+                    # Masa sebelum batas tidak disajikan sama sekali.
+                    SalesInvoiceRepository.masa_pajak_efektif()
+                    >= MASA_PAJAK_AWAL,
                 )
                 .order_by(si.date.asc())
             )
@@ -471,6 +475,8 @@ class SalesInvoiceRepository:
                     # dilaporkan Januari milik masa Januari, dan ikut terbawa
                     # hanya bila Januari termasuk rentangnya.
                     masa < end_date,
+                    # Kompensasi antar masa hanya dihitung sejak batas.
+                    masa >= MASA_PAJAK_AWAL,
                 )
                 .group_by(y, m)
             )
@@ -757,7 +763,22 @@ class SalesInvoiceRepository:
                 changes=perubahan,
                 note="Koreksi faktur pajak" if mengubah else "Isi faktur pajak",
             )
-            return {"message": "Tax invoice number saved successfully"}
+            # Masa yang BENAR-BENAR tersimpan ikut dikembalikan.
+            #
+            # Bukan hiasan. Bidang baru yang belum dikenal lapisan di atasnya
+            # dibuang DIAM-DIAM oleh FastAPI — tanpa galat, dengan jawaban
+            # "berhasil". Kesalahan itu sudah dua kali terjadi di sistem ini
+            # (masa pembelian, lalu masa beban), dan dua-duanya baru ketahuan
+            # berbulan-bulan kemudian lewat angka laporan yang keliru.
+            #
+            # Dengan nilainya dikembalikan, layar dapat membandingkan apa yang
+            # ia kirim dengan apa yang benar-benar tersimpan, dan kegagalan
+            # yang tadinya senyap menjadi terlihat seketika.
+            return {
+                "message": "Tax invoice number saved successfully",
+                "taxInvoiceName": tax_invoice_name,
+                "taxPeriod": masa_baru.isoformat() if masa_baru else None,
+            }
         except Exception as e:
             log_error(f"Error setting tax invoice name: {str(e)}")
             return {"error": "Internal server error.", "status": 500}

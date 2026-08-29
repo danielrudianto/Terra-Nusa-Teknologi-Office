@@ -6,6 +6,7 @@ from utils.logger_utils import log_error
 from models.expense_model import expenses_table
 from models.expense_opponent_model import expense_opponents_table
 from datetime import datetime as dt
+from utils.pajak import MASA_PAJAK_AWAL
 
 class ExpenseRepository:
     @staticmethod
@@ -50,6 +51,8 @@ class ExpenseRepository:
                 expenses_table.c.ppn > 0,
                 func.extract("month", masa) == month,
                 func.extract("year", masa) == year,
+                # Masa sebelum batas tidak disajikan sama sekali.
+                masa >= MASA_PAJAK_AWAL,
             ]
 
             query = (
@@ -125,6 +128,8 @@ class ExpenseRepository:
                     e.taxInvoiceName.isnot(None),
                     func.trim(e.taxInvoiceName) != "",
                     masa < end_date,
+                    # Kompensasi antar masa hanya dihitung sejak batas.
+                    masa >= MASA_PAJAK_AWAL,
                 )
                 .group_by(y, m)
             )

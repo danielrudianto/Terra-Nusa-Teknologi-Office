@@ -111,6 +111,23 @@
         table-layout: fixed;
       }
       table.hitung td { padding: 0.7pt 0; vertical-align: baseline; }
+      /*
+        ANGKA SEJAJAR — seluruh kolom bernominal rata kanan, dan angkanya
+        dicetak dengan lebar digit yang SAMA (`tabular-nums`).
+
+        Tanpa itu, angka pada font proporsional memakai lebar per digit yang
+        berbeda: satu kolom berisi "1" banyak akan tampak lebih pendek
+        daripada tetangganya walaupun sama-sama rata kanan, dan koma
+        ribuannya tidak pernah berbaris. Pada lembar yang dibandingkan
+        berdampingan dengan cetakan Excel, itulah yang paling terlihat.
+      */
+      table.hitung td.h-persen,
+      table.hitung td.h-dasar,
+      table.hitung td.h-hasil {
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: "tnum" 1;
+        text-align: right;
+      }
       .h-label { width: 33%; }
       .h-titik { width: 2%; text-align: left; }
       .h-persen { width: 9%; text-align: right; }
@@ -287,33 +304,58 @@
               <td class="h-sama"></td><td class="h-rp2"></td>
               <td class="h-hasil"></td><td class="h-tanda"></td>
             </tr>
+            <!--
+              ADENDUM hanya dicetak bila memang ADA.
+
+              Sebelumnya barisnya selalu tercetak sebagai "Addendum #" dengan
+              nilai nol, dan pada SPK tanpa adendum ia terbaca sebagai isian
+              yang terlupa diisi — pertanyaan yang berulang setiap kali lembar
+              ini beredar. Bila ada, tiap adendum mendapat barisnya sendiri
+              lengkap dengan nomornya, supaya angkanya dapat dicocokkan dengan
+              berkas adendumnya masing-masing.
+            -->
+            {% if kontrak.daftarAdendum %}
+            {% for a in kontrak.daftarAdendum %}
             <tr>
               <td class="h-label"></td><td class="h-titik"></td>
               <!--
-                "Addendum #" mengambil DUA kolom: persen dan kali.
+                "Addendum #1" mengambil DUA kolom: persen dan kali.
 
                 Kolom kali sendiri selebar satu huruf "x", dan teks
                 sepanjang ini di dalamnya menempel pada "Rp." di sebelahnya
                 sampai keduanya terbaca sebagai satu kata ("AddendumRp.").
               -->
               <td colspan="2" style="text-align: right; padding-right: 8pt">
-                Addendum {{ nomorAdendum or "#" }}
+                Addendum #{{ a.nomor }}
               </td>
               <td class="h-rp">Rp.</td>
-              <td class="h-dasar" style="border-bottom: 0.7pt solid #000">
-                {{ kontrak.adendum | uang }}
+              <td class="h-dasar"{% if loop.last %} style="border-bottom: 0.7pt solid #000"{% endif %}>
+                {{ a.nilai | uang }}
               </td>
               <td class="h-sama"></td><td class="h-rp2"></td>
               <td class="h-hasil"></td><td class="h-tanda"></td>
             </tr>
+            {% endfor %}
+            <!--
+              Jumlah adendum diberi JARAK dari daftarnya di atas. Tanpa jeda,
+              garis penjumlahan berimpit dengan baris terakhir daftar dan
+              keduanya terbaca sebagai satu baris yang sama.
+            -->
             <tr>
-              <td class="h-label"></td><td class="h-titik"></td>
-              <td class="h-persen"></td><td class="h-kali"></td>
-              <td class="h-rp"></td><td class="h-dasar"></td><td class="h-sama"></td>
-              <td class="h-rp2">Rp.</td>
-              <td class="h-hasil garis-jumlah">{{ kontrak.adendum | uang }}</td>
-              <td class="h-tanda garis-jumlah">+</td>
+              <td class="h-label" style="padding-top: 5pt"></td>
+              <td class="h-titik" style="padding-top: 5pt"></td>
+              <td class="h-persen" style="padding-top: 5pt"></td>
+              <td class="h-kali" style="padding-top: 5pt"></td>
+              <td class="h-rp" style="padding-top: 5pt"></td>
+              <td class="h-dasar" style="padding-top: 5pt"></td>
+              <td class="h-sama" style="padding-top: 5pt"></td>
+              <td class="h-rp2" style="padding-top: 5pt">Rp.</td>
+              <td class="h-hasil garis-jumlah" style="padding-top: 5pt">
+                {{ kontrak.adendum | uang }}
+              </td>
+              <td class="h-tanda garis-jumlah" style="padding-top: 5pt">+</td>
             </tr>
+            {% endif %}
             <tr class="jumlah">
               <td class="h-label" colspan="6">Total Nilai Kontrak</td>
               <td class="h-sama"></td>
@@ -499,8 +541,34 @@
               <td class="h-label" colspan="6">PPN {{ nilai.tarifPpn | persenUS }}</td>
               <td class="h-sama"></td>
               <td class="h-rp2">Rp.</td>
-              <td class="h-hasil garis-jumlah">{{ nilai.ppn | uang }}</td>
-              <td class="h-tanda garis-jumlah">+</td>
+              <!--
+                Garis penjumlahan pindah ke baris PPh di bawah: ia kini
+                penambah/pengurang TERAKHIR sebelum total, dan garis di dua
+                baris berurutan terbaca sebagai dua jumlah yang berbeda.
+              -->
+              <td class="h-hasil">{{ nilai.ppn | uang }}</td>
+              <td class="h-tanda">+</td>
+            </tr>
+            <!--
+              PPh DI BAWAH PPN, bukan di dalam PENGURANGAN.
+
+              Uang muka dan retensi mengurangi apa yang menjadi hak pemasok
+              atas periode ini; PPh tidak. Ia dipotong DARI hak itu lalu
+              disetorkan ke negara atas namanya, sehingga nilai yang
+              diperolehnya tetap sebesar total di bawah. Diletakkan di antara
+              baris-baris pengurangan, ia terbaca sebagai potongan nilai
+              pekerjaan — dan itu pertanyaan yang berulang setiap kali lembar
+              ini beredar.
+
+              Ia MENGURANGI total di bawahnya — yang tercetak di sana adalah
+              yang benar-benar ditransfer — sehingga tandanya "−".
+            -->
+            <tr class="jumlah">
+              <td class="h-label" colspan="6">PPh {{ nilai.tarifPph | persenUS }}</td>
+              <td class="h-sama"></td>
+              <td class="h-rp2">Rp.</td>
+              <td class="h-hasil garis-jumlah">{{ nilai.pph | uang }}</td>
+              <td class="h-tanda garis-jumlah">−</td>
             </tr>
             <tr class="jumlah">
               <td class="h-label" colspan="6">Total Progress Periode Ini</td>
@@ -538,7 +606,7 @@
             </tr>
             {% for r in riwayat %}
             <tr>
-              <td class="h-label">Pembayaran {{ r.number }}</td>
+              <td class="h-label">Pembayaran {{ r.urut }}</td>
               <td class="h-titik"></td>
               <td class="h-persen">{{ r.persen | persenPecahanUS }}</td>
               <td class="h-kali"></td>
