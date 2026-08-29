@@ -22,9 +22,17 @@ sales_invoice_tables = Table(
     Column("taxInvoiceName", String(100), nullable=True, default=None),
     # MASA PAJAK faktur keluaran.
     #
-    # Tanggal faktur penjualan dan masa pajak tempat fakturnya DILAPORKAN
-    # tidak selalu sama: nomor faktur pajak sering baru terbit setelah
-    # invoicenya jalan, dan yang menentukan masa adalah kapan ia dilaporkan.
+    # Tanggal dokumen dan masa pajaknya tidak selalu sama, dan bergesernya
+    # bisa ke DUA arah:
+    #
+    #   * MAJU — fakturnya baru terbit setelah invoicenya berjalan, sehingga
+    #     masanya jatuh sesudah tanggal invoice.
+    #
+    #   * MUNDUR — faktur PENGGANTI. Invoice Januari yang ketahuan keliru
+    #     pada Februari dibetulkan dengan dokumen bertanggal Februari,
+    #     tetapi masa pajaknya TETAP Januari mengikuti faktur aslinya.
+    #     Inilah bentuk yang paling sering dipakai, dan justru arah inilah
+    #     yang tidak dapat diungkapkan bila masa disamakan dengan tanggal.
     #
     # NULL berarti "ikut `date`" — itu keadaan yang normal, dan sengaja
     # disimpan NULL alih-alih menyalin tanggalnya, supaya tidak ada dua
