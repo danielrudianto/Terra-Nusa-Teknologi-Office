@@ -12,6 +12,9 @@ class ExpenseBase(BaseModel):
     date: d = Field(..., description="Date of the expense")
     dueDate: Optional[d] = Field(None, description="Due date of the expense")
     purchaseType: str = Field(..., description="Type of the purchase")
+    # Masa yang ditanggung (hari pertama periodenya). Untuk beban berkala —
+    # setoran PPN/PPh, BPJS, asuransi, SPT Tahunan. None = ikut `date`.
+    masaPajak: Optional[d] = Field(None, description="Period covered (first day)")
     dpp: float = Field(..., ge=0, description="DPP value")
     # Boleh nol untuk pemasok non-PKP; yang penting ada tempatnya.
     ppn: float = Field(0, ge=0, description="PPN value in rupiah")
@@ -36,6 +39,7 @@ class ExpenseUpdate(BaseModel):
     date: Optional[d] = None
     dueDate: Optional[d] = None
     purchaseType: Optional[str] = None
+    masaPajak: Optional[d] = None
     dpp: Optional[float] = None
     ppn: Optional[float] = None
     pbbkb: Optional[float] = None
