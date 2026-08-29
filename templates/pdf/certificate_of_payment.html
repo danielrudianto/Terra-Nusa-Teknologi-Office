@@ -170,6 +170,20 @@
         font-style: italic;
       }
 
+      /* Keterangan PPh: penjelas, bukan bagian dari hitungan.
+
+         Dibedakan dengan ukuran dan warna yang lebih redup supaya tidak
+         bersaing dengan angka di atasnya — ia dibaca ketika ada yang
+         bertanya, bukan setiap kali lembar ini dibuka. */
+      .catatan-pph {
+        margin-top: 5pt;
+        padding-top: 4pt;
+        border-top: 0.4pt solid #999;
+        font-size: 7.4pt;
+        color: #333;
+        line-height: 1.35;
+      }
+
       /* ---- tanda tangan: DUA pihak ---- */
       table.ttd {
         width: 100%;
@@ -660,40 +674,56 @@
               <td class="h-label" colspan="6">PPN {{ nilai.tarifPpn | persenUS }}</td>
               <td class="h-sama"></td>
               <td class="h-rp2">Rp.</td>
-              <!--
-                Garis penjumlahan pindah ke baris PPh di bawah: ia kini
-                penambah/pengurang TERAKHIR sebelum total, dan garis di dua
-                baris berurutan terbaca sebagai dua jumlah yang berbeda.
-              -->
               <td class="h-hasil">{{ nilai.ppn | uang }}</td>
               <td class="h-tanda">+</td>
+            </tr>
+            <!--
+              DUA penjumlahan, bukan satu.
+
+              Yang dijumlah dan yang dikurangkan tidak boleh berdesakan di
+              bawah satu garis: PPN MENAMBAH tagihan, PPh MENGURANGI
+              pembayarannya, dan keduanya berlawanan arah. Ditumpuk tanpa
+              antara, yang membacanya harus menghitung sendiri untuk tahu
+              angka mana yang menjadi tagihan dan angka mana yang ditransfer.
+
+              Karena itu disudahi dua kali: setelah PPN muncul JUMLAH
+              TAGIHAN, lalu PPh dikurangkan darinya menjadi total yang
+              benar-benar dibayarkan.
+
+              Jumlah tagihan inilah yang sama persis dengan nilai tersimpan
+              CoP beserta PPN-nya — yaitu yang akan menjadi tagihan dan
+              pembeliannya. Selisihnya terhadap baris terakhir persis sebesar
+              PPh, dan sekarang terlihat asal-usulnya.
+            -->
+            <tr class="jumlah antara">
+              <td class="h-label" colspan="6">Jumlah Tagihan</td>
+              <td class="h-sama"></td>
+              <td class="h-rp2">Rp.</td>
+              <td class="h-hasil garis-jumlah">{{ nilai.tagihan | uang }}</td>
+              <td class="h-tanda"></td>
             </tr>
             <!--
               PPh DI BAWAH PPN, bukan di dalam PENGURANGAN.
 
               Uang muka dan retensi mengurangi apa yang menjadi hak pemasok
               atas periode ini; PPh tidak. Ia dipotong DARI hak itu lalu
-              disetorkan ke negara atas namanya, sehingga nilai yang
-              diperolehnya tetap sebesar total di bawah. Diletakkan di antara
+              disetorkan ke negara atas namanya. Diletakkan di antara
               baris-baris pengurangan, ia terbaca sebagai potongan nilai
               pekerjaan — dan itu pertanyaan yang berulang setiap kali lembar
               ini beredar.
-
-              Ia MENGURANGI total di bawahnya — yang tercetak di sana adalah
-              yang benar-benar ditransfer — sehingga tandanya "−".
             -->
             <tr class="jumlah antara">
               <td class="h-label" colspan="6">PPh {{ nilai.tarifPph | persenUS }}</td>
               <td class="h-sama"></td>
               <td class="h-rp2">Rp.</td>
-              <td class="h-hasil garis-jumlah">{{ nilai.pph | uang }}</td>
+              <td class="h-hasil">{{ nilai.pph | uang }}</td>
               <td class="h-tanda">−</td>
             </tr>
             <tr class="jumlah">
               <td class="h-label" colspan="6">Total Progress Periode Ini</td>
               <td class="h-sama"></td>
               <td class="h-rp2">Rp.</td>
-              <td class="h-hasil">{{ nilai.totalDibayar | uang }}</td>
+              <td class="h-hasil garis-jumlah">{{ nilai.totalDibayar | uang }}</td>
               <td class="h-tanda"></td>
             </tr>
           </table>
@@ -701,6 +731,28 @@
           <div class="terbilang">
             Terbilang: {{ nilai.totalDibayar | terbilang }}
           </div>
+
+          <!--
+            KETERANGAN PPh, untuk yang membacanya tanpa latar belakang pajak.
+
+            Lembar ini menyebut dua angka besar yang berbeda, dan tanpa satu
+            kalimat penjelas, yang paling sering ditanyakan adalah "jadi
+            ditagih yang mana". Menjawabnya di sini lebih murah daripada
+            menjawabnya lewat telepon setiap bulan.
+
+            Hanya muncul bila memang ada PPh — pada SPK tanpa potongan,
+            kalimat ini hanya menambah keraguan yang tidak perlu.
+          -->
+          {% if nilai.pph > 0 %}
+          <div class="catatan-pph">
+            Nilai yang ditagihkan adalah <strong>Rp {{ nilai.tagihan | uang
+            }}</strong>, yaitu nilai SEBELUM pemotongan PPh.
+            PPh sebesar Rp {{ nilai.pph | uang }}
+            dipotong pada saat pembayaran dan disetorkan ke kas negara atas
+            nama penerima, sehingga yang ditransfer menjadi
+            Rp {{ nilai.totalDibayar | uang }}.
+          </div>
+          {% endif %}
         </div>
 
         <!-- ---- AKUMULASI ---- -->

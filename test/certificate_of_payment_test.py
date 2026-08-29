@@ -1127,6 +1127,27 @@ class TestDataCetak:
         assert hasil["nilai"]["bersih"] == 52_390_000
 
     @pytest.mark.asyncio
+    async def test_jumlah_tagihan_disudahi_sebelum_pph(self, repo_cetak):
+        """
+        Ada DUA penjumlahan: jumlah tagihan dahulu, baru total setelah PPh.
+
+        PPN menambah tagihan, PPh mengurangi pembayarannya — dua arah yang
+        berlawanan. Ditumpuk di bawah satu garis, yang membacanya harus
+        menghitung sendiri untuk tahu angka mana yang ditagihkan dan angka
+        mana yang ditransfer.
+
+        `tagihan` sengaja sama persis dengan `netAmount` tersimpan + PPN:
+        itulah yang akan menjadi tagihan dan pembeliannya, dan selisihnya
+        terhadap `totalDibayar` persis sebesar PPh.
+        """
+        hasil = await CoP.data_cetak(9, user_level=2)
+        n = hasil["nilai"]
+
+        assert n["tagihan"] == 58_152_900          # 52.390.000 + PPN 11%
+        assert n["tagihan"] == n["bersih"] + n["ppn"]
+        assert n["totalDibayar"] == n["tagihan"] - n["pph"]
+
+    @pytest.mark.asyncio
     async def test_pph_nol_tidak_mengubah_total(self, repo_cetak):
         """SPK tanpa PPh: totalnya kembali sekadar bersih + PPN."""
         repo_cetak["spk"]["pphPercentage"] = 0.0

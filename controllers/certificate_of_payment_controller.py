@@ -1602,6 +1602,12 @@ class CertificateOfPaymentController:
                     "ppn": float(ppn),
                     "tarifPph": float(tarif_pph),
                     "pph": float(pph_periode),
+                    # Nilai TAGIHAN: bersih + PPN, sebelum PPh dipotong.
+                    # Inilah yang akan menjadi tagihan dan pembeliannya —
+                    # angka yang sama dengan nilai tersimpan CoP beserta
+                    # PPN-nya, dan yang membuat selisih terhadap baris
+                    # terakhir terlihat asal-usulnya.
+                    "tagihan": float(bersih + ppn),
                     "totalDibayar": float(bersih + ppn - pph_periode),
                 },
                 "penyesuaian": penyesuaian,
