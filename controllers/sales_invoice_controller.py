@@ -238,6 +238,7 @@ class SalesInvoiceController:
         tax_invoice_name: str,
         user_id: int,
         tax_period=None,
+        user_level: int | None = None,
     ) -> Dict:
         """Set nomor faktur pajak PPN, beserta masa pajaknya bila berbeda."""
         log_info(f"Setting tax invoice name for sales invoice ID: {sales_invoice_id}")
@@ -248,7 +249,11 @@ class SalesInvoiceController:
                 raise HTTPException(status_code=400, detail="Tax invoice name is required")
 
             result = await SalesInvoiceRepository.set_tax_invoice_name(
-                sales_invoice_id, tax_invoice_name.strip(), user_id, tax_period
+                sales_invoice_id,
+                tax_invoice_name.strip(),
+                user_id,
+                tax_period,
+                user_level,
             )
             if "error" in result:
                 raise HTTPException(status_code=result.get("status", 500), detail=result["error"])

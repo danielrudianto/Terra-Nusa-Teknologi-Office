@@ -660,6 +660,7 @@ class SalesInvoiceRepository:
         tax_invoice_name: str,
         user_id: int,
         tax_period=None,
+        user_level: int | None = None,
     ) -> Dict[str, Any]:
         """
         Set nomor faktur pajak PPN pada sebuah invoice, beserta masa pajaknya.
@@ -673,7 +674,13 @@ class SalesInvoiceRepository:
         Normalisasinya diletakkan di lapisan ini supaya berlaku untuk SEMUA
         pemanggil — layar mana pun, dan pemanggil di kemudian hari yang tidak
         tahu aturan ini.
+
+        Mengisi PERTAMA kali bebas seperti biasa. MENGUBAH nomor yang sudah
+        terisi, atau MENGGESER masanya, hanya boleh level 5 — dan dijaga di
+        SINI, bukan sekadar dengan menyembunyikan tombolnya di layar.
         """
+        from utils.permission import boleh_edit_faktur_keluaran
+
         try:
             sebelum = await database.fetch_one(
                 select(
@@ -699,6 +706,21 @@ class SalesInvoiceRepository:
                     # pernah tersimpan sebagai dua nilai yang berbeda.
                     masa_baru = masa_baru.replace(day=1)
 
+            sudah_terisi = bool((lama or "").strip())
+            ganti_nomor = sudah_terisi and (lama or "").strip() != (
+                tax_invoice_name or ""
+            ).strip()
+            geser_masa = masa_lama != masa_baru
+            if (ganti_nomor or geser_masa) and not boleh_edit_faktur_keluaran(
+                user_level
+            ):
+                return app_error(
+                    ErrorCode.FORBIDDEN,
+                    "Nomor faktur pajak yang sudah terisi dan masa pajaknya "
+                    "hanya dapat diubah oleh level 5.",
+                    403,
+                )
+
             query = (
                 sales_invoice_tables.update()
                 .where(sales_invoice_tables.c.id == sales_invoice_id)
@@ -717,14 +739,12 @@ class SalesInvoiceRepository:
             # terekam, sama seperti bukti potong.
             from repository.audit_log_repository import AuditLogRepository
 
-            mengubah = bool((lama or "").strip()) and (lama or "").strip() != (
-                tax_invoice_name or ""
-            ).strip()
+            mengubah = ganti_nomor
             perubahan = {"taxInvoiceName": {"from": lama, "to": tax_invoice_name}}
             # Masa pajak hanya dicatat bila memang bergeser: memindahkan
             # faktur ke masa lain menggeser angka pada SPT dua bulan
             # sekaligus, jadi jejaknya harus ada.
-            if masa_lama != masa_baru:
+            if geser_masa:
                 perubahan["taxPeriod"] = {
                     "from": str(masa_lama) if masa_lama else None,
                     "to": str(masa_baru) if masa_baru else None,

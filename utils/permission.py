@@ -410,6 +410,25 @@ def boleh_edit_bukti_potong(level) -> bool:
         return False
 
 
+# Mengubah nomor faktur pajak KELUARAN yang sudah terisi, atau MENGGESER masa
+# pajaknya.
+#
+# Alasannya sama dengan bukti potong, dan untuk masa pajak bahkan lebih berat:
+# memindahkan satu faktur ke masa lain mengubah angka pada DUA SPT sekaligus —
+# masa yang ditinggalkannya berkurang, masa tujuannya bertambah. Bila keduanya
+# sudah dilaporkan, koreksinya bukan lagi urusan satu layar melainkan
+# pembetulan SPT. Karena itu wewenangnya dipegang satu tangan.
+LEVEL_EDIT_FAKTUR_KELUARAN = 5
+
+
+def boleh_edit_faktur_keluaran(level) -> bool:
+    """Pengguna ini boleh MENGUBAH faktur pajak keluaran / menggeser masanya."""
+    try:
+        return int(level or 1) >= LEVEL_EDIT_FAKTUR_KELUARAN
+    except (TypeError, ValueError):
+        return False
+
+
 def boleh_menghapus_yang_disetujui(level) -> bool:
     """
     Pengguna ini boleh MENGHAPUS purchase order yang SUDAH DISETUJUI.

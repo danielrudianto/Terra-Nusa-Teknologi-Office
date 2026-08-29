@@ -111,7 +111,11 @@ async def set_tax_invoice_name(
     """
     user_id = current_user["id"]
     return await SalesInvoiceController.set_tax_invoice_name(
-        sales_invoice_id, data.taxInvoiceName, user_id, data.taxPeriod
+        sales_invoice_id,
+        data.taxInvoiceName,
+        user_id,
+        data.taxPeriod,
+        int(current_user["authenticationLevel"] or 1),
     )
 
 
