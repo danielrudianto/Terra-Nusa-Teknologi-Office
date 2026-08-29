@@ -697,9 +697,41 @@ class TestHanyaSPK:
         assert "error" not in hasil
 
     @pytest.mark.asyncio
-    async def test_po_f_material_bukan_spk(self, repo):
+    async def test_po_f_beton_dilayani_cop(self, repo):
+        """
+        BETON dilayani CoP meski dokumennya terbit sebagai PURCHASE ORDER.
+
+        Ia dikirim bertahap sepanjang pekerjaan dan ditagih menurut kubikasi
+        yang sudah dituang — bentuk penagihan yang sama dengan pekerjaan
+        bertahap. Lembarnya tetap purchase order; yang diberikan di sini
+        hanya haknya atas berita acara progres.
+        """
         repo["spk"]["purchaseType"] = "F"
         repo["spk"]["customData"] = {"materialType": "beton"}
+        hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
+                                 departments={"engineering"})
+        assert "error" not in hasil
+
+    @pytest.mark.asyncio
+    async def test_po_f_beton_tetap_dilayani_dari_json_teks(self, repo):
+        """`customData` kerap kembali sebagai teks JSON, bukan dict."""
+        repo["spk"]["purchaseType"] = "F"
+        repo["spk"]["customData"] = '{"materialType": "Beton"}'
+        hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
+                                 departments={"engineering"})
+        assert "error" not in hasil
+
+    @pytest.mark.asyncio
+    async def test_po_f_material_lain_bukan_urusan_cop(self, repo):
+        """
+        Material PO-F selain yang terdaftar tetap ditolak.
+
+        Diserahkan sekali dan ditagih sekali; berita acara progres atasnya
+        tidak menyatakan apa pun. Membuka seluruh PO-F sekaligus akan
+        memasukkan pengadaan biasa ke daftar yang dipakai menagih progres.
+        """
+        repo["spk"]["purchaseType"] = "F"
+        repo["spk"]["customData"] = {"materialType": "besi"}
         hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
                                  departments={"engineering"})
         assert hasil["status"] == 400

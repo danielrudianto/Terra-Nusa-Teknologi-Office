@@ -90,16 +90,37 @@ class CertificateOfPaymentController:
     #: aturannya tidak berlaku.
     JENIS_TANPA_COP = frozenset({"A", "D"})
 
-    @staticmethod
-    def adalah_spk(po: Dict[str, Any]) -> bool:
-        """
-        Dokumen ini terbit sebagai SURAT PERINTAH KERJA?
+    #: Material PO-F yang TETAP dilayani CoP meski dokumennya PURCHASE ORDER.
+    #:
+    #: Beton dikirim bertahap sepanjang pekerjaan dan ditagih menurut kubikasi
+    #: yang sudah dituang — bentuk penagihan yang sama dengan pekerjaan
+    #: bertahap, sehingga berita acara progresnya menyatakan hal yang sama
+    #: pula. Material lain PO-F diserahkan sekali dan ditagih sekali; berita
+    #: acara progres atasnya tidak menyatakan apa pun.
+    #:
+    #: Ditulis sebagai daftar, bukan perbandingan tunggal: material berikutnya
+    #: yang ditagih bertahap cukup ditambahkan di sini.
+    MATERIAL_BER_COP = frozenset({"beton"})
 
-        Memakai `_awalan_dokumen` milik purchase order — SATU-SATUNYA tempat
-        jenis dokumen ditentukan. Menyalin daftarnya ke sini akan membuat
-        keduanya berselisih pada jenis berikutnya yang ditambahkan, dan yang
-        tertinggal tidak menimbulkan galat: hanya CoP yang diam-diam menolak
-        SPK yang sah, atau menerima purchase order yang bukan haknya.
+    @staticmethod
+    def melayani_cop(po: Dict[str, Any]) -> bool:
+        """
+        Certificate of Payment melayani dokumen ini?
+
+        BUKAN sekadar "apakah ini SPK". Sebagian besar memang SPK, tetapi
+        pembelian BETON terbit sebagai PURCHASE ORDER dan tetap ditagih
+        bertahap — lihat `MATERIAL_BER_COP`. Karena itu pertanyaannya
+        dirumuskan sebagai "dilayani CoP", bukan sebagai jenis dokumennya:
+        nama yang menyebut jenis akan menjadi keliru pada dokumen pertama
+        yang menyimpang darinya, dan yang membacanya akan menyimpulkan
+        aturan yang salah.
+
+        Jenis dokumennya sendiri tetap ditentukan `_awalan_dokumen` milik
+        purchase order — SATU-SATUNYA tempat itu diputuskan. Menyalin
+        daftarnya ke sini akan membuat keduanya berselisih pada jenis
+        berikutnya yang ditambahkan, dan yang tertinggal tidak menimbulkan
+        galat: hanya CoP yang diam-diam menolak SPK yang sah, atau menerima
+        purchase order yang bukan haknya.
         """
         import json
 
@@ -118,6 +139,19 @@ class CertificateOfPaymentController:
         jenis = PurchaseOrderController.VARIAN_JENIS.get(jenis, jenis)
         if jenis in CertificateOfPaymentController.JENIS_TANPA_COP:
             return False
+
+        # Material PO-F yang ditagih bertahap dilayani meski dokumennya PO.
+        #
+        # Diperiksa SEBELUM `_awalan_dokumen`, sebab jawabannya di sana sudah
+        # pasti "PO" — dan memang benar begitu: yang terbit untuk beton
+        # adalah purchase order, dan lembarnya tidak berubah karenanya.
+        # Yang ditambahkan di sini hanya haknya atas berita acara progres.
+        if jenis == "F":
+            material = (
+                str((custom or {}).get("materialType") or "").strip().lower()
+            )
+            if material in CertificateOfPaymentController.MATERIAL_BER_COP:
+                return True
 
         awalan = PurchaseOrderController._awalan_dokumen(
             po.get("purchaseType") or "", custom or {}
@@ -148,7 +182,7 @@ class CertificateOfPaymentController:
 
             hasil = []
             for po in baris:
-                if not CertificateOfPaymentController.adalah_spk(po):
+                if not CertificateOfPaymentController.melayani_cop(po):
                     continue
                 keluar = {
                     "id": po["id"],
@@ -245,7 +279,7 @@ class CertificateOfPaymentController:
             # Dijaga di sini JUGA, bukan hanya saat menyimpan: layar yang
             # memuat baris purchase order pembelian sudah menyesatkan yang
             # mengisinya sebelum ia sempat menekan simpan.
-            if not CertificateOfPaymentController.adalah_spk(spk):
+            if not CertificateOfPaymentController.melayani_cop(spk):
                 return app_error(
                     ErrorCode.VALIDATION,
                     "Dokumen ini purchase order pembelian, bukan SPK. "
@@ -327,7 +361,7 @@ class CertificateOfPaymentController:
             # sini bergantung isian (PO-F jasa uji terbit sebagai SPK, PO-F
             # material sebagai PO), dan menebaknya dari teks membuat keduanya
             # tertukar tanpa galat apa pun.
-            if not CertificateOfPaymentController.adalah_spk(spk):
+            if not CertificateOfPaymentController.melayani_cop(spk):
                 return app_error(
                     ErrorCode.VALIDATION,
                     "Certificate of payment hanya dapat dibuat atas SPK "
@@ -1329,7 +1363,7 @@ class CertificateOfPaymentController:
             # sebelum jenis A dikecualikan tetap ada di basis data, dan
             # tanpa penjagaan di sini ia masih dapat dicetak sebagai
             # dokumen resmi.
-            if not CertificateOfPaymentController.adalah_spk(spk):
+            if not CertificateOfPaymentController.melayani_cop(spk):
                 return app_error(
                     ErrorCode.VALIDATION,
                     "Dokumen ini bukan SPK yang memakai certificate of "
@@ -1677,7 +1711,7 @@ class CertificateOfPaymentController:
                 # sini pula. Dokumen semacam itu seharusnya tidak pernah
                 # ada, tetapi aturan A/D lahir belakangan dan yang telanjur
                 # tersimpan tetap terbaca oleh kueri ini.
-                if not CertificateOfPaymentController.adalah_spk(c):
+                if not CertificateOfPaymentController.melayani_cop(c):
                     continue
                 hasil.append(
                     {
