@@ -152,6 +152,11 @@
       /* Baris jumlah: labelnya rata kanan dan tebal, seperti pada Excel —
          angka yang dijumlah dan kata "Total" bertemu di tengah lembar. */
       tr.jumlah td { font-weight: bold; padding-top: 2pt; }
+      /* Baris ANTARA — subtotal berjalan, PPN, dan PPh — sengaja TIDAK
+         tebal. Bila setiap baris tebal, tidak ada yang menonjol: mata
+         kehilangan pegangan justru pada dua angka yang paling dicari,
+         yaitu Sub-Total Pengurangan dan Total Progress Periode Ini. */
+      tr.jumlah.antara td { font-weight: normal; }
       tr.jumlah .h-label { text-align: right; }
       td.bergaris { border-top: 0.7pt solid #000; }
       /* Garis penjumlahan Excel: satu garis di ATAS angka yang dijumlah. */
@@ -288,6 +293,25 @@
         <div class="blok">
           <div class="judul-blok">HARGA PEKERJAAN (DPP)</div>
           <table class="hitung">
+            <!--
+              LEBAR KOLOM DIKUNCI DI SINI, bukan diserahkan pada baris
+              pertama tiap tabel.
+
+              Blok-blok pada lembar ini adalah tabel yang BERBEDA, dan
+              dengan `table-layout: fixed` lebar kolom diambil dari baris
+              pertama masing-masing. Tabel yang barisnya dimulai dengan
+              `colspan` karenanya menghasilkan geometri yang berlainan —
+              dan kolom Rp. beserta angkanya tidak berbaris dengan blok di
+              atasnya, tepat pada lembar yang dibaca dengan menyusuri satu
+              kolom angka dari atas ke bawah.
+            -->
+            <colgroup>
+              <col style="width: 33%" /><col style="width: 2%" />
+              <col style="width: 9%" /><col style="width: 4%" />
+              <col style="width: 4%" /><col style="width: 20%" />
+              <col style="width: 4%" /><col style="width: 4%" />
+              <col style="width: 17%" /><col style="width: 4%" />
+            </colgroup>
             <tr>
               <td class="h-label">Nilai Kontrak</td>
               <td class="h-titik"></td><td class="h-persen"></td>
@@ -353,7 +377,7 @@
               <td class="h-hasil garis-jumlah" style="padding-top: 5pt">
                 {{ kontrak.adendum | uang }}
               </td>
-              <td class="h-tanda garis-jumlah" style="padding-top: 5pt">+</td>
+              <td class="h-tanda" style="padding-top: 5pt">+</td>
             </tr>
             {% endif %}
             <tr class="jumlah">
@@ -373,6 +397,25 @@
             kontrak untuk tahu berapa uang muka dan retensi yang disepakati.
           -->
           <table class="hitung" style="margin-top: 8pt">
+            <!--
+              LEBAR KOLOM DIKUNCI DI SINI, bukan diserahkan pada baris
+              pertama tiap tabel.
+
+              Blok-blok pada lembar ini adalah tabel yang BERBEDA, dan
+              dengan `table-layout: fixed` lebar kolom diambil dari baris
+              pertama masing-masing. Tabel yang barisnya dimulai dengan
+              `colspan` karenanya menghasilkan geometri yang berlainan —
+              dan kolom Rp. beserta angkanya tidak berbaris dengan blok di
+              atasnya, tepat pada lembar yang dibaca dengan menyusuri satu
+              kolom angka dari atas ke bawah.
+            -->
+            <colgroup>
+              <col style="width: 33%" /><col style="width: 2%" />
+              <col style="width: 9%" /><col style="width: 4%" />
+              <col style="width: 4%" /><col style="width: 20%" />
+              <col style="width: 4%" /><col style="width: 4%" />
+              <col style="width: 17%" /><col style="width: 4%" />
+            </colgroup>
             <tr>
               <td class="h-label">Down Payment</td><td class="h-titik">:</td>
               <td class="h-persen">{{ spk.dpPercentage | persenUS }}</td>
@@ -412,6 +455,25 @@
             PROGRESS YANG DIBAYARKAN (Lampiran BAP &amp; Copy Kontrak Kerja)
           </div>
           <table class="hitung">
+            <!--
+              LEBAR KOLOM DIKUNCI DI SINI, bukan diserahkan pada baris
+              pertama tiap tabel.
+
+              Blok-blok pada lembar ini adalah tabel yang BERBEDA, dan
+              dengan `table-layout: fixed` lebar kolom diambil dari baris
+              pertama masing-masing. Tabel yang barisnya dimulai dengan
+              `colspan` karenanya menghasilkan geometri yang berlainan —
+              dan kolom Rp. beserta angkanya tidak berbaris dengan blok di
+              atasnya, tepat pada lembar yang dibaca dengan menyusuri satu
+              kolom angka dari atas ke bawah.
+            -->
+            <colgroup>
+              <col style="width: 33%" /><col style="width: 2%" />
+              <col style="width: 9%" /><col style="width: 4%" />
+              <col style="width: 4%" /><col style="width: 20%" />
+              <col style="width: 4%" /><col style="width: 4%" />
+              <col style="width: 17%" /><col style="width: 4%" />
+            </colgroup>
             <tr>
               <td class="h-label">Progress Kontrak</td><td class="h-titik">:</td>
               <td class="h-persen">{{ progres.persenInduk | persenPecahanUS }}</td>
@@ -430,7 +492,7 @@
               <td class="h-dasar">{{ kontrak.adendum | uang }}</td>
               <td class="h-sama">=</td><td class="h-rp2"></td>
               <td class="h-hasil garis-jumlah">{{ progres.nilaiAdendum | uang }}</td>
-              <td class="h-tanda garis-jumlah">+</td>
+              <td class="h-tanda">+</td>
             </tr>
             <tr class="jumlah">
               <td class="h-label" colspan="6">Sub-Total Progress Periode Ini</td>
@@ -446,6 +508,25 @@
         <div class="blok">
           <div class="judul-blok">PENGURANGAN</div>
           <table class="hitung">
+            <!--
+              LEBAR KOLOM DIKUNCI DI SINI, bukan diserahkan pada baris
+              pertama tiap tabel.
+
+              Blok-blok pada lembar ini adalah tabel yang BERBEDA, dan
+              dengan `table-layout: fixed` lebar kolom diambil dari baris
+              pertama masing-masing. Tabel yang barisnya dimulai dengan
+              `colspan` karenanya menghasilkan geometri yang berlainan —
+              dan kolom Rp. beserta angkanya tidak berbaris dengan blok di
+              atasnya, tepat pada lembar yang dibaca dengan menyusuri satu
+              kolom angka dari atas ke bawah.
+            -->
+            <colgroup>
+              <col style="width: 33%" /><col style="width: 2%" />
+              <col style="width: 9%" /><col style="width: 4%" />
+              <col style="width: 4%" /><col style="width: 20%" />
+              <col style="width: 4%" /><col style="width: 4%" />
+              <col style="width: 17%" /><col style="width: 4%" />
+            </colgroup>
             <!--
               TIGA BARIS TETAP, dicetak sekalipun nilainya nol.
 
@@ -466,7 +547,7 @@
               <td class="h-hasil{% if loop.last and not pengurangan.lain %} garis-jumlah{% endif %}">
                 {{ p.amount | uang }}
               </td>
-              <td class="h-tanda{% if loop.last and not pengurangan.lain %} garis-jumlah{% endif %}">{% if loop.last and not pengurangan.lain %}+{% endif %}</td>
+              <td class="h-tanda">{% if loop.last and not pengurangan.lain %}+{% endif %}</td>
             </tr>
             {% endfor %}
 
@@ -482,7 +563,7 @@
               <td class="h-dasar">{{ nilai.kotor | uang }}</td>
               <td class="h-sama">=</td><td class="h-rp2"></td>
               <td class="h-hasil{% if loop.last %} garis-jumlah{% endif %}">{{ p.amount | uang }}</td>
-              <td class="h-tanda{% if loop.last %} garis-jumlah{% endif %}">{% if loop.last %}+{% endif %}</td>
+              <td class="h-tanda">{% if loop.last %}+{% endif %}</td>
             </tr>
             {% endfor %}
 
@@ -503,6 +584,25 @@
             ke progres membuat persentase progres melebihi kenyataan.
           -->
           <table class="hitung" style="margin-top: 8pt">
+            <!--
+              LEBAR KOLOM DIKUNCI DI SINI, bukan diserahkan pada baris
+              pertama tiap tabel.
+
+              Blok-blok pada lembar ini adalah tabel yang BERBEDA, dan
+              dengan `table-layout: fixed` lebar kolom diambil dari baris
+              pertama masing-masing. Tabel yang barisnya dimulai dengan
+              `colspan` karenanya menghasilkan geometri yang berlainan —
+              dan kolom Rp. beserta angkanya tidak berbaris dengan blok di
+              atasnya, tepat pada lembar yang dibaca dengan menyusuri satu
+              kolom angka dari atas ke bawah.
+            -->
+            <colgroup>
+              <col style="width: 33%" /><col style="width: 2%" />
+              <col style="width: 9%" /><col style="width: 4%" />
+              <col style="width: 4%" /><col style="width: 20%" />
+              <col style="width: 4%" /><col style="width: 4%" />
+              <col style="width: 17%" /><col style="width: 4%" />
+            </colgroup>
             {% for p in penyesuaian if p.kind == "addition" %}
             <tr>
               <td class="h-label">
@@ -513,7 +613,7 @@
               <td class="h-rp"></td><td class="h-dasar"></td><td class="h-sama"></td>
               <td class="h-rp2"></td>
               <td class="h-hasil{% if loop.last %} garis-jumlah{% endif %}">{{ p.amount | uang }}</td>
-              <td class="h-tanda{% if loop.last %} garis-jumlah{% endif %}">{% if loop.last %}+{% endif %}</td>
+              <td class="h-tanda">{% if loop.last %}+{% endif %}</td>
             </tr>
             {% endfor %}
             <tr class="jumlah">
@@ -528,7 +628,26 @@
 
           <!-- ---- TOTAL ---- -->
           <table class="hitung" style="margin-top: 10pt">
-            <tr class="jumlah">
+            <!--
+              LEBAR KOLOM DIKUNCI DI SINI, bukan diserahkan pada baris
+              pertama tiap tabel.
+
+              Blok-blok pada lembar ini adalah tabel yang BERBEDA, dan
+              dengan `table-layout: fixed` lebar kolom diambil dari baris
+              pertama masing-masing. Tabel yang barisnya dimulai dengan
+              `colspan` karenanya menghasilkan geometri yang berlainan —
+              dan kolom Rp. beserta angkanya tidak berbaris dengan blok di
+              atasnya, tepat pada lembar yang dibaca dengan menyusuri satu
+              kolom angka dari atas ke bawah.
+            -->
+            <colgroup>
+              <col style="width: 33%" /><col style="width: 2%" />
+              <col style="width: 9%" /><col style="width: 4%" />
+              <col style="width: 4%" /><col style="width: 20%" />
+              <col style="width: 4%" /><col style="width: 4%" />
+              <col style="width: 17%" /><col style="width: 4%" />
+            </colgroup>
+            <tr class="jumlah antara">
               <td class="h-label" colspan="6">
                 Sub-Total Periode Ini (Progress − Pengurangan{% if nilai.tambahan > 0 %} + Penambahan{% endif %})
               </td>
@@ -537,7 +656,7 @@
               <td class="h-hasil">{{ nilai.bersih | uang }}</td>
               <td class="h-tanda"></td>
             </tr>
-            <tr class="jumlah">
+            <tr class="jumlah antara">
               <td class="h-label" colspan="6">PPN {{ nilai.tarifPpn | persenUS }}</td>
               <td class="h-sama"></td>
               <td class="h-rp2">Rp.</td>
@@ -563,12 +682,12 @@
               Ia MENGURANGI total di bawahnya — yang tercetak di sana adalah
               yang benar-benar ditransfer — sehingga tandanya "−".
             -->
-            <tr class="jumlah">
+            <tr class="jumlah antara">
               <td class="h-label" colspan="6">PPh {{ nilai.tarifPph | persenUS }}</td>
               <td class="h-sama"></td>
               <td class="h-rp2">Rp.</td>
               <td class="h-hasil garis-jumlah">{{ nilai.pph | uang }}</td>
-              <td class="h-tanda garis-jumlah">−</td>
+              <td class="h-tanda">−</td>
             </tr>
             <tr class="jumlah">
               <td class="h-label" colspan="6">Total Progress Periode Ini</td>
@@ -588,6 +707,25 @@
         <div class="blok">
           <div class="judul-blok">AKUMULASI PEMBAYARAN (DPP)</div>
           <table class="hitung">
+            <!--
+              LEBAR KOLOM DIKUNCI DI SINI, bukan diserahkan pada baris
+              pertama tiap tabel.
+
+              Blok-blok pada lembar ini adalah tabel yang BERBEDA, dan
+              dengan `table-layout: fixed` lebar kolom diambil dari baris
+              pertama masing-masing. Tabel yang barisnya dimulai dengan
+              `colspan` karenanya menghasilkan geometri yang berlainan —
+              dan kolom Rp. beserta angkanya tidak berbaris dengan blok di
+              atasnya, tepat pada lembar yang dibaca dengan menyusuri satu
+              kolom angka dari atas ke bawah.
+            -->
+            <colgroup>
+              <col style="width: 33%" /><col style="width: 2%" />
+              <col style="width: 9%" /><col style="width: 4%" />
+              <col style="width: 4%" /><col style="width: 20%" />
+              <col style="width: 4%" /><col style="width: 4%" />
+              <col style="width: 17%" /><col style="width: 4%" />
+            </colgroup>
             <!--
               Uang muka menjadi baris PERTAMA.
 
@@ -612,7 +750,7 @@
               <td class="h-kali"></td>
               <td class="h-rp">Rp.</td>
               <td class="h-dasar{% if loop.last %} garis-jumlah{% endif %}">{{ r.net | uang }}</td>
-              <td class="h-sama{% if loop.last %} garis-jumlah{% endif %}">{% if loop.last %}+{% endif %}</td>
+              <td class="h-sama">{% if loop.last %}+{% endif %}</td>
               <td class="h-rp2"></td>
               <td class="h-hasil"></td><td class="h-tanda"></td>
             </tr>
