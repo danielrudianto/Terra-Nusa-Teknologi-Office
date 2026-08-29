@@ -120,10 +120,16 @@
 </table>
 
 <!--
-  KIRI yang MENYETUJUI, TENGAH yang MENYETUJUI BAP.
+  TIGA PERAN, seluruhnya milik TAHAP BAP: dibuat oleh, disetujui oleh,
+  diterima oleh.
 
-  Lembar ini adalah BAP: yang menandatangani di tengah adalah yang
-  MENYETUJUI progres lapangannya (gerbang pertama), bukan pengisi harga.
+  Kolom kiri memakai PEMBUAT BAP, bukan penyetuju CoP. Lembar ini adalah
+  Berita Acara Pemeriksaan dan disetujui LEBIH DAHULU daripada CoP-nya;
+  memakai penyetuju CoP membuat BAP yang baru disetujui tercetak dengan
+  kolom tanda tangan kosong, lalu berubah sendiri saat dicetak ulang
+  setelah CoP-nya disetujui — satu dokumen dengan dua isi. Alasan
+  lengkapnya pada `penandatanganBap` di layanan PDF.
+
   Urutannya bukan selera tata letak: pada lembar yang ditandatangani, yang
   paling kiri dibaca sebagai yang paling bertanggung jawab.
 -->
@@ -132,9 +138,9 @@
     <td>
       <div class="bt-peran">Pemberi Tugas,</div>
       <div class="bt-badan">{{ perusahaan.nama }}</div>
-      {% if penandatangan.nama %}
-      <div class="bt-nama">{{ penandatangan.nama }}</div>
-      <div class="bt-jabatan">{{ penandatangan.jabatan or "" }}</div>
+      {% if penandatanganBap.nama %}
+      <div class="bt-nama">{{ penandatanganBap.nama }}</div>
+      <div class="bt-jabatan">{{ penandatanganBap.jabatan or "" }}</div>
       {% else %}
       <div>(<span class="bt-kosong">&nbsp;</span>)</div>
       {% endif %}

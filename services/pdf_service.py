@@ -712,6 +712,29 @@ def _lengkapi(data: dict) -> dict:
         "nama": cop.get("approvedByName"),
         "jabatan": cop.get("approvedByPosition"),
     }
+
+    # Penandatangan pihak pemberi tugas pada lembar BAP — ORANG YANG BERBEDA.
+    #
+    # Lembar BAP tidak boleh memakai penyetuju CoP, dan sebabnya bukan selera:
+    #
+    #   * URUTAN WAKTUNYA TERBALIK. BAP disetujui lebih dahulu, CoP-nya
+    #     menyusul. Memakai penyetuju CoP membuat BAP yang baru disetujui
+    #     tercetak dengan kolom tanda tangan KOSONG, lalu BAP yang sama —
+    #     dicetak ulang setelah CoP-nya disetujui — tiba-tiba memiliki
+    #     penandatangan. Satu dokumen, dua isi, tergantung kapan dicetak.
+    #
+    #   * TAHAPNYA BUKAN MILIKNYA. Aturan itu sudah dinyatakan pada
+    #     `_keterangan_persetujuan` di bawah: lembar BAP memuat orang-orang
+    #     BAP saja. Blok tanda tangannya dahulu melanggar aturan yang
+    #     ditulis pada berkas yang sama.
+    #
+    # Yang dipakai: pembuat BAP-nya. Lembarnya menjadi terbaca lurus —
+    # dibuat oleh, disetujui oleh, diterima oleh — dan tidak ada nama yang
+    # berubah karena tahap yang tercatat di lembar lain.
+    keluar["penandatanganBap"] = {
+        "nama": cop.get("createdByName"),
+        "jabatan": cop.get("createdByPosition"),
+    }
     keluar["perusahaan"] = _PERUSAHAAN
     keluar["logoDataUri"] = _logo_data_uri()
 
