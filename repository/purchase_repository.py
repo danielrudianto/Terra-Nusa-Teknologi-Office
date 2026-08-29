@@ -711,7 +711,7 @@ class PurchaseRepository:
         BOLEH = {
             "invoiceName", "receiptName", "taxInvoiceName", "purchaseOrderName",
             "projectName", "purchaseType", "supplierID", "procurementType",
-            "date", "dueDate",
+            "date", "dueDate", "taxPeriod",
             "isInvoiceAttached", "isReceiptAttached", "isTaxInvoiceAttached",
             "isCopAttached", "isCopyPurchaseOrderAttached",
             "dpp", "ppn", "pbbkb", "otherValue", "otherValueNote",

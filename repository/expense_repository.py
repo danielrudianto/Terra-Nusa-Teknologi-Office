@@ -9,6 +9,22 @@ from datetime import datetime as dt
 
 class ExpenseRepository:
     @staticmethod
+    def masa_pajak_efektif():
+        """
+        Masa efektif beban untuk laporan PPN: `masaPajak` bila diisi, `date`
+        bila tidak (`COALESCE(masaPajak, date)`).
+
+        Sejajar dengan pembelian yang memakai `taxPeriod`. Beban ber-PPN yang
+        faktur pajaknya dikreditkan pada masa BERBEDA dari tanggal dokumennya
+        (mis. setor/lapor di bulan berikutnya) ikut jatuh pada masa yang benar,
+        bukan pada tanggal dokumen. `masaPajak` NULL berarti ikut `date`, jadi
+        beban lama tidak berubah perlakuannya.
+        """
+        return func.coalesce(
+            expenses_table.c.masaPajak, expenses_table.c.date
+        )
+
+    @staticmethod
     async def get_ppn_report(month: int, year: int):
         """
         Beban ber-PPN pada satu periode.
@@ -28,11 +44,12 @@ class ExpenseRepository:
                 expense_opponents_table.c.npwp.label("opponent_npwp"),
             ]
 
+            masa = ExpenseRepository.masa_pajak_efektif()
             conditions = [
                 expenses_table.c.isDelete == False,
                 expenses_table.c.ppn > 0,
-                func.extract("month", expenses_table.c.date) == month,
-                func.extract("year", expenses_table.c.date) == year,
+                func.extract("month", masa) == month,
+                func.extract("year", masa) == year,
             ]
 
             query = (
@@ -93,10 +110,12 @@ class ExpenseRepository:
                 else _dt(until_year, until_month + 1, 1)
             )
             e = expenses_table.c
+            masa = ExpenseRepository.masa_pajak_efektif()
             # Tanpa `.label()`, dibaca lewat posisi kolom — seragam dengan
-            # laporan bulanan pembelian dan menghindari uji skema.
-            y = func.extract("year", e.date)
-            m = func.extract("month", e.date)
+            # laporan bulanan pembelian dan menghindari uji skema. Dikelompokkan
+            # menurut MASA efektif (masaPajak / date), bukan tanggal dokumen.
+            y = func.extract("year", masa)
+            m = func.extract("month", masa)
             total = func.coalesce(func.sum(e.dpp * e.ppn / 100), 0)
             query = (
                 select(y, m, total)
@@ -105,7 +124,7 @@ class ExpenseRepository:
                     e.ppn > 0,
                     e.taxInvoiceName.isnot(None),
                     func.trim(e.taxInvoiceName) != "",
-                    e.date < end_date,
+                    masa < end_date,
                 )
                 .group_by(y, m)
             )
