@@ -1090,7 +1090,61 @@ class TestDataCetak:
         # Menuliskan ekspresi float sebagai harapan justru membuat pengujian
         # menuntut jawaban yang KELIRU.
         assert hasil["nilai"]["ppn"] == 5_762_900
+        # 52.390.000 + 5.762.900 (PPN) − 1.047.800 (PPh 2%) = 57.105.100.
+        #
+        # Totalnya dikurangi PPh karena angka pada baris terakhir lembar ini
+        # adalah yang benar-benar DITRANSFER; PPh-nya disetorkan ke negara
+        # atas nama pemasok. Lihat `test_pph_dipotong_di_bawah_ppn`.
+        assert hasil["nilai"]["totalDibayar"] == 57_105_100
+
+    @pytest.mark.asyncio
+    async def test_pph_dipotong_di_bawah_ppn(self, repo_cetak):
+        """
+        PPh berdiri sebagai barisnya sendiri DI BAWAH PPN dan mengurangi
+        total — bukan sebagai salah satu baris PENGURANGAN.
+
+        Uang muka dan retensi mengurangi apa yang menjadi hak pemasok atas
+        periode ini; PPh tidak. Ia dipotong DARI hak itu lalu disetorkan ke
+        negara atas namanya. Diletakkan di antara baris pengurangan, ia
+        terbaca sebagai potongan nilai pekerjaan, dan itu pertanyaan yang
+        berulang setiap kali lembar ini beredar.
+        """
+        hasil = await CoP.data_cetak(9, user_level=2)
+
+        # 2% x 52.390.000 progres kotor periode ini.
+        assert hasil["nilai"]["tarifPph"] == 2.0
+        assert hasil["nilai"]["pph"] == 1_047_800
+
+        # ... dan TIDAK ikut sebagai baris pengurangan.
+        kategori = [p["category"] for p in hasil["pengurangan"]["pokok"]]
+        assert kategori == ["uang_muka", "retensi"]
+
+        # Pengurangan dan nilai bersihnya tetap seperti tersimpan. PPh tidak
+        # boleh menyusup ke sana: `netAmount` adalah nilai pekerjaan, dan
+        # itulah yang menjadi DPP tagihan serta pembelian yang terbit
+        # darinya.
+        assert hasil["nilai"]["potongan"] == 0
+        assert hasil["nilai"]["bersih"] == 52_390_000
+
+    @pytest.mark.asyncio
+    async def test_pph_nol_tidak_mengubah_total(self, repo_cetak):
+        """SPK tanpa PPh: totalnya kembali sekadar bersih + PPN."""
+        repo_cetak["spk"]["pphPercentage"] = 0.0
+        hasil = await CoP.data_cetak(9, user_level=2)
+        assert hasil["nilai"]["pph"] == 0
         assert hasil["nilai"]["totalDibayar"] == 58_152_900
+
+    @pytest.mark.asyncio
+    async def test_tanpa_adendum_tidak_ada_barisnya(self, repo_cetak):
+        """
+        SPK tanpa adendum tidak mengirim baris adendum sama sekali.
+
+        Sebelumnya lembar ini selalu mencetak "Addendum #" bernilai nol, dan
+        pada SPK tanpa adendum ia terbaca sebagai isian yang terlupa diisi.
+        """
+        hasil = await CoP.data_cetak(9, user_level=2)
+        assert hasil["kontrak"]["daftarAdendum"] == []
+        assert hasil["kontrak"]["adaAdendum"] is False
 
     @pytest.mark.asyncio
     async def test_tarif_ppn_lama_tidak_dipaksa_sebelas_persen(self, repo_cetak):
