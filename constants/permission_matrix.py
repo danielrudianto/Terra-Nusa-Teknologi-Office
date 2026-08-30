@@ -196,6 +196,22 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     # suntingan mengubah isi dokumen lama yang sudah ditandatangani.
     "supplier": (1, 1, 3, 4, 0),
     "tax": (3, 3, 3, 4, 0),
+    # Laporan laba rugi konsolidasi. HANYA DIBACA — tidak ada yang dibuat
+    # atau diubah di sini; angkanya disusun dari dokumen yang sudah ada.
+    #
+    # Sebelumnya digerbang langsung ke level 5 di rutenya, dengan alasan yang
+    # masih berlaku: pemilik belum tentu berada di divisi FAT, sehingga
+    # menggantungkannya pada izin divisi justru dapat menutup aksesnya
+    # sendiri. Jalur level 5 itu TETAP ADA di rute; modul ini jalur KEDUA —
+    # untuk yang perlu membacanya tanpa berhak atas rekening bank, pinjaman,
+    # pengguna, dan persetujuan seluruh dokumen. Yaitu konsultan.
+    #
+    # Baca 3, bukan 5, karena yang menjaganya di sini adalah DIVISI: modul
+    # ini hanya diberikan kepada divisi yang memerlukannya, sehingga level 3
+    # di procurement tidak melihatnya. Level 4 ke atas memang tidak dibatasi
+    # divisi — dan itu sesuai tangganya, sebab general manager berwenang
+    # "melihat pembukuan menyeluruh".
+    "laba_rugi": (3, 0, 0, 0, 0),
     "user": (5, 5, 5, 5, 0),
     # Foto profil dipisahkan dari modul "user": avatar tampil di hampir
     # semua layar (aktivitas, riwayat dokumen), sehingga membacanya tidak

@@ -18,6 +18,7 @@ import pytest
 from constants.department_modules import (
     DEPARTMENT_LABELS,
     DEPARTMENT_MODULES,
+    DEPARTMENT_READ_ONLY,
     UMUM,
     modules_for,
 )
@@ -214,7 +215,52 @@ def test_slip_gaji_dibatasi_divisi_bukan_nilai_khusus():
     """
     assert SPECIAL_ONLY not in MATRIX["salary_slip"]
     berwenang = {d for d, m in DEPARTMENT_MODULES.items() if "salary_slip" in m}
-    assert berwenang == {"fat", "hrd"}
+    # `konsultan` menyusul atas keputusan pemilik: rekapitulasi PPh 21 pada
+    # halaman Perpajakan dihitung dari slip gaji, dan menutupnya memindahkan
+    # pekerjaan itu ke luar sistem — tanpa jejak sama sekali.
+    #
+    # Baginya slip gaji HANYA-BACA; dijaga tes di bawah.
+    assert berwenang == {"fat", "hrd", "konsultan"}
+
+
+def test_konsultan_hanya_membaca_seluruh_wilayahnya():
+    """
+    Konsultan memeriksa, bukan mencatat.
+
+    Ia pihak LUAR perusahaan. Satu pun dokumen tidak boleh berubah oleh
+    tangannya — bukan soal percaya, melainkan soal siapa yang menanggung:
+    perubahan oleh pihak luar tidak dapat dipertanggungjawabkan siapa pun
+    di dalam.
+
+    Diuji sebagai SELISIH terhadap UMUM, bukan sebagai daftar yang disalin.
+    Daftar salinan akan tertinggal pada modul berikutnya yang ditambahkan ke
+    wilayahnya, dan modul yang tertinggal itu justru menjadi satu-satunya
+    yang dapat ia ubah — tanpa ada yang menyadarinya.
+    """
+    wilayah = DEPARTMENT_MODULES["konsultan"]
+    assert wilayah - UMUM == DEPARTMENT_READ_ONLY["konsultan"]
+
+
+def test_konsultan_tidak_menyentuh_uang_dan_orang():
+    """
+    Yang TIDAK boleh ada pada konsultan.
+
+    Ditulis sebagai daftar tertutup supaya penambahan wilayah di kemudian
+    hari berhenti di sini lebih dahulu, bukan diketahui setelah terpakai.
+    """
+    terlarang = {
+        "bank",                     # rekening perusahaan
+        "loan",                     # pinjaman
+        "user",                     # pengguna beserta levelnya
+        "purchase_order",           # isi perjanjian dengan pemasok
+        "tender",                   # proses memilih pemasok
+        "certificate_of_payment",
+        "employee_profile",         # data pribadi karyawan
+        "employee_form",
+        "hr_recruitment",
+    }
+    bocor = DEPARTMENT_MODULES["konsultan"] & terlarang
+    assert not bocor, f"konsultan tidak boleh memuat: {sorted(bocor)}"
 
 
 # ---------------------------------------------------------------------------

@@ -152,6 +152,61 @@ DEPARTMENT_MODULES: dict[str, set[str]] = {
         "asset",
         "client",
     },
+    # Konsultan akuntansi & pajak — pihak LUAR perusahaan.
+    #
+    # Wilayahnya sengaja disusun dari kebutuhan satu pekerjaan: mencocokkan
+    # angka yang dilaporkan ke kantor pajak dengan dokumen yang mendasarinya.
+    # Karena itu isinya dokumen sumber dan laporannya, bukan alat kerja
+    # harian — tidak ada purchase order, tender, CoP, maupun payment plan:
+    # ketiganya proses internal yang tidak diperlukan untuk memeriksa
+    # pelaporan pajak, dan memasukkannya berarti membuka isi perjanjian
+    # dengan pemasok kepada pihak luar tanpa keperluan.
+    #
+    # SELURUHNYA hanya-baca — lihat `DEPARTMENT_READ_ONLY`. Ini yang
+    # membedakannya dari FAT: dua divisi yang menyentuh dokumen yang sama,
+    # satu mencatat dan satu memeriksa. Level tidak dapat menyatakan
+    # perbedaan itu; level 3 yang cukup untuk membaca pajak sekaligus cukup
+    # untuk mengubah aset, klien, dan pemasok.
+    "konsultan": UMUM
+    | {
+        # Halaman Perpajakan — alasan utama peran ini ada.
+        "tax",
+        # Laba rugi konsolidasi: "versi kita" yang dicocokkan dengan
+        # pembukuannya. Lihat catatan pada `laba_rugi` di matriks.
+        "laba_rugi",
+        # Dokumen sumber yang menjadi dasar angka pajaknya.
+        "purchase",
+        "expenses",
+        "expense_opponent",
+        "income",
+        "sales_invoice",
+        "reimbursement",
+        # Mutasi bank TIDAK punya modul sendiri: rutenya dijaga
+        # `payment_outgoing`. Tanpa modul ini, "lihat mutasi" tidak dapat
+        # diberikan sama sekali.
+        "payment_outgoing",
+        # Penerimaan atas faktur penjualan. Tanpa ini ia melihat tagihan
+        # terbit tetapi tidak melihat mana yang sudah dibayar — dan
+        # rekonsiliasi PPN keluaran terhadap kas menjadi mustahil.
+        "payment_incoming",
+        # Penyusutan masuk ke laba rugi; angkanya berasal dari sini.
+        "asset",
+        # NPWP lawan transaksi ada pada keduanya, dan itulah yang dicocokkan
+        # dengan faktur pajak.
+        "client",
+        "supplier",
+        # SLIP GAJI — untuk PPh 21, dan hanya untuk itu.
+        #
+        # Isinya gaji orang per orang, data paling sensitif setelah data
+        # pribadi karyawan. Diberikan karena rekapitulasi PPh 21 di halaman
+        # Perpajakan memang dihitung dari sini: menutupnya berarti pekerjaan
+        # itu pindah ke luar sistem, dan yang pindah ke luar sistem tidak
+        # meninggalkan jejak sama sekali.
+        #
+        # `MODUL_WILAYAH_MUTLAK` tetap berlaku: ia terbuka HANYA karena
+        # modul ini disebut di sini, bukan karena levelnya.
+        "salary_slip",
+    },
 }
 
 #: Modul yang bagi divisi tertentu hanya boleh DIBACA.
@@ -172,6 +227,17 @@ DEPARTMENT_MODULES: dict[str, set[str]] = {
 # pengguna tetap menang atas aturan ini, sehingga satu orang procurement yang
 # memang perlu mencatat dapat diberi haknya tanpa mengubah kebijakan.
 DEPARTMENT_READ_ONLY: dict[str, set[str]] = {
+    # Konsultan: SELURUH wilayahnya hanya-baca.
+    #
+    # Ia memeriksa, bukan mencatat. Satu pun dokumen tidak boleh berubah oleh
+    # tangannya — bukan karena tidak dipercaya, melainkan karena perubahan
+    # oleh pihak luar tidak dapat dipertanggungjawabkan siapa pun di dalam.
+    #
+    # Ditulis sebagai selisih terhadap UMUM, bukan disalin: daftar yang
+    # disalin akan tertinggal pada modul berikutnya yang ditambahkan ke
+    # wilayahnya, dan yang tertinggal itu justru menjadi satu-satunya modul
+    # yang dapat ia ubah — tanpa ada yang menyadarinya.
+    "konsultan": DEPARTMENT_MODULES["konsultan"] - UMUM,
     "procurement": {"asset"},
     # Engineering membuka SPK untuk memilih baris pekerjaan yang di-CoP-kan,
     # tetapi tidak menerbitkan maupun mengubahnya — itu tetap procurement.
@@ -212,6 +278,7 @@ DEPARTMENT_LABELS: dict[str, str] = {
     "hrd": "Human Resource Department",
     "engineering": "Engineering",
     "procurement": "Procurement & Purchasing",
+    "konsultan": "Konsultan Akuntansi & Pajak",
 }
 
 
