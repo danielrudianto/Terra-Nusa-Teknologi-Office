@@ -38,7 +38,35 @@ async def ringkasan_margin(
     `pageSize` dikunci maksimum sepuluh oleh `le=10`. Tiap baris berasal dari
     empat penjumlahan lintas tabel; membuka batasnya mengembalikan persoalan
     yang justru hendak dihindari.
+
+    HANYA LEVEL 4 KE ATAS.
+
+    `project:read` saja tidak cukup, dan itulah keadaannya sebelum ini: modul
+    proyek terbuka pada level 1 karena kodenya dipakai hampir di setiap
+    layar — sehingga siapa pun yang dapat membuka daftar proyek juga dapat
+    menarik nilai kontrak, biaya, dan MARGIN tiap proyek dari rute ini.
+
+    Margin adalah angka yang paling tidak boleh beredar: ia menyatakan
+    berapa yang diperoleh perusahaan atas tiap pekerjaan. Yang berhak
+    membacanya bukan sekadar orang yang boleh melihat proyeknya, melainkan
+    yang berwenang atas pembukuannya — general manager dan pemilik.
+
+    Ditegakkan DI SINI, bukan cukup dengan menyembunyikan kartunya di
+    dashboard: kartu yang disembunyikan tetap meninggalkan rutenya terbuka,
+    dan rute yang terbuka dapat dipanggil langsung.
     """
+    if int(current_user["authenticationLevel"] or 1) < 4:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "FORBIDDEN",
+                "message": (
+                    "Ikhtisar margin proyek hanya untuk general manager "
+                    "dan pemilik usaha."
+                ),
+            },
+        )
+
     hasil = await ProjectController.ringkasan_margin(page, pageSize)
     if isinstance(hasil, dict) and "error" in hasil:
         raise HTTPException(status_code=hasil["status"], detail=error_detail(hasil))
