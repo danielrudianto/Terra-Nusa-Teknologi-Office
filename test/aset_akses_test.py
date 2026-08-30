@@ -55,7 +55,27 @@ def test_aset_menjadi_wilayah_fat_dan_procurement():
     from constants.department_modules import DEPARTMENT_MODULES
 
     pemilik = sorted(k for k, v in DEPARTMENT_MODULES.items() if MODUL in v)
-    assert pemilik == ["fat", "procurement"], pemilik
+    # `konsultan` menyusul, dan HANYA-BACA — penyusutan aset masuk ke laba
+    # rugi, sehingga angkanya perlu ditelusuri sampai ke daftar asetnya.
+    #
+    # Ia tidak mengubah apa pun; dijaga `test_konsultan_tidak_mencatat_aset`
+    # di bawah, dan oleh `DEPARTMENT_READ_ONLY` di peta wilayahnya.
+    assert pemilik == ["fat", "konsultan", "procurement"], pemilik
+
+
+def test_konsultan_tidak_mencatat_aset():
+    """
+    Konsultan membaca aset, tetapi tidak menyentuhnya.
+
+    Bedanya dengan accounting justru di sinilah: keduanya membuka daftar
+    yang sama, tetapi yang mencatat perolehan dan menyesuaikan nilainya
+    hanya orang dalam. Angka penyusutan masuk ke pembukuan, dan pembukuan
+    tidak boleh berubah oleh tangan pihak luar.
+    """
+    assert boleh(111, 3, {"konsultan"}, "read")
+    assert not boleh(112, 3, {"konsultan"}, "create")
+    assert not boleh(113, 3, {"konsultan"}, "update")
+    assert not boleh(114, 3, {"konsultan"}, "delete")
 
 
 def test_accounting_boleh_membaca_membuat_mengubah():
