@@ -12,6 +12,7 @@ from repository.loan_repository import LoanRepository
 from repository.bank_account_repository import BankAccount
 from repository.expense_repository import ExpenseRepository
 from utils.errors import internal_error
+from utils.pajak import status_setoran
 
 class TaxController:
     @staticmethod
@@ -200,6 +201,32 @@ class TaxController:
             else:
                 status = "nihil"
 
+            # --- Setoran yang SUDAH tercatat untuk masa ini ---
+            #
+            # Perhitungan di atas menjawab "berapa yang terutang", bukan
+            # "apakah sudah dibayar". Tanpa ini, masa yang sudah disetor lunas
+            # tetap tampil merah kurang bayar — angkanya benar, keterangannya
+            # menyesatkan.
+            #
+            # Beban berkode PPN (5.1.8.1), dicocokkan menurut MASA yang
+            # DITANGGUNG, bukan tanggal setornya.
+            setoran_rows = bersih(
+                await ExpenseRepository.get_setoran_ppn(month, year),
+                "PPN payments",
+            )
+            setoran_total = sum(float(r.get("dpp") or 0) for r in setoran_rows)
+            # Yang benar-benar sudah keluar uangnya; sisanya baru tercatat.
+            setoran_dibayar = sum(
+                float(r.get("dpp") or 0) for r in setoran_rows if r.get("isPaid")
+            )
+            sisa_setelah_setoran = selisih - setoran_total
+
+            # Kesimpulannya diambil dari `utils/pajak`, tidak disusun di sini:
+            # apakah satu masa sudah selesai adalah pernyataan tentang uang,
+            # dan bila tiap layar menyimpulkannya sendiri, dua layar akan
+            # menjawab berbeda atas angka yang sama.
+            keadaan_setoran = status_setoran(selisih, setoran_total)
+
             # Diurutkan menurut tanggal agar rincian mudah ditelusuri.
             def urut(rows):
                 rows.sort(key=lambda x: (x.get("date") is None, x.get("date")))
@@ -233,6 +260,20 @@ class TaxController:
                 "selisih": selisih,
                 # Bila semua faktur masukan (yang belum ada) juga terbit.
                 "selisihBilaLengkap": selisih - tanpa_faktur_total,
+                # Setoran PPN yang sudah TERCATAT sebagai beban untuk masa ini.
+                # `dibayar` adalah bagian yang uangnya sudah keluar; selisih
+                # keduanya berarti ada setoran yang baru dicatat.
+                "setoran": {
+                    "total": setoran_total,
+                    "dibayar": setoran_dibayar,
+                    "rows": urut(setoran_rows),
+                    # "belum" | "lunas" | "kurang" | "lebih"
+                    "status": keadaan_setoran,
+                },
+                # Selisih SETELAH dikurangi setoran yang sudah tercatat —
+                # inilah yang tersisa untuk dibayar. Nol (dalam toleransi
+                # pembulatan) berarti masa ini sudah selesai.
+                "sisaSetelahSetoran": sisa_setelah_setoran,
             }
         except RuntimeError:
             return internal_error()

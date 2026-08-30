@@ -35,3 +35,43 @@ MASA_PAJAK_AWAL = date(2025, 1, 1)
 
 # Bentuk tahun, untuk dipakai layar dan pesan.
 TAHUN_PAJAK_AWAL = MASA_PAJAK_AWAL.year
+
+# Selisih rupiah yang masih dianggap LUNAS saat setoran dibandingkan dengan
+# yang terutang.
+#
+# Yang terutang dihitung dari penjumlahan DPP × persen atas puluhan dokumen,
+# jadi ia berekor pecahan; yang disetor adalah satu angka bulat yang diketik
+# orang ke SSP. Keduanya nyaris tidak pernah sama persis — pada masa Juni 2026
+# misalnya, terutangnya 825.186 dan setorannya 825.192, beda enam rupiah.
+#
+# Tanpa toleransi, setiap masa yang sudah lunas akan dilaporkan "lebih bayar
+# Rp 6" — keterangan yang salah, dan yang membuat orang berhenti mempercayai
+# angka yang benar di sebelahnya. Seribu rupiah cukup menampung pembulatan
+# tanpa menelan kekurangan bayar yang sungguhan.
+TOLERANSI_SETORAN = 1000
+
+
+def status_setoran(selisih: float, setoran: float) -> str:
+    """
+    Keadaan setoran satu masa: "belum" | "lunas" | "kurang" | "lebih".
+
+    Ditulis sebagai fungsi, bukan beberapa baris `if` di dalam controller:
+    apakah satu masa sudah selesai adalah kesimpulan tentang uang, dan
+    kesimpulan yang ditulis ulang di tempat kedua akan berselisih dengan yang
+    pertama pada perubahan berikutnya — termasuk soal berapa selisih
+    pembulatan yang masih dianggap lunas.
+
+    `selisih` adalah yang TERUTANG pada masa itu (sudah termasuk kompensasi
+    lebih bayar masa sebelumnya); `setoran` adalah yang sudah tercatat sebagai
+    beban untuknya.
+
+    Tanpa setoran hasilnya selalu "belum", termasuk ketika tidak ada yang
+    terutang: masa nihil bukan "lunas" — ia tidak menagih apa-apa, dan
+    menyebutnya lunas membuat layar mengabarkan pembayaran yang tidak ada.
+    """
+    if setoran <= 0:
+        return "belum"
+    sisa = selisih - setoran
+    if abs(sisa) <= TOLERANSI_SETORAN:
+        return "lunas"
+    return "kurang" if sisa > 0 else "lebih"

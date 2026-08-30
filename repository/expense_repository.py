@@ -139,6 +139,80 @@ class ExpenseRepository:
             log_error(f"Error fetching monthly creditable PPN (expense): {str(e)}")
             return {"error": "Internal server error.", "status": 500}
 
+    # Kode akun beban untuk SETORAN PPN.
+    #
+    # Seluruh "5.1.8.x" adalah pajak; yang berakhiran `.1` khusus PPN —
+    # sisanya PPh 21/23/4(2), SPT tahunan, denda, dan pajak atas bunga, yang
+    # tidak boleh ikut terhitung sebagai setoran PPN.
+    #
+    # Dipakai KODE, bukan nama lawan transaksinya. Nama seperti "Penerimaan
+    # Negara (PPN)" adalah data yang diketik orang: satu huruf berbeda atau
+    # satu lawan transaksi baru, dan pencocokannya diam-diam berhenti bekerja.
+    KODE_SETORAN_PPN = "5.1.8.1"
+
+    @staticmethod
+    async def get_setoran_ppn(month: int, year: int):
+        """
+        Setoran PPN yang SUDAH TERCATAT sebagai beban untuk satu masa.
+
+        Posisi PPN menghitung berapa yang KURANG dibayar; ia tidak tahu
+        apa-apa soal yang sudah disetor, sehingga masa yang sudah dibayar
+        lunas tetap tampil merah "kurang bayar". Angkanya benar sebagai
+        perhitungan, tetapi salah sebagai keterangan keadaan — dan yang
+        membacanya menyimpulkan masih ada utang yang sebetulnya sudah lunas.
+
+        Dikelompokkan menurut MASA yang DITANGGUNG (`COALESCE(masaPajak,
+        date)`), bukan tanggal setornya: PPN masa Juni disetor pada Juli, dan
+        yang dicari layar ini adalah setoran UNTUK Juni. Beban berkode ini
+        yang `masaPajak`-nya belum diisi jatuh pada bulan setornya — itu
+        perilaku kolomnya, sama seperti di seluruh laporan PPN lain.
+
+        `isPaid` ikut dibawa apa adanya: beban yang tercatat tetapi belum
+        dibayar bukan setoran, dan layarnya yang memutuskan bagaimana
+        menyebutnya. Menyaringnya di sini justru menyembunyikan barisnya sama
+        sekali, sehingga yang mencari "kenapa setoran saya tidak muncul" tidak
+        menemukan apa pun.
+
+        Kosong bukan galat — mayoritas masa memang belum disetor saat dibuka.
+        """
+        try:
+            e = expenses_table.c
+            masa = ExpenseRepository.masa_pajak_efektif()
+            query = (
+                select(
+                    e.id,
+                    e.invoiceName,
+                    e.receiptName,
+                    e.description,
+                    e.date,
+                    e.masaPajak,
+                    e.dpp,
+                    e.isPaid,
+                    expense_opponents_table.c.name.label("opponentName"),
+                )
+                .select_from(
+                    expenses_table.outerjoin(
+                        expense_opponents_table,
+                        expenses_table.c.opponentID
+                        == expense_opponents_table.c.id,
+                    )
+                )
+                .where(
+                    e.isDelete == False,
+                    e.purchaseType == ExpenseRepository.KODE_SETORAN_PPN,
+                    func.extract("month", masa) == month,
+                    func.extract("year", masa) == year,
+                    # Batas masa yang sama dengan seluruh laporan PPN.
+                    masa >= MASA_PAJAK_AWAL,
+                )
+                .order_by(e.date.asc())
+            )
+            rows = await database.fetch_all(query)
+            return [dict(r) for r in rows]
+        except Exception as exc:
+            log_error(f"Error fetching PPN payments (expense): {str(exc)}")
+            return {"error": "Internal server error.", "status": 500}
+
     @staticmethod
     async def create(expense_data: dict):
         """
