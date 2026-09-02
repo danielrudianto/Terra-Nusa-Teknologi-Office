@@ -1,6 +1,14 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional
 from datetime import date, datetime
+
+# Selisih rupiah yang masih dianggap sama saat nilai uang dibandingkan.
+#
+# Angka yang sama dengan penjaga `LOAN_BELOW_PAID` di controller, dan dengan
+# ambang lunas di repository. Nilai disimpan sebagai desimal sementara yang
+# dikirim layar berupa pecahan, sehingga selisih beberapa rupiah adalah
+# pembulatan, bukan kekeliruan yang perlu ditolak.
+TOLERANSI_RUPIAH = 5
 
 class LoanBase(BaseModel):
     date: date
@@ -17,7 +25,36 @@ class LoanBase(BaseModel):
     bankAccountID: Optional[int] = None
 
 class LoanCreate(LoanBase):
-    pass
+    """
+    Pinjaman baru.
+
+    Penjaga `received <= debt` ditaruh DI SINI, bukan di `LoanBase`. `LoanBase`
+    juga menurunkan `LoanResponse`, yang dipakai membaca baris yang sudah
+    tersimpan — dan aturan yang ikut berlaku saat MEMBACA berarti satu baris
+    lama yang melanggar tidak lagi bisa ditampilkan sama sekali. Penjaga yang
+    menolak menampilkan data yang sudah terlanjur ada jauh lebih merepotkan
+    daripada data yang salah itu sendiri.
+    """
+
+    @model_validator(mode="after")
+    def _diterima_tidak_melebihi_utang(self):
+        """
+        Dana yang diterima tidak mungkin melebihi utangnya.
+
+        `received` adalah pokok yang benar-benar masuk ke rekening; `debt`
+        adalah yang harus dikembalikan — pokok DITAMBAH bunga dan biaya. Maka
+        `debt >= received` selalu, dan sama persis pun sah (pinjaman tanpa
+        bunga dari keluarga atau pemegang saham).
+
+        Kebalikannya bukan sekadar janggal: ia diam-diam mencatat penerimaan
+        uang yang tidak berutang kepada siapa pun, dan angkanya masuk ke saldo
+        bank lewat `payment_incoming`.
+        """
+        if self.received > self.debt + TOLERANSI_RUPIAH:
+            raise ValueError(
+                "Dana diterima tidak boleh melebihi nilai utang."
+            )
+        return self
 
 
 class LoanUpdate(BaseModel):
