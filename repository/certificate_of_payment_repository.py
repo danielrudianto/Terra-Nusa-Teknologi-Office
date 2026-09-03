@@ -31,6 +31,39 @@ from models.purchase_order_model import purchase_orders_table
 from models.purchase_order_item_model import purchase_order_items_table
 
 
+def _custom(nilai: Any) -> Dict[str, Any]:
+    """
+    `customData` sebagai dict, apa pun bentuk simpannya.
+
+    Kolomnya JSON dan SQLAlchemy biasanya sudah mengurainya sendiri, tetapi
+    sebagian baris lama tersimpan sebagai TEKS. Yang membaca dengan
+    mengandaikan salah satunya akan bekerja pada sebagian dokumen saja — dan
+    yang gagal tidak menimbulkan galat, hanya nilai yang lenyap.
+    """
+    import json
+
+    if isinstance(nilai, str):
+        try:
+            nilai = json.loads(nilai or "{}")
+        except Exception:
+            return {}
+    return nilai if isinstance(nilai, dict) else {}
+
+
+def _nilai_borongan(custom: Dict[str, Any]) -> Decimal | None:
+    """
+    Nilai borongan SPK, bila dokumennya memang borongan.
+
+    SPK lump sum menyimpan nilainya di `customData.lumpSumPrice`, sementara
+    baris pekerjaannya sengaja berharga NOL — barisnya hanya menyatakan
+    uraian lingkupnya. `None` berarti dokumennya bukan borongan dan harga
+    barisnya berlaku apa adanya.
+    """
+    if str(custom.get("rateType") or "").strip().lower() != "lumpsum":
+        return None
+    return _d(custom.get("lumpSumPrice"))
+
+
 def _d(nilai: Any) -> Decimal:
     """Angka apa pun -> Decimal, tanpa melewati float.
 
@@ -141,23 +174,74 @@ class CertificateOfPaymentRepository:
         )
         dipakai = {r["baris"]: _d(r["jumlah"]) for r in terpakai}
 
+        # --- Harga pada SPK BORONGAN ---------------------------------------
+        #
+        # SPK lump sum menyimpan nilainya di `customData.lumpSumPrice`, dan
+        # baris pekerjaannya sengaja berharga NOL — layar pembuatannya memang
+        # memaksa `price: 0` begitu jenisnya dipilih borongan.
+        #
+        # Karena harga CoP diambil dari harga baris SPK, seluruh CoP atas SPK
+        # borongan lahir bernilai Rp 0. Tidak ada galat: volumenya sah, pagunya
+        # cukup, dan dokumennya tercetak rapi — hanya nilainya nol. Itu lembar
+        # yang ditandatangani dan ditagihkan.
+        #
+        # Nilainya dibagi VOLUME KONTRAK barisnya, bukan dipasang utuh: dengan
+        # begitu progres sebagian bekerja sendirinya — separuh volume pada SPK
+        # borongan 4 juta menjadi 2 juta, tanpa aturan terpisah.
+        po_rows = await database.fetch_all(
+            select(
+                purchase_orders_table.c.id,
+                purchase_orders_table.c.customData,
+            ).where(purchase_orders_table.c.id.in_(ids))
+        )
+        borongan = {}
+        for p in po_rows:
+            nilai = _nilai_borongan(_custom(p["customData"]))
+            if nilai is not None:
+                borongan[p["id"]] = nilai
+
+        # Berapa baris yang dimiliki tiap SPK — nilai borongan hanya dapat
+        # diturunkan ke baris bila barisnya memang satu.
+        jumlah_baris: Dict[int, int] = {}
+        for b in baris:
+            jumlah_baris[b["purchaseOrderID"]] = (
+                jumlah_baris.get(b["purchaseOrderID"], 0) + 1
+            )
+
         hasil: List[Dict[str, Any]] = []
         for b in baris:
             pagu = _d(b["quantity"])
             sudah = dipakai.get(b["id"], Decimal("0"))
+            harga = _d(b["price"])
+
+            # Borongan tak terbagi: SPK borongan dengan LEBIH DARI SATU baris.
+            #
+            # Satu nilai untuk seluruh lingkup tidak dapat dipecah ke baris
+            # tanpa dasar pembagian, dan mengarang dasarnya berarti mengarang
+            # angka yang akan ditagihkan. Ditandai di sini, ditolak dengan
+            # sebutan jelas saat CoP disusun — bukan diam-diam bernilai nol.
+            tak_terbagi = False
+            po_id = b["purchaseOrderID"]
+            if po_id in borongan:
+                if jumlah_baris.get(po_id, 0) == 1 and pagu > 0:
+                    harga = borongan[po_id] / pagu
+                else:
+                    tak_terbagi = True
+
             hasil.append(
                 {
                     "purchaseOrderItemID": b["id"],
-                    "purchaseOrderID": b["purchaseOrderID"],
+                    "purchaseOrderID": po_id,
                     "task": b["task"],
                     "unit": b["unit"],
                     "itemID": b["item_id"],
                     "equipmentID": b["equipment_id"],
                     "keterangan": b["remarks_1"],
-                    "price": _d(b["price"]),
+                    "price": harga,
                     "pagu": pagu,
                     "terpakai": sudah,
                     "sisa": pagu - sudah,
+                    "boronganTakTerbagi": tak_terbagi,
                 }
             )
         return hasil

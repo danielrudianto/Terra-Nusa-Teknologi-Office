@@ -572,6 +572,20 @@ class CertificateOfPaymentController:
             b = peta[baris_id]
             jumlah = _d(it.get("quantity"))
             harga = b["price"]
+
+            # SPK borongan berlingkup banyak baris tidak dapat dinilai per
+            # baris. Ditolak, BUKAN dibiarkan bernilai nol: CoP nol tetap
+            # dapat disetujui dan ditagihkan, dan tidak ada satu pun layar
+            # yang akan menyebutnya janggal.
+            if b.get("boronganTakTerbagi"):
+                return None, app_error(
+                    ErrorCode.VALIDATION,
+                    "SPK ini borongan dengan lebih dari satu baris "
+                    "pekerjaan, sehingga nilainya tidak dapat dibagi per "
+                    "baris. Pecah SPK-nya menjadi satu baris lingkup, atau "
+                    "terbitkan SPK harga satuan.",
+                    400,
+                )
             siap.append(
                 {
                     "purchaseOrderItemID": baris_id,
