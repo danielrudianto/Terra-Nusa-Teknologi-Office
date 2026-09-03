@@ -237,3 +237,49 @@ def test_satu_tempat_membaca_nilai_borongan():
     """
     s = _sumber(REPO)
     assert s.count("_peta_borongan(ids)") >= 3
+
+
+# --------------------------------------------------------------------------
+# Cap DRAFT
+# --------------------------------------------------------------------------
+
+TEMPLATE_COP = os.path.join(AKAR, "templates", "pdf", "certificate_of_payment.html")
+TEMPLATE_BAP = os.path.join(
+    AKAR, "templates", "pdf", "berita_acara_pemeriksaan.html"
+)
+
+
+def test_cap_draf_bap_mengikuti_persetujuan_bap():
+    """
+    BAP adalah dokumen tersendiri.
+
+    Ia final begitu progres lapangannya disahkan, lalu menunggu tahap harga
+    yang bukan urusannya. Digantungkan pada persetujuan CoP, lembar yang
+    kakinya sudah menyatakan "Disetujui secara elektronik oleh ..." tetap
+    bertuliskan DRAFT melintang di tengahnya — dan penerimanya harus memilih
+    mana dari dua pernyataan itu yang benar.
+    """
+    for berkas in (TEMPLATE_COP, TEMPLATE_BAP):
+        s = _sumber(berkas)
+        # Pernyataan INCLUDE-nya, bukan sekadar namanya: berkas ini
+        # menyebut `cop_bap_isi.html` juga di dalam komentar gaya.
+        i = s.find('{% include "cop_bap_isi.html" %}')
+        assert i > 0, f"{berkas} tidak memuat lembar BAP"
+        sebelum = s[max(0, i - 900) : i]
+        assert "cop.isBapApproved" in sebelum, (
+            f"cap DRAFT lembar BAP di {os.path.basename(berkas)} masih "
+            "mengikuti persetujuan CoP"
+        )
+
+
+def test_cap_draf_lembar_cop_tetap_ikut_persetujuan_cop():
+    """
+    Sebaliknya jangan ikut longgar: lembar CoP baru final setelah CoP-nya
+    disetujui. Melonggarkannya membuat lembar tagihan tercetak tanpa DRAFT
+    padahal belum disetujui siapa pun.
+    """
+    s = _sumber(TEMPLATE_COP)
+    i = s.index('<div class="halaman-cop">')
+    blok = s[i : i + 400]
+    assert "cop.isApproved" in blok
+    assert "cop.isBapApproved" not in blok

@@ -31,7 +31,13 @@
     </style>
   </head>
   <body>
-    {% if not cop.isApproved %}<div class="cap-draf">DRAFT</div>{% endif %}
+    {#
+      Mengikuti persetujuan BAP-nya sendiri — lihat keterangan yang sama di
+      `certificate_of_payment.html`. Lembar ini justru dipakai terpisah dari
+      CoP-nya, sehingga menggantungkannya pada persetujuan CoP berarti ia
+      hampir selalu tercetak DRAFT.
+    #}
+    {% if not cop.isBapApproved %}<div class="cap-draf">DRAFT</div>{% endif %}
     {% include "cop_bap_isi.html" %}
   </body>
 </html>

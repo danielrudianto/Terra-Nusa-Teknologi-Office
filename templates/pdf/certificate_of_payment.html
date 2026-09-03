@@ -879,7 +879,18 @@
     <!-- ================= HALAMAN 2 — BERITA ACARA PEMERIKSAAN ================= -->
     {% if sertakanBap %}
     <div class="halaman-bap putus">
-      {% if not cop.isApproved %}<div class="cap-draf">DRAFT</div>{% endif %}
+      {#
+        Cap DRAFT lembar BAP mengikuti persetujuan BAP-nya SENDIRI, bukan
+        persetujuan CoP.
+
+        BAP adalah dokumen tersendiri: ia final begitu progres lapangannya
+        disahkan, dan sesudah itu ia menunggu tahap harga yang bukan urusannya.
+        Digantungkan pada `isApproved`, lembar yang kakinya sudah menyatakan
+        "Disetujui secara elektronik oleh ..." tetap bertuliskan DRAFT
+        melintang di tengahnya — dan yang menerimanya harus memilih mana dari
+        dua pernyataan itu yang benar.
+      #}
+      {% if not cop.isBapApproved %}<div class="cap-draf">DRAFT</div>{% endif %}
       {% include "cop_bap_isi.html" %}
     </div>
     {% endif %}
