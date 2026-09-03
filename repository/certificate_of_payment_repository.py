@@ -50,6 +50,25 @@ def _custom(nilai: Any) -> Dict[str, Any]:
     return nilai if isinstance(nilai, dict) else {}
 
 
+def _nama_baris(b: Any) -> str | None:
+    """
+    Nama pekerjaan sebuah baris SPK, dari mana pun ia berasal.
+
+    Baris jasa menyimpan uraiannya di `task`; baris MATERIAL menunjuk
+    `master_item` dan `task`-nya kosong; baris alat menunjuk
+    `master_equipment`. Layar dan lembar cetak hanya membaca `task`, sehingga
+    sejak beton dilayani CoP seluruh barisnya tampil sebagai "-".
+
+    Urutannya disengaja: `task` lebih dulu, sebab bila seseorang mengisinya
+    pada baris bermaterial, yang ia tulis itulah yang dimaksud.
+    """
+    for kunci in ("task", "itemDescription", "equipmentName"):
+        nilai = b[kunci] if kunci in b.keys() else None
+        if nilai and str(nilai).strip():
+            return str(nilai).strip()
+    return None
+
+
 def _nilai_borongan(custom: Dict[str, Any]) -> Decimal | None:
     """
     Nilai borongan SPK, bila dokumennya memang borongan.
@@ -126,6 +145,32 @@ class CertificateOfPaymentRepository:
         return [induk_id] + [r["id"] for r in adendum]
 
     @staticmethod
+    async def _peta_borongan(ids: List[int]) -> Dict[int, Decimal]:
+        """
+        Nilai borongan tiap SPK pada rantai, untuk yang memang borongan.
+
+        SATU tempat yang membacanya. `pagu()`, `baris_kontrak()`, dan
+        `nilai_kontrak()` sama-sama butuh, dan bila masing-masing membacanya
+        sendiri, ketiganya akan berselisih pada perubahan berikutnya — layar
+        menyebut satu angka, lembar cetak angka lain, dan pagu uang muka
+        angka ketiga.
+        """
+        if not ids:
+            return {}
+        rows = await database.fetch_all(
+            select(
+                purchase_orders_table.c.id,
+                purchase_orders_table.c.customData,
+            ).where(purchase_orders_table.c.id.in_(ids))
+        )
+        peta: Dict[int, Decimal] = {}
+        for p in rows:
+            nilai = _nilai_borongan(_custom(p["customData"]))
+            if nilai is not None:
+                peta[p["id"]] = nilai
+        return peta
+
+    @staticmethod
     async def pagu(purchase_order_id: int) -> List[Dict[str, Any]]:
         """
         Keadaan setiap baris pekerjaan pada rantai SPK ini.
@@ -142,18 +187,26 @@ class CertificateOfPaymentRepository:
         if not ids:
             return []
 
+        # Nama pekerjaan diambil lewat JOIN, bukan dari `task` saja.
+        #
+        # Baris SPK jasa menyimpan uraiannya di `task`. Baris MATERIAL tidak:
+        # ia menunjuk `master_item`, dan `task`-nya kosong — sehingga sejak
+        # beton dilayani CoP, seluruh barisnya tampil sebagai "-" di layar
+        # pencatatan volume dan di lembar BAP. Orang yang mengisi volume
+        # melihat dua kotak tanpa nama dan harus menebak mana yang mana.
         baris = await database.fetch_all(
-            select(
-                purchase_order_items_table.c.id,
-                purchase_order_items_table.c.purchaseOrderID,
-                purchase_order_items_table.c.task,
-                purchase_order_items_table.c.unit,
-                purchase_order_items_table.c.quantity,
-                purchase_order_items_table.c.price,
-                purchase_order_items_table.c.item_id,
-                purchase_order_items_table.c.equipment_id,
-                purchase_order_items_table.c.remarks_1,
-            ).where(purchase_order_items_table.c.purchaseOrderID.in_(ids))
+            """
+            SELECT i.id, i.purchaseOrderID, i.task, i.unit, i.quantity,
+                   i.price, i.item_id, i.equipment_id, i.remarks_1,
+                   mi.description AS itemDescription,
+                   me.name        AS equipmentName
+            FROM purchase_order_items i
+            LEFT JOIN master_item      mi ON mi.id = i.item_id
+            LEFT JOIN master_equipment me ON me.id = i.equipment_id
+            WHERE i.purchaseOrderID IN :ids
+            ORDER BY i.id ASC
+            """,
+            {"ids": tuple(ids)},
         )
 
         terpakai = await database.fetch_all(
@@ -188,17 +241,7 @@ class CertificateOfPaymentRepository:
         # Nilainya dibagi VOLUME KONTRAK barisnya, bukan dipasang utuh: dengan
         # begitu progres sebagian bekerja sendirinya — separuh volume pada SPK
         # borongan 4 juta menjadi 2 juta, tanpa aturan terpisah.
-        po_rows = await database.fetch_all(
-            select(
-                purchase_orders_table.c.id,
-                purchase_orders_table.c.customData,
-            ).where(purchase_orders_table.c.id.in_(ids))
-        )
-        borongan = {}
-        for p in po_rows:
-            nilai = _nilai_borongan(_custom(p["customData"]))
-            if nilai is not None:
-                borongan[p["id"]] = nilai
+        borongan = await CertificateOfPaymentRepository._peta_borongan(ids)
 
         # Berapa baris yang dimiliki tiap SPK — nilai borongan hanya dapat
         # diturunkan ke baris bila barisnya memang satu.
@@ -232,7 +275,7 @@ class CertificateOfPaymentRepository:
                 {
                     "purchaseOrderItemID": b["id"],
                     "purchaseOrderID": po_id,
-                    "task": b["task"],
+                    "task": _nama_baris(b),
                     "unit": b["unit"],
                     "itemID": b["item_id"],
                     "equipmentID": b["equipment_id"],
@@ -1292,15 +1335,43 @@ class CertificateOfPaymentRepository:
                 """
                 SELECT poi.id, poi.task, poi.unit, poi.quantity, poi.price,
                        poi.remarks_1, poi.purchaseOrderID,
+                       poi.item_id, poi.equipment_id,
+                       mi.description AS itemDescription,
+                       me.name        AS equipmentName,
                        po.addendumNumber
                 FROM purchase_order_items poi
                 JOIN purchase_orders po ON po.id = poi.purchaseOrderID
+                LEFT JOIN master_item      mi ON mi.id = poi.item_id
+                LEFT JOIN master_equipment me ON me.id = poi.equipment_id
                 WHERE poi.purchaseOrderID IN :ids
                 ORDER BY po.addendumNumber IS NOT NULL, po.addendumNumber, poi.id
                 """,
                 {"ids": tuple(ids)},
             )
-            return [dict(r) for r in baris]
+
+            # Harga & nama diselaraskan dengan `pagu()`.
+            #
+            # Lembar BAP membaca dari sini, layar pencatatan volume dari
+            # `pagu()`. Bila keduanya menurunkan harga borongan dan nama baris
+            # dengan cara berbeda, angka di layar dan angka di lembar yang
+            # ditandatangani akan berbeda — dan tidak ada yang membandingkannya.
+            borongan = await CertificateOfPaymentRepository._peta_borongan(ids)
+            jumlah_baris: Dict[int, int] = {}
+            for r in baris:
+                jumlah_baris[r["purchaseOrderID"]] = (
+                    jumlah_baris.get(r["purchaseOrderID"], 0) + 1
+                )
+
+            hasil = []
+            for r in baris:
+                d = dict(r)
+                d["task"] = _nama_baris(r)
+                po_id = r["purchaseOrderID"]
+                pagu = _d(r["quantity"])
+                if po_id in borongan and jumlah_baris.get(po_id, 0) == 1 and pagu > 0:
+                    d["price"] = borongan[po_id] / pagu
+                hasil.append(d)
+            return hasil
         except Exception as e:
             log_error(f"Gagal membaca baris kontrak: {str(e)}")
             return []
@@ -1312,15 +1383,44 @@ class CertificateOfPaymentRepository:
             ids = await CertificateOfPaymentRepository.rantai_ids(purchase_order_id)
             if not ids:
                 return Decimal("0")
-            nilai = await database.fetch_val(
+            # Dijumlahkan PER DOKUMEN, bukan sekali atas seluruh rantai.
+            #
+            # SPK borongan tidak punya harga baris — nilainya di
+            # `customData.lumpSumPrice` — sehingga `SUM(quantity * price)`
+            # atas SPK borongan menghasilkan NOL. Dan nilai kontrak bukan
+            # angka yang berhenti di lembar cetak: pagu uang muka dan pagu
+            # retensi dihitung sebagai persentase DARINYA, jadi nol di sini
+            # berarti uang muka dan retensi ikut nol tanpa pernah menyebut
+            # alasannya.
+            #
+            # Per dokumen, sebab satu rantai boleh bercampur: induk borongan
+            # dengan adendum harga satuan, atau sebaliknya.
+            per_po = await database.fetch_all(
                 """
-                SELECT COALESCE(SUM(quantity * price), 0)
+                SELECT purchaseOrderID AS po,
+                       COALESCE(SUM(quantity * price), 0) AS nilai
                 FROM purchase_order_items
                 WHERE purchaseOrderID IN :ids
+                GROUP BY purchaseOrderID
                 """,
                 {"ids": tuple(ids)},
             )
-            return _d(nilai)
+            borongan = await CertificateOfPaymentRepository._peta_borongan(ids)
+
+            total = Decimal("0")
+            terhitung = set()
+            for r in per_po:
+                po_id = r["po"]
+                terhitung.add(po_id)
+                total += borongan[po_id] if po_id in borongan else _d(r["nilai"])
+
+            # SPK borongan yang barisnya belum tercatat sama sekali tetap
+            # punya nilai — nilainya tidak pernah berasal dari barisnya.
+            for po_id, nilai in borongan.items():
+                if po_id not in terhitung:
+                    total += nilai
+
+            return total
         except Exception as e:
             log_error(f"Gagal menghitung nilai kontrak: {str(e)}")
             return Decimal("0")

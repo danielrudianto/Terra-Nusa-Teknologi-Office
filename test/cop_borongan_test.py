@@ -144,3 +144,96 @@ def test_harga_tetap_tidak_diambil_dari_kiriman_layar():
     blok = s[i : s.find("\n    # ---", i)]
     assert 'it.get("price")' not in blok
     assert 'it["price"]' not in blok
+
+
+# --------------------------------------------------------------------------
+# Nama baris: SPK jasa vs baris MATERIAL
+# --------------------------------------------------------------------------
+
+
+class _Baris(dict):
+    """Baris tiruan; `databases.Record` diakses seperti pemetaan."""
+
+    def keys(self):
+        return super().keys()
+
+
+def test_nama_baris_jasa_dari_task():
+    from repository.certificate_of_payment_repository import _nama_baris
+
+    assert _nama_baris(_Baris(task="Pekerjaan Pembesian D40")) == (
+        "Pekerjaan Pembesian D40"
+    )
+
+
+def test_nama_baris_material_dari_master_item():
+    """
+    Baris MATERIAL tidak mengisi `task` — ia menunjuk `master_item`.
+
+    Sejak beton dilayani CoP, seluruh barisnya tampil "-" di layar pencatatan
+    volume dan di lembar BAP: yang mengisi volume melihat kotak tanpa nama
+    dan harus menebak mana yang mana.
+    """
+    from repository.certificate_of_payment_repository import _nama_baris
+
+    b = _Baris(task=None, itemDescription="Beton K-300", equipmentName=None)
+    assert _nama_baris(b) == "Beton K-300"
+
+
+def test_task_menang_atas_nama_master():
+    """Bila seseorang menuliskan uraiannya sendiri, itulah yang ia maksud."""
+    from repository.certificate_of_payment_repository import _nama_baris
+
+    b = _Baris(task="Beton K-300 zona A", itemDescription="Beton K-300")
+    assert _nama_baris(b) == "Beton K-300 zona A"
+
+
+def test_nama_kosong_tetap_none_bukan_string_kosong():
+    from repository.certificate_of_payment_repository import _nama_baris
+
+    assert _nama_baris(_Baris(task="   ", itemDescription=None)) is None
+
+
+def test_nama_diambil_lewat_join_bukan_task_saja():
+    """Kedua pembaca baris SPK harus ikut menjoin nama masternya."""
+    s = _sumber(REPO)
+    assert s.count("LEFT JOIN master_item") >= 2, (
+        "hanya satu pembaca yang menjoin nama material"
+    )
+    assert s.count("LEFT JOIN master_equipment") >= 2
+
+
+# --------------------------------------------------------------------------
+# Nilai kontrak
+# --------------------------------------------------------------------------
+
+
+def test_nilai_kontrak_borongan_tidak_dari_penjumlahan_baris():
+    """
+    Nilai kontrak bukan angka yang berhenti di lembar cetak.
+
+    Pagu uang muka dan pagu retensi dihitung sebagai persentase DARINYA, jadi
+    nol di sini berarti uang muka dan retensi ikut nol tanpa pernah menyebut
+    alasannya.
+    """
+    s = _sumber(REPO)
+    i = s.index("async def nilai_kontrak(")
+    blok = s[i : s.find("\n    @staticmethod", i)]
+    assert "_peta_borongan" in blok, "nilai kontrak tidak mengenal SPK borongan"
+    assert "GROUP BY purchaseOrderID" in blok, (
+        "dijumlahkan sekaligus atas rantai; satu rantai boleh bercampur "
+        "borongan dan harga satuan"
+    )
+
+
+def test_satu_tempat_membaca_nilai_borongan():
+    """
+    `pagu`, `baris_kontrak`, dan `nilai_kontrak` membaca dari pembantu yang
+    sama.
+
+    Bila masing-masing membacanya sendiri, ketiganya akan berselisih pada
+    perubahan berikutnya: layar menyebut satu angka, lembar cetak angka lain,
+    pagu uang muka angka ketiga.
+    """
+    s = _sumber(REPO)
+    assert s.count("_peta_borongan(ids)") >= 3
