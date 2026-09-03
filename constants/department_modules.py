@@ -40,6 +40,19 @@ UMUM = {
     # meski levelnya mencukupi — dan yang tidak punya divisi justru bisa
     # membukanya. Kebalikan dari yang dimaksud.
     "audit_log",
+    # Pengingat agenda: milik SETIAP orang, bukan wilayah satu divisi.
+    #
+    # Matriksnya sudah menetapkan buat/ubah/hapus di akses 1, dan batas
+    # sesungguhnya adalah KEPEMILIKAN — hanya pembuatnya yang dapat mengubah
+    # dan menghapus, berapa pun levelnya. Membuat pengingat bagi SELURUH
+    # pengguna dijaga terpisah lewat `approve` di akses 4.
+    #
+    # Tanpa ada di sini, matriks itu tidak pernah berlaku: pemeriksaan wilayah
+    # divisi berjalan LEBIH DAHULU, sehingga setiap orang yang punya divisi
+    # ditolak "Anda tidak memiliki akses" meski levelnya jauh mencukupi —
+    # sementara yang tidak punya divisi justru bisa. Persis kebalikan dari
+    # yang dimaksud, dan sama seperti yang pernah terjadi pada `audit_log`.
+    "reminder",
 }
 
 DEPARTMENT_MODULES: dict[str, set[str]] = {
