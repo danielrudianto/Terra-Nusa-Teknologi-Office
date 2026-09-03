@@ -728,12 +728,23 @@ class CertificateOfPaymentRepository:
                     ErrorCode.NOT_FOUND, "Certificate of payment tidak ditemukan", 404
                 )
 
+            # Nama barisnya ikut dijoin — lihat `_nama_baris`.
+            #
+            # Ini pembaca KETIGA baris SPK, dan yang paling mudah terlewat:
+            # dua lainnya melayani pencatatan volume dan lembar cetak,
+            # sedangkan yang ini melayani dialog lihat. Ketiganya harus
+            # menamai baris dengan cara yang sama, kalau tidak satu layar
+            # menyebut "Beton K-300" dan layar sebelahnya "-".
             items = await database.fetch_all(
                 """
                 SELECT ci.*, poi.task, poi.unit, poi.quantity AS paguBaris,
-                       poi.item_id, poi.equipment_id
+                       poi.item_id, poi.equipment_id,
+                       mi.description AS itemDescription,
+                       me.name        AS equipmentName
                 FROM certificate_of_payment_items ci
                 JOIN purchase_order_items poi ON poi.id = ci.purchaseOrderItemID
+                LEFT JOIN master_item      mi ON mi.id = poi.item_id
+                LEFT JOIN master_equipment me ON me.id = poi.equipment_id
                 WHERE ci.certificateOfPaymentID = :id
                 ORDER BY ci.id
                 """,
@@ -741,7 +752,7 @@ class CertificateOfPaymentRepository:
             )
 
             hasil = dict(baris)
-            hasil["items"] = [dict(i) for i in items]
+            hasil["items"] = [{**dict(i), "task": _nama_baris(i)} for i in items]
             hasil["adjustments"] = await CertificateOfPaymentRepository.ambil_penyesuaian(
                 cop_id
             )

@@ -17,6 +17,7 @@ Sudah pernah terjadi pada dialog lihat purchase order (lihat
 """
 
 import os
+import re
 from decimal import Decimal
 
 from repository.certificate_of_payment_repository import (
@@ -194,13 +195,40 @@ def test_nama_kosong_tetap_none_bukan_string_kosong():
     assert _nama_baris(_Baris(task="   ", itemDescription=None)) is None
 
 
-def test_nama_diambil_lewat_join_bukan_task_saja():
-    """Kedua pembaca baris SPK harus ikut menjoin nama masternya."""
+def test_semua_pembaca_baris_spk_menjoin_nama_masternya():
+    """
+    SETIAP kueri yang membaca baris SPK ikut menjoin nama masternya.
+
+    Ada TIGA pembaca, dan masing-masing melayani layar yang berbeda:
+    `pagu()` untuk pencatatan volume, `baris_kontrak()` untuk lembar cetak,
+    dan `get_by_id()` untuk dialog lihat. Yang ketiga terlewat pada perbaikan
+    pertama — akibatnya satu layar menyebut "Beton K-300" dan layar
+    sebelahnya "-" untuk baris yang sama.
+
+    Dihitung terhadap jumlah kueri yang MEMBACA `purchase_order_items`,
+    bukan terhadap angka tetap: menambah pembaca keempat tanpa namanya akan
+    menjatuhkan uji ini, bukan diam-diam lolos seperti ambang yang dipatok.
+    """
     s = _sumber(REPO)
-    assert s.count("LEFT JOIN master_item") >= 2, (
-        "hanya satu pembaca yang menjoin nama material"
+    # Kueri yang menggabungkan/membaca tabel barisnya, di luar subkueri
+    # `SELECT id FROM purchase_order_items` yang hanya mengambil id.
+    pembaca = len(re.findall(r"FROM purchase_order_items \w+", s)) + len(
+        re.findall(r"JOIN purchase_order_items \w+", s)
     )
-    assert s.count("LEFT JOIN master_equipment") >= 2
+    assert pembaca >= 3, f"pembaca baris SPK terdeteksi {pembaca}, harusnya >= 3"
+    assert s.count("LEFT JOIN master_item") == pembaca, (
+        f"{pembaca} pembaca baris SPK, tetapi hanya "
+        f"{s.count('LEFT JOIN master_item')} yang menjoin nama material"
+    )
+    assert s.count("LEFT JOIN master_equipment") == pembaca
+
+
+def test_dialog_lihat_menamai_barisnya():
+    """`get_by_id` menamai barisnya, bukan meneruskan `task` mentah."""
+    s = _sumber(REPO)
+    i = s.index("async def get_by_id(")
+    blok = s[i : s.find("\n    #:", i)]
+    assert "_nama_baris(i)" in blok
 
 
 # --------------------------------------------------------------------------
