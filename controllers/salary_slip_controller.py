@@ -184,15 +184,46 @@ class SalarySlipController:
 
             if result is None or result.get('isDelete') is True:
                 raise HTTPException(status_code=404, detail="Salary slip not found")
-            
+
+            # Slip yang pembayarannya sudah ada TIDAK boleh dihapus.
+            #
+            # Pembayaran menunjuk slipnya lewat `salarySlipID`. Menghapus
+            # slipnya meninggalkan pembayaran yang menunjuk dokumen yang tidak
+            # tampil di mana pun — uangnya tetap keluar, asal-usulnya hilang,
+            # dan yang memeriksanya nanti tidak punya apa pun untuk dibaca.
+            #
+            # Batalkan pembayarannya lebih dulu bila slipnya memang keliru.
+            if await SalarySlipRepository.punya_pembayaran(id):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "SALARY_SLIP_HAS_PAYMENT",
+                        "message": (
+                            "Salary slip already has a payment; cancel the "
+                            "payment first."
+                        ),
+                    },
+                )
+
             deleteResult = await SalarySlipRepository.delete_by_id(id, userID)
             if "error" in deleteResult:
                 raise HTTPException(status_code=deleteResult["status"], detail=deleteResult["error"])
             
             return deleteResult
+        except HTTPException:
+            # Dilempar ulang apa adanya. Tanpa ini, penolakan 409 di atas
+            # tertangkap `except Exception` dan berubah menjadi 500 tanpa
+            # kode — layar lalu menampilkan "galat server" untuk penolakan
+            # yang sebenarnya punya sebab dan jalan keluar.
+            raise
         except Exception as e:
             log_error(f"Unexpected error during validation: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error.")
+
+    @staticmethod
+    async def bank_karyawan(employee_id: int):
+        """Rekening karyawan untuk mengisi kolom bank pada slip gaji."""
+        return await SalarySlipRepository.bank_karyawan(employee_id)
 
     @staticmethod
     async def check(userID: int, month: int, year: int):
