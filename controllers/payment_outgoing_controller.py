@@ -26,6 +26,75 @@ from datetime import date
 def add(x, y):
     return x + y.amount
 
+
+def terbaca(baris) -> bool:
+    """
+    Baris ini benar-benar terbaca dari basis data.
+
+    Repository mengembalikan `{"error": ...}` saat gagal dan `None` saat
+    tidak ditemukan — keduanya BUKAN dokumen, dan tidak boleh diperlakukan
+    sebagai dokumen bernilai nol.
+
+    Ini bukan kehalusan. Status lunas disimpulkan dari `|nilai - terbayar| <
+    5`; dokumen yang gagal dibaca menjadi nilai nol, dan begitu pembayaran
+    terakhirnya dihapus jumlah terbayar juga nol — sehingga `|0 - 0| < 5`
+    dan dokumennya justru DITANDAI LUNAS pada saat pembayarannya baru saja
+    dibatalkan. Kebalikan dari yang seharusnya, tanpa galat apa pun.
+
+    CATATAN: `databases.Record` bukan `dict`. Memeriksa `isinstance(x, dict)`
+    untuk memastikan barisnya sah selalu bernilai salah pada baris yang
+    justru berhasil dibaca — pemeriksaan itulah yang dulu ada di sini.
+    """
+    if baris is None:
+        return False
+    try:
+        return "error" not in baris
+    except TypeError:
+        # Objek yang tidak mendukung `in` — bukan bentuk yang dikenal.
+        return False
+
+
+def nilai_beban(beban) -> float:
+    """
+    Nilai tagihan sebuah beban: DPP ditambah PBBKB, dikurangi PPh terpotong.
+
+    PPN sengaja TIDAK ikut, berbeda dari `purchases`: yang dibayarkan atas
+    beban adalah nilai bersih setelah pemotongan, dan PPN-nya disetor
+    terpisah.
+
+    Rumusnya ditaruh di satu tempat karena dipakai baik saat MENANDAI lunas
+    (persetujuan pembayaran) maupun saat MENCABUTNYA (penghapusan). Ditulis
+    dua kali, keduanya akan berselisih pada perubahan berikutnya — dan
+    selisihnya berupa dokumen yang ditandai lunas oleh satu rumus lalu tidak
+    pernah dapat dicabut oleh rumus yang lain.
+    """
+    dpp = float(beban["dpp"] or 0)
+    pbbkb = float(beban["pbbkb"] or 0)
+    pph = float(beban["pphPercentage"] or 0)
+    return round(dpp + pbbkb - (pph * dpp / 100), 2)
+
+
+def nilai_slip(slip, tunjangan, potongan) -> float:
+    """
+    Nilai bersih satu slip gaji — sama dengan yang dipakai saat menyetujui.
+
+    `salary_slips` tidak punya kolom `total`; nilainya memang dihitung dari
+    komponennya. Yang dulu ada di sini membaca `slip["total"]` dan jatuh ke
+    nol untuk SETIAP slip.
+    """
+    return float(
+        float(slip["basicSalary"] or 0)
+        + float(slip["transportationAllowanceRate"] or 0)
+        * float(slip["transportationAllowanceQuantity"] or 0)
+        + float(slip["mealAllowanceRate"] or 0)
+        * float(slip["mealAllowanceQuantity"] or 0)
+        + float(slip["overtimeRate"] or 0) * float(slip["overtimeQuantity"] or 0)
+        + sum(float(x["amount"] or 0) for x in (tunjangan or []))
+        - sum(float(x["amount"] or 0) for x in (potongan or []))
+        - float(slip["taxAmount"] or 0)
+    )
+
+
 class PaymentOutgoingController:
     @staticmethod
     async def _sisa_tagihan(payment_data: dict):
@@ -68,8 +137,15 @@ class PaymentOutgoingController:
 
             elif payment_data.get("expenseID"):
                 eid = int(payment_data["expenseID"])
-                d = await ExpenseRepository.get_expense_by_id(eid)
-                nilai = float(d["amount"])
+                # Sama seperti pada penyelarasan status lunas: `get_by_id`,
+                # dan nilainya dihitung dari komponennya — `expenses` tidak
+                # punya kolom `amount`. Selama ini cabang ini melempar
+                # AttributeError, jawabannya `None`, dan penjaga kelebihan
+                # bayar untuk BEBAN karena itu tidak pernah berjalan.
+                d = await ExpenseRepository.get_by_id(eid)
+                if not terbaca(d):
+                    return None
+                nilai = nilai_beban(d)
                 bayar = await PaymentOutgoingRepository.get_payments_by_expense_id(eid)
 
             elif payment_data.get("loanID"):
@@ -443,7 +519,7 @@ class PaymentOutgoingController:
                 
                 if payment.expenseID is not None:
                     expense = await ExpenseRepository.get_by_id(payment.expenseID)
-                    expense_value = round(expense["dpp"] + expense["pbbkb"] - (expense["pphPercentage"] * expense["dpp"] / 100), 2)
+                    expense_value = nilai_beban(expense)
                     
                     current_payments = await PaymentOutgoingRepository.get_payments_by_expense_id(payment.expenseID)
                     if "error" in current_payments:
@@ -519,6 +595,19 @@ class PaymentOutgoingController:
                     if abs(loan_value - total_paid) < 5:
                         await LoanRepository.update_payment_status(payment.loanID, True, userID)
             
+            # Penyelarasan DUA ARAH, apa pun status barunya.
+            #
+            # Cabang-cabang di atas hanya pernah menyetel lunas menjadi
+            # BENAR. Pembayaran yang ditolak setelah sempat disetujui karena
+            # itu meninggalkan dokumennya bertanda lunas padahal uangnya
+            # tidak jadi keluar — kekeliruan yang sama persis dengan
+            # pembayaran yang dihapus.
+            #
+            # Aman menyusul cabang di atas: hasilnya diturunkan dari
+            # pembayaran yang tersimpan, jadi bila di atas sudah benar ia
+            # hanya menuliskan nilai yang sama.
+            await PaymentOutgoingController.selaraskan_status_lunas(payment, userID)
+
             log_info(f"Payment with ID: {id} updated successfully")
             return {"message": "Payment updated successfully"}
         except Exception as e:
@@ -617,7 +706,7 @@ class PaymentOutgoingController:
                     
                     if payment.expenseID is not None:
                         expense = await ExpenseRepository.get_by_id(payment.expenseID)
-                        expense_value = round(expense["dpp"] + expense["pbbkb"] - (expense["pphPercentage"] * expense["dpp"] / 100), 2)
+                        expense_value = nilai_beban(expense)
                         
                         current_payments = await PaymentOutgoingRepository.get_payments_by_expense_id(payment.expenseID)
                         if "error" in current_payments:
@@ -679,7 +768,17 @@ class PaymentOutgoingController:
                         #If the difference is less than 5, then the payment is considered complete
                         if abs(loan_value - total_paid) < 5:
                             await LoanRepository.update_payment_status(payment.loanID, True, userID)
-                
+
+            # Sama seperti pada pembaruan tunggal: penyelarasan dua arah,
+            # supaya penolakan massal tidak meninggalkan dokumen bertanda
+            # lunas. Satu panggilan per pembayaran; dokumen yang sama
+            # dihitung ulang lebih dari sekali bila beberapa pembayarannya
+            # ikut — dan itu tidak apa-apa, hasilnya sama.
+            for payment in payments:
+                await PaymentOutgoingController.selaraskan_status_lunas(
+                    payment, userID
+                )
+
             return result
         except Exception as e:
             log_error(f"Error updating status for payments with IDs {payment_ids}: {str(e)}")
@@ -791,6 +890,12 @@ class PaymentOutgoingController:
 
         Satu pembayaran hanya menagih SATU jenis dokumen; percabangan di
         bawah karena itu saling meniadakan, bukan menumpuk.
+
+        SETIAP cabang berhenti bila dokumennya tidak terbaca, dan tidak
+        menulis apa pun. Sebelumnya nilainya jatuh ke nol dalam keadaan itu —
+        dan nol dibandingkan dengan jumlah terbayar yang juga nol memenuhi
+        ambang toleransi, sehingga dokumen yang pembayarannya baru saja
+        dihapus justru ditandai LUNAS. Lihat `terbaca`.
         """
         def lunas(nilai, terbayar) -> bool:
             return abs(float(nilai) - float(terbayar)) < 5
@@ -803,8 +908,17 @@ class PaymentOutgoingController:
         try:
             if payment.purchaseID is not None:
                 d = await PurchaseRepository.get_by_id(payment.purchaseID)
+                if not terbaca(d):
+                    log_error(
+                        f"Pembelian {payment.purchaseID} tidak terbaca; status "
+                        "lunasnya dibiarkan apa adanya."
+                    )
+                    return
                 nilai = round(
-                    d["dpp"] + (d["ppn"] * d["dpp"] / 100) + (d["pbbkb"] or 0), 2
+                    float(d["dpp"] or 0)
+                    + (float(d["ppn"] or 0) * float(d["dpp"] or 0) / 100)
+                    + float(d["pbbkb"] or 0),
+                    2,
                 )
                 bayar = await PaymentOutgoingRepository.get_payments_by_purchase_id(
                     payment.purchaseID
@@ -818,6 +932,12 @@ class PaymentOutgoingController:
                 items = await ReimbursementRepository.get_reimbursement_items_by_reimbursement_id(
                     payment.reimbursementID
                 )
+                if isinstance(items, dict):
+                    log_error(
+                        f"Rincian reimbursement {payment.reimbursementID} tidak "
+                        "terbaca; status lunasnya dibiarkan apa adanya."
+                    )
+                    return
                 nilai = sum(r.amount for r in items)
                 bayar = await PaymentOutgoingRepository.get_payments_by_reimbursement_id(
                     payment.reimbursementID
@@ -828,8 +948,19 @@ class PaymentOutgoingController:
                     )
 
             elif payment.expenseID is not None:
-                d = await ExpenseRepository.get_expense_by_id(payment.expenseID)
-                nilai = d["amount"] if not isinstance(d, dict) or "amount" in d else 0
+                # `get_by_id` — bukan `get_expense_by_id`, yang tidak pernah
+                # ada di repository ini. Panggilannya melempar AttributeError
+                # yang ditelan `except` di bawah, sehingga status lunas beban
+                # TIDAK PERNAH dihitung ulang: beban yang pembayarannya
+                # dihapus tetap bertanda lunas, tanpa galat di layar.
+                d = await ExpenseRepository.get_by_id(payment.expenseID)
+                if not terbaca(d):
+                    log_error(
+                        f"Beban {payment.expenseID} tidak terbaca; status "
+                        "lunasnya dibiarkan apa adanya."
+                    )
+                    return
+                nilai = nilai_beban(d)
                 bayar = await PaymentOutgoingRepository.get_payments_by_expense_id(
                     payment.expenseID
                 )
@@ -839,13 +970,27 @@ class PaymentOutgoingController:
                     )
 
             elif payment.salarySlipID is not None:
+                d = await SalarySlipRepository.get_by_id(payment.salarySlipID)
+                if not terbaca(d):
+                    log_error(
+                        f"Slip gaji {payment.salarySlipID} tidak terbaca; "
+                        "status lunasnya dibiarkan apa adanya."
+                    )
+                    return
+                tunjangan = await SalarySlipAllowanceRepository.get_by_salary_slip_id(
+                    payment.salarySlipID
+                )
+                potongan = await SalarySlipDeductionRepository.get_by_salary_slip_id(
+                    payment.salarySlipID
+                )
+                nilai = nilai_slip(
+                    d,
+                    [] if isinstance(tunjangan, dict) else tunjangan,
+                    [] if isinstance(potongan, dict) else potongan,
+                )
                 bayar = await PaymentOutgoingRepository.get_payments_by_salary_slip_id(
                     payment.salarySlipID
                 )
-                d = await SalarySlipRepository.get_salary_slip_by_id(
-                    payment.salarySlipID
-                )
-                nilai = d["total"] if isinstance(d, dict) and "total" in d else 0
                 if not isinstance(bayar, dict):
                     await SalarySlipRepository.update_payment_status(
                         payment.salarySlipID, lunas(nilai, jumlah(bayar)), userID
@@ -853,7 +998,13 @@ class PaymentOutgoingController:
 
             elif payment.loanID is not None:
                 pinjaman = await LoanRepository.get_loan_by_id(payment.loanID)
-                nilai = pinjaman["debt"] if isinstance(pinjaman, dict) else 0
+                if not terbaca(pinjaman):
+                    log_error(
+                        f"Pinjaman {payment.loanID} tidak terbaca; status "
+                        "lunasnya dibiarkan apa adanya."
+                    )
+                    return
+                nilai = float(pinjaman["debt"] or 0)
                 bayar = await PaymentOutgoingRepository.get_payments_by_loan_id(
                     payment.loanID
                 )
