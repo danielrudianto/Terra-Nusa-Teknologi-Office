@@ -143,12 +143,20 @@ class PaymentOutgoingRepository:
             expenses_table.c.invoiceName
         )
 
-        # Lawan transaksi: opponent beban, pemasok pembelian, atau pegawai
-        # (gaji). Reimbursement tidak punya lawan tunggal — dibiarkan kosong.
+        # Lawan transaksi: opponent beban, pemasok pembelian, pegawai (gaji),
+        # atau kreditur (angsuran pinjaman). Reimbursement tidak punya lawan
+        # tunggal — dibiarkan kosong.
+        #
+        # Angsuran pinjaman sebelumnya kosong di kolom ini. Pembayaran
+        # pinjaman berulang tiap bulan dan jumlahnya banyak, sehingga daftar
+        # ini penuh baris bertanggal dan bernilai tanpa satu pun nama — dan
+        # justru barisan itulah yang paling sering dicari, karena tidak punya
+        # nomor nota untuk dikenali.
         opponent_name = func.coalesce(
             expense_opponents_table.c.name,
             suppliers_table.c.name,
             employees_table.c.name,
+            loans_table.c.creditorName,
         )
 
         # Rangkaian join dipakai BERSAMA oleh kueri data dan kueri hitung,
@@ -186,6 +194,10 @@ class PaymentOutgoingRepository:
                 expenses_table.c.opponentID == expense_opponents_table.c.id,
             )
             .outerjoin(
+                loans_table,
+                payments_outgoing_table.c.loanID == loans_table.c.id,
+            )
+            .outerjoin(
                 bank_accounts_table,
                 payments_outgoing_table.c.bankAccountID == bank_accounts_table.c.id,
             )
@@ -217,6 +229,10 @@ class PaymentOutgoingRepository:
                     purchases_table.c.invoiceName.ilike(pola),
                     reimbursements_table.c.name.ilike(pola),
                     expenses_table.c.invoiceName.ilike(pola),
+                    # Kreditur ikut dicari. Kolomnya sekarang menampilkan nama
+                    # itu, dan nama yang terlihat tetapi tidak dapat dicari
+                    # membuat kotak pencarian tampak rusak.
+                    loans_table.c.creditorName.ilike(pola),
                 )
             )
 

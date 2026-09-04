@@ -107,6 +107,9 @@ class CreateLoanResponse(BaseModel):
 class LoanPaymentsResponse(BaseModel):
     loan: dict
     payments: list
+    # Baris `payment_incoming` pencairan pinjaman. Diberi nilai bawaan agar
+    # pemanggil lama — dan jawaban yang gagal membacanya — tetap sah.
+    penerimaan: list = []
 
 class ErrorResponse(BaseModel):
     error: str

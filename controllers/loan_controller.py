@@ -86,6 +86,32 @@ class LoanController:
             raise HTTPException(status_code=500, detail="Internal server error")
     
     @staticmethod
+    async def get_receipts_by_loan_id(loan_id: int):
+        """
+        Baris `payment_incoming` yang mewakili pencairan pinjaman ini.
+
+        Dipakai layar sunting untuk mengisi rekening penerima ketika
+        `loans.bankAccountID` masih kosong. Kolom itu ditambahkan setelah
+        sebagian pinjaman tercatat, sehingga baris lama bernilai NULL —
+        sementara penerimaannya SELALU punya rekening, karena tanpa itu
+        uangnya tidak akan pernah muncul di mutasi bank mana pun. Rekening
+        itulah jawaban yang benar atas "sebelumnya masuk ke mana", bukan
+        tebakan.
+
+        Gagal membaca dikembalikan sebagai daftar kosong, bukan galat: ini
+        hanya bahan pengisi awal, dan menggagalkan seluruh layar sunting
+        karena pengisi awalnya tidak terbaca jauh lebih merugikan daripada
+        satu kolom yang harus diisi sendiri.
+        """
+        hasil = await PaymentIncomingRepository.get_by_loan_id(loan_id)
+        if isinstance(hasil, dict):
+            log_error(
+                f"Gagal membaca penerimaan pinjaman {loan_id}: {hasil.get('error')}"
+            )
+            return []
+        return hasil or []
+
+    @staticmethod
     async def get_loans(page: int, pageSize: int, isPaid: bool, isUnpaid: bool, sortBy: str, sortByDirection: str, keyword: Optional[str] = None):
         """Get paginated list of loans with filtering and sorting."""
         try:

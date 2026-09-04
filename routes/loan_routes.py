@@ -54,9 +54,16 @@ async def get_loan_payments(loan_id: int, current_user: Annotated[User, Depends(
 
         payments = await LoanController.get_payments_by_loan_id(loan_id)
 
+        # Penerimaannya ikut dikirim di jawaban yang SAMA, bukan lewat rute
+        # sendiri: layar sunting sudah memanggil rute ini, dan menambah satu
+        # panggilan kedua untuk satu nomor rekening berarti dua perjalanan
+        # jaringan yang selalu terjadi bersamaan.
+        penerimaan = await LoanController.get_receipts_by_loan_id(loan_id)
+
         return {
             "loan": dict(loan),
             "payments": payments or [],
+            "penerimaan": penerimaan,
         }
     except HTTPException as e:
         raise e
