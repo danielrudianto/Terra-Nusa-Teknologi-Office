@@ -373,6 +373,49 @@ class SalarySlipRepository:
             log_error(f"Error fetching PPH report: {str(e)}")
             return internal_error()
 
+    @staticmethod
+    async def bank_karyawan(employee_id: int):
+        """
+        Rekening karyawan, HANYA rekeningnya.
+
+        Diambil dari profil karyawan — di situlah datanya, bukan di tabel
+        `employee`. Yang dikembalikan sengaja cuma tiga kolom: profil memuat
+        hal-hal yang tidak ada urusannya dengan slip gaji (nama ibu kandung,
+        alamat, kontak darurat), dan layar yang cuma perlu nomor rekening
+        tidak boleh ikut membawanya ke peramban.
+
+        `None` bila profilnya belum pernah diisi — itu keadaan biasa bagi
+        karyawan yang sudah ada sebelum tabel profil dibuat, bukan galat.
+        """
+        try:
+            p = employee_profiles_table.c
+            baris = await database.fetch_one(
+                select(p.bankName, p.bankAccountName, p.bankAccountNumber)
+                .where(p.employeeID == employee_id)
+            )
+            return dict(baris) if baris else None
+        except Exception as e:
+            log_error(f"Error fetching employee bank data: {str(e)}")
+            return internal_error()
+
+    @staticmethod
+    async def punya_pembayaran(salary_slip_id: int) -> bool:
+        """
+        Slip ini sudah dibuatkan pembayaran yang masih berlaku.
+
+        Menghapus slip yang pembayarannya sudah ada meninggalkan pembayaran
+        yang menunjuk dokumen yang tidak lagi tampil di mana pun — uangnya
+        tetap keluar, dan asal-usulnya hilang.
+        """
+        po = payments_outgoing_table.c
+        jumlah = await database.fetch_val(
+            select(func.count())
+            .select_from(payments_outgoing_table)
+            .where(po.salarySlipID == salary_slip_id, po.isDelete == False)
+        )
+        return int(jumlah or 0) > 0
+
+
 class SalarySlipAllowanceRepository:
     @staticmethod
     async def create_allowances(salarySlipID: int, allowances: list):
@@ -459,44 +502,4 @@ class SalarySlipDeductionRepository:
             log_error(f"Error fetching deductions: {str(e)}")
             return internal_error()
 
-    @staticmethod
-    async def bank_karyawan(employee_id: int):
-        """
-        Rekening karyawan, HANYA rekeningnya.
 
-        Diambil dari profil karyawan — di situlah datanya, bukan di tabel
-        `employee`. Yang dikembalikan sengaja cuma tiga kolom: profil memuat
-        hal-hal yang tidak ada urusannya dengan slip gaji (nama ibu kandung,
-        alamat, kontak darurat), dan layar yang cuma perlu nomor rekening
-        tidak boleh ikut membawanya ke peramban.
-
-        `None` bila profilnya belum pernah diisi — itu keadaan biasa bagi
-        karyawan yang sudah ada sebelum tabel profil dibuat, bukan galat.
-        """
-        try:
-            p = employee_profiles_table.c
-            baris = await database.fetch_one(
-                select(p.bankName, p.bankAccountName, p.bankAccountNumber)
-                .where(p.employeeID == employee_id)
-            )
-            return dict(baris) if baris else None
-        except Exception as e:
-            log_error(f"Error fetching employee bank data: {str(e)}")
-            return internal_error()
-
-    @staticmethod
-    async def punya_pembayaran(salary_slip_id: int) -> bool:
-        """
-        Slip ini sudah dibuatkan pembayaran yang masih berlaku.
-
-        Menghapus slip yang pembayarannya sudah ada meninggalkan pembayaran
-        yang menunjuk dokumen yang tidak lagi tampil di mana pun — uangnya
-        tetap keluar, dan asal-usulnya hilang.
-        """
-        po = payments_outgoing_table.c
-        jumlah = await database.fetch_val(
-            select(func.count())
-            .select_from(payments_outgoing_table)
-            .where(po.salarySlipID == salary_slip_id, po.isDelete == False)
-        )
-        return int(jumlah or 0) > 0
