@@ -117,27 +117,50 @@ fi
 echo "==> Menyalakan ulang $LAYANAN"
 sudo systemctl restart "$LAYANAN"
 
-# Beri waktu menyala sebelum diperiksa; tanpa jeda, statusnya masih
-# "activating" dan pemeriksaan di bawah selalu lolos.
-sleep 3
-
-sudo systemctl is-active --quiet "$LAYANAN" || {
-  merah "Layanan tidak menyala. Tiga puluh baris log terakhir:"
-  sudo journalctl -u "$LAYANAN" -n 30 --no-pager
-  exit 1
-}
-
 # ---------------------------------------------------------------------
 # 6. Uji hidup
 # ---------------------------------------------------------------------
 # Layanan yang "active" belum tentu melayani. Yang menentukan adalah ia
 # menjawab permintaan.
+#
+# DITUNGGU, bukan diperiksa sekali.
+#
+# Sebelumnya: `sleep 3` lalu satu kali curl. `--max-time 10` di sana tidak
+# menolong — ia membatasi lamanya SATU permintaan, bukan mengulangnya, dan
+# koneksi yang ditolak kembali seketika ("after 0 ms"). Padahal start-up
+# backend ini memakan tiga detik lebih: memeriksa skema, DESCRIBE tiap
+# tabel, lalu memuat CSS WeasyPrint. Tiga detik karena itu tepat di batas —
+# kadang lolos, kadang tidak, dan deploy yang sebenarnya berhasil dilaporkan
+# GAGAL. Laporan gagal yang tidak benar lebih berbahaya daripada tidak ada
+# laporan: yang membacanya berhenti mempercayainya.
 PORTA="$(grep -E '^PORT=' .env | cut -d= -f2 || echo 7500)"
-if curl -fsS --max-time 10 "http://127.0.0.1:${PORTA:-7500}/docs" > /dev/null; then
-  hijau "Backend hidup di porta ${PORTA:-7500}."
+PORTA="${PORTA:-7500}"
+BATAS_TUNGGU=60
+
+echo "==> Menunggu $LAYANAN menjawab di porta $PORTA"
+mulai=$SECONDS
+hidup=0
+while (( SECONDS - mulai < BATAS_TUNGGU )); do
+  # Layanan yang MATI tidak akan pernah menjawab — jangan tunggu sampai
+  # habis; sebutkan apa adanya, karena sebab dan penanganannya berbeda.
+  if ! sudo systemctl is-active --quiet "$LAYANAN"; then
+    merah "Layanan berhenti saat dinyalakan. Enam puluh baris log terakhir:"
+    sudo journalctl -u "$LAYANAN" -n 60 --no-pager
+    exit 1
+  fi
+
+  if curl -fsS --max-time 5 "http://127.0.0.1:${PORTA}/docs" > /dev/null 2>&1; then
+    hidup=1
+    break
+  fi
+  sleep 1
+done
+
+if [[ $hidup -eq 1 ]]; then
+  hijau "Backend hidup di porta ${PORTA} setelah $(( SECONDS - mulai )) detik."
 else
-  merah "Layanan menyala tetapi tidak menjawab di porta ${PORTA:-7500}."
-  sudo journalctl -u "$LAYANAN" -n 30 --no-pager
+  merah "Layanan menyala tetapi tidak menjawab di porta ${PORTA} setelah ${BATAS_TUNGGU} detik."
+  sudo journalctl -u "$LAYANAN" -n 60 --no-pager
   exit 1
 fi
 
