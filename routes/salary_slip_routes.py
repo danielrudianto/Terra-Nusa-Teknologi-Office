@@ -35,6 +35,33 @@ async def print(salary_slip_id: int, current_user: Annotated[User, Depends(requi
         log_error(f"HTTPException during print: {str(e.detail)}")
         raise e
 
+@router.get("/bank/{employee_id}")
+async def bank_karyawan(
+    employee_id: int,
+    current_user: Annotated[User, Depends(require("salary_slip", "create"))],
+):
+    """
+    Rekening karyawan, untuk mengisi sendiri kolom bank di slip gaji.
+
+    Dijaga `salary_slip:create`, BUKAN `employee_profile:read`. Yang membuka
+    layar ini sedang membuat slip gaji; menuntut izin modul profil berarti
+    sebagian orang yang berhak membuat slip tidak dapat mengisi kolom yang
+    ada di layarnya sendiri.
+
+    Yang dikembalikan hanya tiga kolom rekening. Profil karyawan memuat
+    hal-hal yang tidak ada urusannya dengan slip gaji, dan rute yang
+    mengembalikan seluruhnya membuat layar ini membawa semuanya ke peramban
+    hanya untuk mengisi nomor rekening.
+
+    DITARUH SEBELUM `/{salary_slip_id}`: FastAPI mencocokkan berurutan, dan
+    "bank" akan tertangkap sebagai id slip bila rute ini di bawahnya.
+    """
+    hasil = await SalarySlipController.bank_karyawan(employee_id)
+    if isinstance(hasil, dict) and "error" in hasil:
+        raise HTTPException(status_code=hasil["status"], detail=hasil["error"])
+    return hasil or {}
+
+
 @router.get("/{salary_slip_id}")
 async def fetch(salary_slip_id: int, current_user: Annotated[User, Depends(require("salary_slip", "read"))]):
     """
