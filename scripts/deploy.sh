@@ -57,24 +57,55 @@ git rev-parse HEAD > /dev/null 2>&1 || gagal "bukan repo git yang berisi commit"
 # 1. Tarik perubahan
 # ---------------------------------------------------------------------
 if [[ $HANYA_PERIKSA -eq 0 ]]; then
-  echo "==> Menarik perubahan"
-
-  # Perubahan lokal menghentikan `git pull` di tengah. Yang paling sering
-  # berubah sendiri adalah requirements.txt setelah `pip install`.
-  if ! git diff --quiet; then
-    kuning "    ada perubahan lokal:"
-    git diff --name-only | sed 's/^/      /'
-    gagal "bereskan dulu — 'git checkout -- <berkas>' atau commit"
-  fi
-
-  SEBELUM="$(git rev-parse HEAD)"
-  git pull --ff-only || gagal "git pull ditolak; jalankan 'git pull --rebase' lalu ulangi"
-  SESUDAH="$(git rev-parse HEAD)"
-
-  if [[ "$SEBELUM" == "$SESUDAH" ]]; then
-    echo "    tidak ada perubahan baru"
+  if [[ -n "${TERRABOT_DEPLOY_SEBELUM:-}" ]]; then
+    # Lanjutan dari jalannya sendiri yang tadi menarik pembaruan; lihat
+    # keterangan "SKRIP INI DAPAT MENGGANTI DIRINYA SENDIRI" di bawah.
+    echo "==> Melanjutkan dengan deploy.sh versi baru"
+    SEBELUM="$TERRABOT_DEPLOY_SEBELUM"
+    SESUDAH="$(git rev-parse HEAD)"
   else
-    git --no-pager log --oneline "$SEBELUM..$SESUDAH" | sed 's/^/      /'
+    echo "==> Menarik perubahan"
+
+    # Perubahan lokal menghentikan `git pull` di tengah. Yang paling sering
+    # berubah sendiri adalah requirements.txt setelah `pip install`.
+    if ! git diff --quiet; then
+      kuning "    ada perubahan lokal:"
+      git diff --name-only | sed 's/^/      /'
+      gagal "bereskan dulu — 'git checkout -- <berkas>' atau commit"
+    fi
+
+    SEBELUM="$(git rev-parse HEAD)"
+    git pull --ff-only || gagal "git pull ditolak; jalankan 'git pull --rebase' lalu ulangi"
+    SESUDAH="$(git rev-parse HEAD)"
+
+    if [[ "$SEBELUM" == "$SESUDAH" ]]; then
+      echo "    tidak ada perubahan baru"
+    else
+      git --no-pager log --oneline "$SEBELUM..$SESUDAH" | sed 's/^/      /'
+    fi
+
+    # -----------------------------------------------------------------
+    # SKRIP INI DAPAT MENGGANTI DIRINYA SENDIRI DI TENGAH JALAN.
+    # -----------------------------------------------------------------
+    # `git pull` di atas menimpa berkas yang SEDANG dijalankan. Bash tidak
+    # memuat skrip sekaligus — ia membacanya sepotong demi sepotong sambil
+    # jalan, dan mengingat posisinya sebagai jumlah byte. Begitu berkasnya
+    # berubah panjang, posisi itu menunjuk ke tempat lain: sisa perintahnya
+    # bisa terlewat, terpotong di tengah baris, atau dijalankan dari versi
+    # yang tercampur antara lama dan baru.
+    #
+    # Itu yang terjadi ketika perbaikan uji hidup di bawah ikut tertarik:
+    # perbaikannya SUDAH ada di berkas, tetapi yang berjalan sampai akhir
+    # tetap logika lama, dan deploy yang berhasil dilaporkan gagal.
+    #
+    # `exec` mengganti proses ini dengan versi barunya, dari baris pertama.
+    # Nomor commit sebelum penarikan diwariskan lewat lingkungan supaya
+    # pemeriksaan requirements.txt di bawah tetap tahu apa yang berubah.
+    if git diff --name-only "$SEBELUM" "$SESUDAH" | grep -q '^scripts/deploy\.sh$'; then
+      echo "==> deploy.sh ikut diperbarui — dijalankan ulang dari versi barunya"
+      export TERRABOT_DEPLOY_SEBELUM="$SEBELUM"
+      exec bash "$AKAR/scripts/deploy.sh" "$@"
+    fi
   fi
 
   # ---------------------------------------------------------------------
@@ -103,7 +134,13 @@ echo "==> Memeriksa skema"
 # ---------------------------------------------------------------------
 if [[ -d test ]]; then
   echo "==> Menjalankan uji"
-  "$PY" -m pytest test/ -q || gagal "ada uji yang tidak lolos"
+  # `-rs` menyebutkan ALASAN tiap uji yang dilewati.
+  #
+  # Tanpa itu yang terlihat cuma satu huruf `s` di antara titik-titik, dan
+  # uji yang dimatikan sementara — lalu terlupakan — tidak pernah menagih
+  # perhatian siapa pun lagi. Uji yang dilewati diam-diam sama saja dengan
+  # uji yang tidak ada.
+  "$PY" -m pytest test/ -q -rs || gagal "ada uji yang tidak lolos"
 fi
 
 if [[ $HANYA_PERIKSA -eq 1 ]]; then
