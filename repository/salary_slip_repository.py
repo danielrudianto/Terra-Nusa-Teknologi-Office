@@ -49,7 +49,20 @@ class SalarySlipRepository:
         year: int,
         sortBy: str = None,
         sortByDirection: str = "asc",
+        keadaan: str = "aktif",
     ):
+        """
+        Daftar slip gaji satu periode.
+
+        `keadaan` menyaring slip yang sudah dihapus: "aktif" (bawaan),
+        "dihapus", atau "semua". Bawaannya AKTIF karena sebelumnya kueri ini
+        tidak menyaring `isDelete` sama sekali — slip yang sudah dihapus
+        tetap terdaftar bercampur dengan yang berlaku, dan satu-satunya
+        pembedanya hanyalah coretan di layar.
+
+        Yang dihapus tetap dapat dilihat lewat pilihan lain: penghapusan di
+        sini bersifat lunak, dan barisnya adalah catatan siapa menghapus apa.
+        """
         # Kolom yang boleh dipakai mengurutkan; daftar putih mencegah nama
         # kolom sembarang ikut masuk ke query.
         SORTABLE = {
@@ -89,7 +102,28 @@ class SalarySlipRepository:
             )
             .group_by(salary_slips_deduction_table.c.salarySlipID)
         ).subquery()
-        
+
+        # Satu daftar syarat untuk kueri data DAN kueri hitung.
+        #
+        # Sebelumnya keduanya menuliskan `where`-nya sendiri-sendiri. Selama
+        # isinya kebetulan sama itu tidak terasa; begitu salah satunya
+        # berubah — seperti penyaring keadaan ini — jumlah halaman berselisih
+        # dengan isinya, dan halaman terakhir tampil kosong.
+        KEADAAN = {
+            "aktif": salary_slips_table.c.isDelete == False,
+            "dihapus": salary_slips_table.c.isDelete == True,
+        }
+        syarat = [
+            employees_table.c.name.ilike(f"%{keyword}%"),
+            salary_slips_table.c.month == month,
+            salary_slips_table.c.year == year,
+        ]
+        if keadaan != "semua":
+            # Nilai yang tidak dikenali diperlakukan sebagai "aktif", bukan
+            # "semua": salah ketik pada parameter tidak boleh diam-diam
+            # menampilkan slip yang sudah dihapus.
+            syarat.append(KEADAAN.get(keadaan, KEADAAN["aktif"]))
+
         query = select(
             salary_slips_table.c.id,
             salary_slips_table.c.userID,
@@ -120,11 +154,7 @@ class SalarySlipRepository:
             allowance_subq, salary_slips_table.c.id == allowance_subq.c.salarySlipID
         ).outerjoin(
             deduction_subq, salary_slips_table.c.id == deduction_subq.c.salarySlipID
-        ).where(
-            employees_table.c.name.ilike(f"%{keyword}%"),
-            salary_slips_table.c.month == month,
-            salary_slips_table.c.year == year
-        ).order_by(*_urut).offset((page - 1) * pageSize).limit(pageSize)
+        ).where(*syarat).order_by(*_urut).offset((page - 1) * pageSize).limit(pageSize)
         
         try:
             result = await database.fetch_all(query)
@@ -133,11 +163,7 @@ class SalarySlipRepository:
                 salary_slips_table
             ).join(
                 employees_table, salary_slips_table.c.userID == employees_table.c.id
-            ).where(
-                employees_table.c.name.ilike(f"%{keyword}%"),
-                salary_slips_table.c.month == month,
-                salary_slips_table.c.year == year
-            )
+            ).where(*syarat)
             
             total_count = await database.fetch_val(countQuery)
             
