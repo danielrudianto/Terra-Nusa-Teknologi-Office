@@ -1,45 +1,34 @@
-from pydantic import BaseModel, Field
-from typing import Optional, Annotated
-from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float
-from utils.database import metadata
-from datetime import date as d, datetime as dt
-from utils.database import database
-from sqlalchemy.exc import IntegrityError
-from utils.logger_utils import log_error
+"""
+Berkas ini dikosongkan dengan sengaja.
 
-# Define the Purchase model
-class BankAccount(BaseModel):
-    id: Optional[int] = Field(default=None, title="ID of the bank account", ge=1)
-    bankAccountID: int
-    # `float`, bukan `Float`.
-    #
-    # `Float` adalah tipe KOLOM SQLAlchemy, bukan tipe Python. Memakainya
-    # sebagai anotasi membuat Pydantic gagal menyusun skema dan berkas ini
-    # melempar galat begitu di-import. Saat ini tidak ada yang mengimpornya,
-    # sehingga kekeliruannya belum pernah terlihat — tetapi akan langsung
-    # menggagalkan siapa pun yang memakainya nanti.
-    amount: float
+Dulu isinya dua hal, dan keduanya tidak pernah dipakai:
 
-    # Initialize the model with default values
-    def __init__(self, **data):
-        super().__init__(**data)
-        if self.createdAt is None:
-            self.createdAt = dt.now()
+1. Deklarasi KEDUA tabel "bank_accounts" lewat Table(...) — untuk tabel yang
+   sama, pada `metadata` yang sama dengan `models/bank_model.py`. SQLAlchemy
+   melempar InvalidRequestError bila dua Table bernama sama didaftarkan pada
+   satu MetaData, jadi berkas ini memang tidak pernah diimpor siapa pun —
+   kalau pernah, aplikasinya tidak akan hidup.
 
-# Define the SQLAlchemy table
-bank_accounts_table = Table(
-    "bank_accounts",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("bankName", String(100), nullable=False),
-    Column("bankAccountName", String(100), nullable=False),
-    Column("bankAccountNumber", String(100), nullable=False, unique=True, index=True,),
-    Column("isDelete", Boolean(), default=False, nullable=False),
-    Column("createdBy", Integer(), nullable=False),
-    Column("createdAt", DateTime(), default=dt.now, nullable=False),
-    Column("updatedBy", Integer(), nullable=True),
-    Column("updatedAt", DateTime(), default=None, onupdate=dt.now, nullable=True),
-    Column("deletedBy", Integer(), nullable=True),
-    Column("deletedAt", DateTime(), default=None, onupdate=dt.now, nullable=True)
-)
-    
+   Meskipun mati, deklarasi itu tetap merusak dari jauh: `kolom_model()` di
+   `scripts/cek_skema.py` menyimpan petanya dengan `hasil[nama_tabel] = kolom`
+   — MENIMPA, lintas berkas, urut nama berkas. Karena "bank_mutation_model"
+   urut sesudah "bank_model", daftar 11 kolom di sini menimpa daftar 12 kolom
+   yang sebenarnya. Kolom `excludeFromCalendar` lalu dilaporkan "BERLEBIH",
+   seolah ada di basis data tetapi tidak ada di model — padahal ada di
+   dua-duanya. Laporannya menunjuk basis data; sumbernya berkas ini.
+
+2. `class BankAccount(BaseModel)` dengan `__init__` yang memanggil
+   `self.createdAt`, padahal bidangnya hanya id, bankAccountID, dan amount.
+   Siapa pun yang memakainya langsung kena AttributeError.
+
+Mutasi rekening yang sungguh dipakai ada di `models/mutation_model.py` —
+itu yang diimpor `controllers/bank_controller.py`.
+
+Namanya dipertahankan sebagai re-export supaya import lama (kalau masih ada
+yang tersisa di suatu tempat) tidak mendadak putus. Aman dihapus sama sekali
+bila `grep -rn "bank_mutation_model" --include=*.py .` sudah kosong.
+"""
+
+from models.bank_model import bank_accounts_table  # noqa: F401
+
+__all__ = ["bank_accounts_table"]
