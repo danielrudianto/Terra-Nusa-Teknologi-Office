@@ -1,6 +1,6 @@
 from sqlalchemy import insert, select, update, delete, func
 from utils.database import database
-from repository.bank_account_repository import BankAccount
+from repository.bank_account_repository import BankAccount, kolom_dapat_diubah
 from models.mutation_model import Mutation
 from typing import Dict, List, Optional
 from utils.logger_utils import log_error, log_info
@@ -201,8 +201,14 @@ class BankController:
                 log_error(f"Bank account with the same number already exists: {bank_data['bankAccountNumber']}")
                 return {"error": "Bank account with the same number already exists", "status": 404}
         
-            update_fields = bank_data.copy()
-            update_fields.pop("id", None)
+            # Muatan klien disaring menjadi kolom tabel yang boleh diubah.
+            #
+            # Sebelumnya `bank_data.copy()` diteruskan apa adanya, termasuk
+            # `balance` — bidang turunan pada model Pydantic yang bukan kolom
+            # tabel. Akibatnya SETIAP penyuntingan rekening gagal dengan
+            # "Unconsumed column names: balance", dan pemakai hanya melihat
+            # "Terjadi kesalahan pada sistem".
+            update_fields = kolom_dapat_diubah(bank_data)
             update_fields["updatedAt"] = dt.now()
             update_fields["updatedBy"] = userID
 

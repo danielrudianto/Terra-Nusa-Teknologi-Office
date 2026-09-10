@@ -10,6 +10,39 @@ from utils.logger_utils import log_error
 from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, select, func
 from utils.errors import internal_error
 
+# Kolom yang TIDAK boleh ikut diubah dari muatan klien.
+#
+# `BankAccount.__init__` mengisi createdAt dengan dt.now() bila kosong, dan
+# rute mengirim createdBy apa adanya dari klien (kerap None). Tanpa saringan
+# ini, penyuntingan pertama yang berhasil akan menimpa tanggal pembuatan dan
+# menghapus pencatat aslinya — persis jejak yang audit log dibuat untuk
+# menjaganya.
+KOLOM_TIDAK_DIUBAH = {"id", "createdAt", "createdBy"}
+
+
+def kolom_dapat_diubah(bank_data: dict) -> dict:
+    """
+    Saring muatan klien menjadi kolom tabel yang boleh diubah.
+
+    Rute `PUT /banks/{id}` mengirim `BankAccount.model_dump()`, dan model
+    Pydantic itu memuat `balance` — bidang TURUNAN yang dihitung dari mutasi,
+    bukan kolom `bank_accounts`. Meneruskannya apa adanya ke `.values()`
+    membuat SQLAlchemy melempar "Unconsumed column names: balance", galatnya
+    ketangkap `except Exception`, dan yang sampai ke pemakai hanya "Terjadi
+    kesalahan pada sistem" tanpa menyebut sebab.
+
+    Menyaring di sini, bukan di controller, karena berkas inilah yang tahu
+    kolom tabelnya. Bidang turunan berikutnya yang ditambahkan ke model
+    Pydantic tidak akan mematahkan penyuntingan lagi.
+    """
+    kolom = {c.name for c in bank_accounts_table.columns}
+    return {
+        k: v
+        for k, v in bank_data.items()
+        if k in kolom and k not in KOLOM_TIDAK_DIUBAH
+    }
+
+
 # Define the Purchase model
 class BankAccount(BaseModel):
     id: Optional[int] = Field(default=None, title="ID of the bank account", ge=1)
