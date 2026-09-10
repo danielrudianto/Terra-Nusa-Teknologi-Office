@@ -54,6 +54,58 @@ def terbaca(baris) -> bool:
         return False
 
 
+def nilai_pembelian(pembelian) -> float:
+    """
+    Nilai tagihan sebuah pembelian: yang BENAR-BENAR keluar dari bank.
+
+    Rumusnya:
+
+        DPP + (PPN% x DPP) + PBBKB + otherValue - (PPh% x DPP)
+
+    Dua suku terakhir itulah yang selama ini hilang di sebagian tempat, dan
+    akibatnya persis kebalikan dari yang diharapkan: pembelian yang SUDAH
+    dibayar penuh tetap bertanda "belum dibayar".
+
+    Jalannya begini. Saat pembayaran disetujui, nilainya dihitung lengkap —
+    termasuk potongan PPh — sehingga dokumennya benar ditandai lunas. Tepat
+    sesudah itu `selaraskan_status_lunas` menghitung ULANG dengan rumus yang
+    kekurangan potongan PPh, mendapat angka yang lebih besar dari yang
+    dibayarkan, lalu MENCABUT tanda lunas yang baru saja dipasang. Tidak ada
+    galat, tidak ada catatan; yang terlihat hanya tagihan lunas yang menolak
+    berhenti menagih.
+
+    Contoh nyatanya: DPP 280.080.000, PPN 11%, PPh 2,65%. Yang ditransfer
+    303.466.680 — dan memang persis itu yang dibayarkan. Rumus tanpa PPh
+    menuntut 310.888.800, selisih 7.422.120 yang tidak akan pernah dibayar
+    siapa pun karena uangnya disetorkan ke kas negara, bukan ke pemasok.
+
+    Karena itu rumus ini duduk di satu tempat, seperti `nilai_beban` dan
+    `nilai_slip`. Empat salinan dengan tiga hasil berbeda adalah keadaan
+    yang baru saja diperbaiki; menuliskannya lagi di tempat kelima akan
+    mengulanginya.
+
+    `otherValue` dan `pphPercentage` boleh kosong pada baris lama — keduanya
+    dibaca lewat `getattr` supaya baris seperti itu tidak menjatuhkan
+    perhitungannya.
+    """
+    def angka(nama: str) -> float:
+        try:
+            nilai = pembelian[nama]
+        except (KeyError, TypeError):
+            nilai = getattr(pembelian, nama, None)
+        return float(nilai or 0)
+
+    dpp = angka("dpp")
+    return round(
+        dpp
+        + (angka("ppn") * dpp / 100)
+        + angka("pbbkb")
+        + angka("otherValue")
+        - (angka("pphPercentage") * dpp / 100),
+        2,
+    )
+
+
 def nilai_beban(beban) -> float:
     """
     Nilai tagihan sebuah beban: DPP ditambah PBBKB, dikurangi PPh terpotong.
@@ -122,9 +174,7 @@ class PaymentOutgoingController:
             if payment_data.get("purchaseID"):
                 pid = int(payment_data["purchaseID"])
                 d = await PurchaseRepository.get_by_id(pid)
-                nilai = round(
-                    d["dpp"] + (d["ppn"] * d["dpp"] / 100) + (d["pbbkb"] or 0), 2
-                )
+                nilai = nilai_pembelian(d)
                 bayar = await PaymentOutgoingRepository.get_payments_by_purchase_id(pid)
 
             elif payment_data.get("reimbursementID"):
@@ -480,8 +530,8 @@ class PaymentOutgoingController:
             if status == "approve":
                 if payment.purchaseID is not None:
                     purchases = await PurchaseRepository.get_by_id(payment.purchaseID)
-                    purchase_value = round(purchases["dpp"] + (purchases["ppn"] * purchases["dpp"] / 100) + purchases["pbbkb"] + purchases["otherValue"] - (purchases["pphPercentage"] * purchases["dpp"] / 100), 2)
-                    
+                    purchase_value = nilai_pembelian(purchases)
+
                     current_payments = await PaymentOutgoingRepository.get_payments_by_purchase_id(payment.purchaseID)
                     if "error" in current_payments:
                         log_error(f"Error fetching payments for purchase ID {payment.purchaseID}: {current_payments['error']}")
@@ -673,8 +723,8 @@ class PaymentOutgoingController:
                 for payment in payments:
                     if payment.purchaseID is not None:
                         purchases = await PurchaseRepository.get_by_id(payment.purchaseID)
-                        purchase_value = round(purchases["dpp"] + (purchases["ppn"] * purchases["dpp"] / 100) + purchases["pbbkb"] + purchases["otherValue"] - (purchases["pphPercentage"] * purchases["dpp"] / 100), 2)
-                        
+                        purchase_value = nilai_pembelian(purchases)
+
                         current_payments = await PaymentOutgoingRepository.get_payments_by_purchase_id(payment.purchaseID)
                         if "error" in current_payments:
                             log_error(f"Error fetching payments for purchase ID {payment.purchaseID}: {current_payments['error']}")
@@ -914,12 +964,7 @@ class PaymentOutgoingController:
                         "lunasnya dibiarkan apa adanya."
                     )
                     return
-                nilai = round(
-                    float(d["dpp"] or 0)
-                    + (float(d["ppn"] or 0) * float(d["dpp"] or 0) / 100)
-                    + float(d["pbbkb"] or 0),
-                    2,
-                )
+                nilai = nilai_pembelian(d)
                 bayar = await PaymentOutgoingRepository.get_payments_by_purchase_id(
                     payment.purchaseID
                 )

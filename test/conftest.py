@@ -21,6 +21,21 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# ---------------------------------------------------------------------------
+# Basis data UJI untuk pengujian integrasi.
+#
+# Bila `TEST_DATABASE_URL` disetel, seluruh aplikasi diarahkan ke sana —
+# termasuk `utils/database.py`, yang membaca `DATABASE_URL` pada saat DI-IMPOR,
+# bukan saat dipakai. Karena itu penyetelannya harus berada di baris paling
+# atas berkas ini, sebelum satu pun modul aplikasi disentuh.
+#
+# Tanpa variabel itu, pengujian integrasi TIDAK berjalan sama sekali. Ia
+# memanggil endpoint sungguhan dan MENULIS ke basis datanya; menjalankannya
+# tanpa ditunjuk secara sengaja berarti menulis ke basis data produksi.
+UJI_DB = os.environ.get("TEST_DATABASE_URL")
+if UJI_DB:
+    os.environ["DATABASE_URL"] = UJI_DB
+
 os.environ.setdefault("DATABASE_URL", "mysql://user:pass@localhost/test_db")
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
 os.environ.setdefault("ALGORITHM", "HS256")
@@ -103,4 +118,12 @@ def _pasang_tabel_tiruan() -> None:
         sys.modules[nama_modul] = modul
 
 
-_pasang_tabel_tiruan()
+
+# Tabel tiruan hanya dipasang pada pengujian TANPA basis data.
+#
+# Pada pengujian integrasi keduanya harus yang asli: `balance` menentukan
+# apakah rekening boleh dihapus, dan `mutation` dipakai kalender. Tiruan yang
+# ikut terpasang membuat uji integrasi menguji tabel kosong buatan sendiri.
+if not UJI_DB:
+    _pasang_tabel_tiruan()
+

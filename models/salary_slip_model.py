@@ -5,7 +5,15 @@ salary_slips_table = Table(
     "salary_slips",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("userID", Integer, ForeignKey("employee.id"), nullable=False),
+    # `employees`, BUKAN `employee`.
+    #
+    # Nama tabelnya jamak (lihat models/employee_model.py). Selama tertulis
+    # tunggal, `metadata.create_all` GAGAL SELURUHNYA dengan
+    # NoReferencedTableError — artinya skema ini tidak pernah dapat dibangun
+    # ulang dari nol, dan `startup/create_tables.py` tidak pernah bisa jalan.
+    # Basis data produksi tidak terpengaruh karena tabelnya sudah terlanjur
+    # ada; yang hilang adalah kemampuan memulihkan dari awal.
+    Column("userID", Integer, ForeignKey("employees.id"), nullable=False),
     Column("month", Integer, nullable=False),
     Column("year", Integer, nullable=False),
     Column("isPaid", Boolean, default=False, nullable=False),

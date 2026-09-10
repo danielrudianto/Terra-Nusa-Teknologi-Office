@@ -8,15 +8,18 @@ loans_table = Table(
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("date", Date, nullable=False),
-    Column("creditorName", String, nullable=False),
-    Column("creditorAddress", String, nullable=False),
-    Column("creditorNPWP", String, default=None, nullable=True),
-    Column("description", String, nullable=False, default=""),
+    # Panjang WAJIB disebut — lihat catatan pada interpayments.description.
+    # Disamakan dengan kolom nama lain: 100.
+    Column("creditorName", String(100), nullable=False),
+    # Alamat: 500, sama seperti kolom alamat lain.
+    Column("creditorAddress", String(500), nullable=False),
+    Column("creditorNPWP", String(22), default=None, nullable=True),
+    Column("description", String(500), nullable=False, default=""),
     Column("received", Float, nullable=False, default=0),
     Column("debt", Float, nullable=False, default=0),
-    Column("bankAccountName", String, nullable=False),
-    Column("bankAccountNumber", String, nullable=False),
-    Column("bankName", String, nullable=False),
+    Column("bankAccountName", String(100), nullable=False),
+    Column("bankAccountNumber", String(100), nullable=False),
+    Column("bankName", String(100), nullable=False),
     # rekening PERUSAHAAN tempat dana pinjaman diterima (beda dari rekening kreditur di atas)
     Column("bankAccountID", Integer, ForeignKey("bank_accounts.id"), nullable=True, default=None),
     Column("createdAt", DateTime(), nullable=False, default=dt.now()),

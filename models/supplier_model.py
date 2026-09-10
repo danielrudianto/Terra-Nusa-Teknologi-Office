@@ -22,7 +22,13 @@ suppliers_table = Table(
     Column("updatedAt", String(50), nullable=True),
     Column("deletedAt", String(50), nullable=True),
     Column("deletedBy", Integer, ForeignKey("users.id"), nullable=True),
-    Column("isDelete", Boolean, default=False, nullable=False, server_default="false"),
+    # `text("0")`, BUKAN `"false"`.
+    #
+    # String biasa dikutip apa adanya, sehingga DDL-nya menjadi
+    # `DEFAULT 'false'` pada kolom TINYINT — dan MySQL menolaknya dengan
+    # "Invalid default value for 'isDelete'". Penolakannya menggagalkan
+    # SELURUH `create_all`, bukan tabel ini saja.
+    Column("isDelete", Boolean, default=False, nullable=False, server_default=text("0")),
     # --- blacklist (warns on purchase/PO, does not block) ---
     Column("isBlacklist", Boolean, default=False, nullable=False, server_default=text("0")),
     Column("blacklistReason", String(500), nullable=True),

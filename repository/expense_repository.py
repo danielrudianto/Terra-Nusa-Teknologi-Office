@@ -406,7 +406,19 @@ class ExpenseRepository:
     @staticmethod
     async def get_by_id(id: int):
         """
-        Get an expense by ID.
+        Ambil satu beban beserta lawan transaksinya, bila ada.
+
+        Tautannya KIRI LUAR, dan itu bukan pilihan gaya.
+
+        `opponentID` boleh kosong — skemanya menyatakan begitu, kolomnya
+        `NULL`-able, dan daftar bebannya memang sudah memakai tautan kiri
+        luar. Yang di sini dulu tautan biasa (INNER), sehingga beban tanpa
+        lawan transaksi TIDAK PERNAH terbaca: ia muncul di daftar, tetapi
+        begitu dibuka atau dihapus jawabannya "Expense not found".
+
+        Yang membuatnya sulit dikenali: pesannya terdengar benar. Yang
+        membacanya menyimpulkan datanya sudah hilang, bukan bahwa kueri
+        inilah yang menyembunyikannya — padahal barisnya utuh di tabel.
         """
         try:
             expense_opponent_columns = [
@@ -418,7 +430,13 @@ class ExpenseRepository:
             ]
             query = (
                 select(*expenses_table.c, *expense_opponent_columns)
-                .join(expense_opponents_table, expenses_table.c.opponentID == expense_opponents_table.c.id)
+                .select_from(
+                    expenses_table.outerjoin(
+                        expense_opponents_table,
+                        expenses_table.c.opponentID
+                        == expense_opponents_table.c.id,
+                    )
+                )
                 .where(expenses_table.c.id == id)
             )
             expense = await database.fetch_one(query)
