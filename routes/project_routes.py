@@ -4,11 +4,14 @@ from utils.errors import error_detail
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from controllers.project_controller import ProjectController
+from controllers.project_progress_controller import ProjectProgressController
 from schemas.project_schema import (
     ProjectCreate,
     ProjectUpdate,
     ContractCreate,
     ContractUpdate,
+    ProgressCreate,
+    ProgressUpdate,
 )
 from utils.permission import require
 
@@ -199,4 +202,64 @@ async def delete_contract(
 ):
     return _bereskan(
         await ProjectController.delete_contract(contract_id, current_user["id"])
+    )
+
+
+# ----------------------------------------------------------------------
+# Kemajuan proyek
+# ----------------------------------------------------------------------
+#
+# Modul izinnya TERSENDIRI (`project_progress`), bukan menumpang `project`.
+# Progress dicatat orang lapangan; nilai kontrak diubah level 4. Menumpang
+# `project` berarti memilih salah satu: entah lapangan ikut dapat mengubah
+# nilai kontrak, atau progress hanya dapat dicatat level 4 dan kurvanya
+# berhenti bergerak.
+#
+# Rutenya bersegmen dua (`/progress/{id}`), jadi tidak bertabrakan dengan
+# `/{project_id}` yang bersegmen satu — sama seperti `/contracts/{id}`.
+
+
+@router.get("/{project_id}/progress")
+async def list_progress(
+    project_id: int,
+    current_user: Annotated[dict, Depends(require("project_progress", "read"))],
+):
+    return await ProjectProgressController.list_progress(project_id)
+
+
+@router.post("/{project_id}/progress")
+async def add_progress(
+    project_id: int,
+    body: ProgressCreate,
+    current_user: Annotated[dict, Depends(require("project_progress", "create"))],
+):
+    return _bereskan(
+        await ProjectProgressController.create_progress(
+            project_id, body.model_dump(), current_user["id"]
+        )
+    )
+
+
+@router.put("/progress/{progress_id}")
+async def update_progress(
+    progress_id: int,
+    body: ProgressUpdate,
+    current_user: Annotated[dict, Depends(require("project_progress", "update"))],
+):
+    return _bereskan(
+        await ProjectProgressController.update_progress(
+            progress_id, body.model_dump(exclude_unset=True), current_user["id"]
+        )
+    )
+
+
+@router.delete("/progress/{progress_id}")
+async def delete_progress(
+    progress_id: int,
+    current_user: Annotated[dict, Depends(require("project_progress", "delete"))],
+):
+    return _bereskan(
+        await ProjectProgressController.delete_progress(
+            progress_id, current_user["id"]
+        )
     )

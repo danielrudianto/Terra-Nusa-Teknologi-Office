@@ -63,6 +63,10 @@ DEPARTMENT_MODULES: dict[str, set[str]] = {
     | {
         # pembukuan
         "purchase",
+        # Kemajuan proyek: dibaca dari laporan proyek, bukan dicatat di sini.
+        # Yang membatasi bukan wilayahnya melainkan levelnya — mencatat dan
+        # mengubah di akses 1, menghapus di akses 2.
+        "project_progress",
         # Draft dibaca keuangan untuk mencocokkan tagihan yang belum lengkap
         # berkasnya; pembuatannya tetap pekerjaan procurement.
         "purchase_draft",
@@ -148,6 +152,15 @@ DEPARTMENT_MODULES: dict[str, set[str]] = {
     | {
         "certificate_of_payment",
         "purchase_order",
+        # Kemajuan proyek dicatat di sini, oleh yang berdiri di lokasi.
+        #
+        # Tanpa baris ini matriksnya berbohong: pemeriksaan wilayah divisi
+        # berjalan LEBIH DAHULU daripada level, sehingga setiap orang
+        # engineering yang punya divisi ditolak "Anda tidak memiliki akses"
+        # meski matriks menetapkan buat di akses 1 — sementara yang tidak
+        # punya divisi justru bisa. Sudah dua kali terjadi (`audit_log`,
+        # `reminder`).
+        "project_progress",
     },
     "procurement": UMUM
     | {

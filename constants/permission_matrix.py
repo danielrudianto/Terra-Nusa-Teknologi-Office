@@ -119,6 +119,20 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     #
     # Proyek yang batal ditandai lewat `isDelete`, bukan keadaan tersendiri.
     "project": (1, 4, 4, 4, 0),
+    # Kemajuan pekerjaan proyek — modul TERSENDIRI, bukan bagian `project`.
+    #
+    # Dua hal yang berbeda tinggal di satu halaman: nilai kontrak (ubah level
+    # 4, karena mengubahnya mengubah dasar seluruh perhitungan margin) dan
+    # persen kemajuan (dicatat orang yang berdiri di lokasi). Menumpangkan
+    # keduanya pada satu modul memaksa memilih salah satu kekeliruan: entah
+    # lapangan ikut dapat mengubah nilai kontrak, atau progress hanya boleh
+    # dicatat level 4 — dan kurvanya berhenti bergerak karena yang berwenang
+    # tidak ada di lokasi.
+    #
+    # Menghapus di akses 2: catatan yang keliru harus dapat dibereskan
+    # atasannya langsung, bukan menunggu manajer. Yang dihapus hanya satu
+    # titik pada kurva, dan jejaknya tetap tersimpan.
+    "project_progress": (1, 1, 1, 2, 0),
     # Pengingat pada agenda.
     #
     # Empat aksi pertama di akses 1: semua orang boleh membuat pengingatnya

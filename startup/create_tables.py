@@ -46,6 +46,7 @@ import models.master_equipment_model  # katalog alat sewa
 import models.master_item_model  # katalog barang
 import models.payment_incoming_model  # pembayaran masuk
 import models.project_model  # proyek
+import models.project_progress_model  # kemajuan pekerjaan proyek
 import models.purchase_draft_model  # draf pembelian
 import models.purchase_order_item_model  # baris barang purchase order
 import models.user_avatar_model  # avatar pengguna

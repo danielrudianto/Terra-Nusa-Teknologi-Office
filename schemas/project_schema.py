@@ -157,3 +157,49 @@ class ProjectResponse(ProjectBase):
 
     class Config:
         from_attributes = True
+
+
+# ----------------------------------------------------------------------
+# Kemajuan proyek
+# ----------------------------------------------------------------------
+
+class ProgressBase(BaseModel):
+    # Tanggal KEADAAN yang dilaporkan, bukan tanggal pencatatannya.
+    date: TanggalHari
+    # Persen KUMULATIF, 0-100. Boleh turun dari catatan sebelumnya:
+    # pekerjaan yang harus diulang memang mengurangi kemajuan.
+    percentage: Decimal
+    description: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("percentage")
+    @classmethod
+    def persen_wajar(cls, v: Decimal) -> Decimal:
+        if v < 0 or v > 100:
+            raise ValueError("Kemajuan harus antara 0 dan 100 persen")
+        return v
+
+
+class ProgressCreate(ProgressBase):
+    pass
+
+
+class ProgressUpdate(BaseModel):
+    date: Optional[TanggalHari] = None
+    percentage: Optional[Decimal] = None
+    description: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("percentage")
+    @classmethod
+    def persen_wajar(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+        if v is not None and (v < 0 or v > 100):
+            raise ValueError("Kemajuan harus antara 0 dan 100 persen")
+        return v
+
+
+class ProgressResponse(ProgressBase):
+    id: int
+    projectID: int
+    createdAt: datetime
+
+    class Config:
+        from_attributes = True
