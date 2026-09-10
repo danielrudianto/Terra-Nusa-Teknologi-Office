@@ -1,6 +1,6 @@
 from sqlalchemy import insert, select, update, delete, func
 from utils.database import database
-from repository.bank_account_repository import BankAccount
+from repository.bank_account_repository import BankAccount, kolom_dapat_diubah
 from models.mutation_model import Mutation
 from typing import Dict, List, Optional
 from utils.logger_utils import log_error, log_info
@@ -42,6 +42,9 @@ class BankController:
             bank_id = result['bank_account_id']            
 
             # Add to redis
+            # CATATAN: cache ini tidak lagi menjadi sumber banks/all.
+            # Tidak ada yang membacanya; update_bank_account pun tidak
+            # pernah menyegarkannya. Jangan dijadikan sumber data lagi.
             r.rpush("bank_account", json.dumps({
                 "id": bank_id,
                 "bankAccountNumber": bank_data["bankAccountNumber"],
@@ -75,6 +78,8 @@ class BankController:
         page: int,
         sortBy: str = None,
         sortByDirection: str = "asc",
+        keyword: str | None = None,
+        keadaan: str = "aktif",
     ) -> Dict:
         """
         Retrieve all bank accounts from the database.
@@ -95,6 +100,8 @@ class BankController:
                 pageSize=10,
                 sortBy=sortBy,
                 sortByDirection=sortByDirection,
+                keyword=keyword,
+                keadaan=keadaan,
             )
             if "error" in result:
                 log_error(f"Error retrieving bank accounts: {result['error']}")
@@ -118,21 +125,39 @@ class BankController:
     @staticmethod
     async def get_all_bank_accounts() -> List[Dict]:
         """
-        Retrieve the top bank accounts from the database.
-        
-        Returns:
-            List[Dict]: A list of top bank accounts.
+        Seluruh rekening bank untuk dropdown dan pemilih rekening kalender.
+
+        Sumbernya basis data, BUKAN Redis.
+
+        Cache "bank_account" tidak pernah diperbarui oleh update_bank_account,
+        sehingga isinya hanya benar sampai rekening itu pertama kali dibuat.
+        Setiap kolom baru — dan setiap perubahan nama rekening — tidak pernah
+        sampai ke pemanggil. Kegagalannya sunyi: bidangnya hilang, bukan
+        error, jadi tampilannya tampak bekerja padahal nilainya tidak pernah
+        terbaca.
         """
-        log_info("Getting top bank accounts")
+        log_info("Getting all bank accounts")
         try:
-            bank_accounts = r.lrange("bank_account", 0, -1)
-            accounts = [json.loads(account) for account in bank_accounts]
-            # Sort by isDelete (False first) and then by bankAccountNumber
-            
-            accounts.sort(key=lambda x: (x.get("isDelete", True), x.get("bankAccountNumber", "")))
-            return accounts
+            query = select(bank_accounts_table).order_by(
+                bank_accounts_table.c.isDelete,
+                bank_accounts_table.c.bankAccountNumber,
+            )
+            rows = await database.fetch_all(query)
+            return [
+                {
+                    "id": row.id,
+                    "bankName": row.bankName,
+                    "bankAccountName": row.bankAccountName,
+                    "bankAccountNumber": row.bankAccountNumber,
+                    "isDelete": bool(row.isDelete),
+                    "excludeFromCalendar": bool(
+                        getattr(row, "excludeFromCalendar", False)
+                    ),
+                }
+                for row in rows
+            ]
         except Exception as e:
-            log_error(f"Error retrieving top bank accounts: {str(e)}")
+            log_error(f"Error retrieving all bank accounts: {str(e)}")
             return internal_error()
     @staticmethod
     async def get_bank_account_by_id(bank_id: int) -> Optional[Dict]:
@@ -180,8 +205,14 @@ class BankController:
                 log_error(f"Bank account with the same number already exists: {bank_data['bankAccountNumber']}")
                 return {"error": "Bank account with the same number already exists", "status": 404}
         
-            update_fields = bank_data.copy()
-            update_fields.pop("id", None)
+            # Muatan klien disaring menjadi kolom tabel yang boleh diubah.
+            #
+            # Sebelumnya `bank_data.copy()` diteruskan apa adanya, termasuk
+            # `balance` — bidang turunan pada model Pydantic yang bukan kolom
+            # tabel. Akibatnya SETIAP penyuntingan rekening gagal dengan
+            # "Unconsumed column names: balance", dan pemakai hanya melihat
+            # "Terjadi kesalahan pada sistem".
+            update_fields = kolom_dapat_diubah(bank_data)
             update_fields["updatedAt"] = dt.now()
             update_fields["updatedBy"] = userID
 
@@ -236,10 +267,44 @@ class BankController:
         """
         log_info(f"Deleting bank account with ID: {bankID}")
         try:
+            # Rekening bersaldo TIDAK boleh dihapus.
+            #
+            # Saldo adalah uang yang masih ada. Menghapus rekeningnya
+            # mengeluarkannya dari saldo gabungan dan dari kalender kas,
+            # sementara uangnya tetap di bank — perencanaan kas lalu terbaca
+            # lebih ketat daripada keadaan sebenarnya, dan tidak ada satu pun
+            # layar yang menunjukkan ke mana perginya.
+            #
+            # Rekening yang benar-benar selesai dipakai selalu dapat
+            # dikosongkan lebih dulu lewat pemindahan antar rekening; yang
+            # ditahan di sini hanya rekening yang masih berisi.
+            saldo = await Balance.fetch_by_bank_account_ids([bankID])
+            if isinstance(saldo, dict) and "error" in saldo:
+                # Gagal membaca saldo diperlakukan seolah saldonya ADA:
+                # menolak penghapusan yang mungkin sah lebih ringan
+                # akibatnya daripada menghilangkan rekening berisi.
+                log_error(f"Gagal membaca saldo rekening {bankID} sebelum dihapus")
+                return {"error": "BANK_BALANCE_UNKNOWN", "status": 409}
+
+            nilai = next(
+                (float(x["balance"] or 0) for x in saldo if x["id"] == bankID), 0.0
+            )
+            # Setengah rupiah: pembulatan DECIMAL tidak pernah menghasilkan
+            # selisih sebesar itu, tetapi nol yang tersimpan sebagai 0,0000
+            # juga tidak boleh dibaca sebagai bersaldo.
+            if abs(nilai) > 0.5:
+                log_error(
+                    f"Penghapusan rekening {bankID} ditolak: saldo {nilai}"
+                )
+                return {"error": "BANK_HAS_BALANCE", "status": 409}
+
             result = await BankAccount.delete_bank_account(bankID, userID)
             if "error" in result:
                 return {"error": result["error"], "status": result["detail"]}
             
+            # CATATAN: cache ini tidak lagi menjadi sumber banks/all.
+            # Tidak ada yang membacanya; update_bank_account pun tidak
+            # pernah menyegarkannya. Jangan dijadikan sumber data lagi.
             bank_accounts = r.lrange("bank_account", 0, -1)
             for index, account in enumerate(bank_accounts):
                 account_data = json.loads(account)

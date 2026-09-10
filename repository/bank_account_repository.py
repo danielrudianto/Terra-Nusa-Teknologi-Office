@@ -7,8 +7,41 @@ from models.bank_model import bank_accounts_table
 from models.payment_outgoing_model import payments_outgoing_table
 from models.payment_incoming_model import payment_incoming_table
 from utils.logger_utils import log_error
-from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, select, func
+from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, select, func, or_
 from utils.errors import internal_error
+
+# Kolom yang TIDAK boleh ikut diubah dari muatan klien.
+#
+# `BankAccount.__init__` mengisi createdAt dengan dt.now() bila kosong, dan
+# rute mengirim createdBy apa adanya dari klien (kerap None). Tanpa saringan
+# ini, penyuntingan pertama yang berhasil akan menimpa tanggal pembuatan dan
+# menghapus pencatat aslinya — persis jejak yang audit log dibuat untuk
+# menjaganya.
+KOLOM_TIDAK_DIUBAH = {"id", "createdAt", "createdBy"}
+
+
+def kolom_dapat_diubah(bank_data: dict) -> dict:
+    """
+    Saring muatan klien menjadi kolom tabel yang boleh diubah.
+
+    Rute `PUT /banks/{id}` mengirim `BankAccount.model_dump()`, dan model
+    Pydantic itu memuat `balance` — bidang TURUNAN yang dihitung dari mutasi,
+    bukan kolom `bank_accounts`. Meneruskannya apa adanya ke `.values()`
+    membuat SQLAlchemy melempar "Unconsumed column names: balance", galatnya
+    ketangkap `except Exception`, dan yang sampai ke pemakai hanya "Terjadi
+    kesalahan pada sistem" tanpa menyebut sebab.
+
+    Menyaring di sini, bukan di controller, karena berkas inilah yang tahu
+    kolom tabelnya. Bidang turunan berikutnya yang ditambahkan ke model
+    Pydantic tidak akan mematahkan penyuntingan lagi.
+    """
+    kolom = {c.name for c in bank_accounts_table.columns}
+    return {
+        k: v
+        for k, v in bank_data.items()
+        if k in kolom and k not in KOLOM_TIDAK_DIUBAH
+    }
+
 
 # Define the Purchase model
 class BankAccount(BaseModel):
@@ -23,6 +56,7 @@ class BankAccount(BaseModel):
     deletedBy: Optional[int] = None  # ID of the user who deleted the bank account
     deletedAt: Optional[dt] = None  # Deletion date of the bank account
     isDelete: bool = False  # Flag to indicate if the purchase is deleted
+    excludeFromCalendar: bool = False  # Dikecualikan dari saldo gabungan dan kalender
     balance: float | None = None
 
     # Initialize the model with default values
@@ -50,6 +84,7 @@ class BankAccount(BaseModel):
                 deletedBy=self.deletedBy,
                 deletedAt=self.deletedAt,
                 isDelete=self.isDelete,
+                excludeFromCalendar=self.excludeFromCalendar,
             )
             result = await database.execute(query)
             
@@ -76,51 +111,79 @@ class BankAccount(BaseModel):
         pageSize: int = 10,
         sortBy: str = None,
         sortByDirection: str = "asc",
+        keyword: str | None = None,
+        keadaan: str = "aktif",
     ) -> dict:
         """
-        Retrieve all bank accounts from the database with pagination.
-        
-        Args:
-            page (int): The page number for pagination.
-            pageSize (int): The number of items per page.
-        
-        Returns:
-            Dict: A dictionary containing the list of bank accounts and pagination info.
-        """
-        # Aliases for tables
-        ba = bank_accounts_table
+        Daftar rekening bank, tersaring dan terurut.
 
+        Tiga hal yang sebelumnya tidak jalan dan diperbaiki sekaligus, sebab
+        ketiganya berasal dari satu fungsi ini:
+
+        1. `keyword` tidak pernah dipakai — kotak pencarian di layar mengirim
+           kata kuncinya, dan hasilnya tidak pernah berubah.
+        2. Kolom pengurut dihitung ke dalam `_urut` lalu diabaikan; kueri yang
+           benar-benar dijalankan selalu mengurut menurut nomor rekening,
+           sehingga mengklik kepala kolom tidak melakukan apa pun.
+        3. Penghitung halaman menyaring `isDelete == False` sementara datanya
+           TIDAK — sehingga paginator menyebut satu angka dan tabelnya
+           menampilkan angka yang lain, dan rekening terhapus tetap muncul.
+
+        Ketiganya sekarang memakai SATU daftar syarat yang sama; itulah yang
+        membuat hitungan dan isinya tidak dapat berbeda lagi.
+        """
+        ba = bank_accounts_table
         offset = (page - 1) * pageSize
+
         # Kolom yang boleh dipakai mengurutkan; daftar putih mencegah nama
         # kolom sembarang ikut masuk ke query.
         SORTABLE = {
-            "bankName": bank_accounts_table.c.bankName,
-            "bankAccountName": bank_accounts_table.c.bankAccountName,
-            "bankAccountNumber": bank_accounts_table.c.bankAccountNumber,
+            "bankName": ba.c.bankName,
+            "bankAccountName": ba.c.bankAccountName,
+            "bankAccountNumber": ba.c.bankAccountNumber,
         }
-        _kolom = SORTABLE.get(sortBy, bank_accounts_table.c.bankAccountNumber)
+        _kolom = SORTABLE.get(sortBy, ba.c.bankAccountNumber)
         _urut = (
             _kolom.desc()
             if str(sortByDirection).lower() == "desc"
             else _kolom.asc()
         )
 
-        # Rekening terhapus tetap ditaruh di bawah, apa pun kolom pengurutnya.
-        query = (
-            bank_accounts_table.select()
-            .order_by(bank_accounts_table.c.isDelete, _urut)
-            .limit(pageSize)
-            .offset(offset)
-        )
+        # Satu daftar syarat, dipakai oleh kueri data DAN kueri hitung.
+        syarat = []
+
+        # `aktif` adalah bawaan: rekening terhapus tidak ikut kecuali diminta.
+        _keadaan = (keadaan or "aktif").lower()
+        if _keadaan not in ("aktif", "dihapus", "semua"):
+            # Nilai yang tidak dikenal jatuh ke "aktif", BUKAN ke "semua".
+            # Salah ketik pada parameter tidak boleh berakibat menampilkan
+            # rekening terhapus kepada yang tidak memintanya.
+            _keadaan = "aktif"
+
+        if _keadaan == "aktif":
+            syarat.append(ba.c.isDelete == False)  # noqa: E712
+        elif _keadaan == "dihapus":
+            syarat.append(ba.c.isDelete == True)  # noqa: E712
+        # "semua" tidak menambah syarat apa pun.
+
+        kata = (keyword or "").strip()
+        if kata:
+            pola = f"%{kata}%"
+            syarat.append(
+                or_(
+                    ba.c.bankName.like(pola),
+                    ba.c.bankAccountName.like(pola),
+                    ba.c.bankAccountNumber.like(pola),
+                )
+            )
+
         try:
             query = (
-                select(
-                    ba
-                )
-                .select_from(
-                    ba
-                )
-                .order_by(ba.c.isDelete, ba.c.bankAccountNumber)
+                select(ba)
+                .select_from(ba)
+                .where(*syarat)
+                # Rekening terhapus tetap di bawah, apa pun kolom pengurutnya.
+                .order_by(ba.c.isDelete, _urut)
                 .limit(pageSize)
                 .offset(offset)
             )
@@ -141,12 +204,14 @@ class BankAccount(BaseModel):
                         deletedBy=row.deletedBy,
                         deletedAt=row.deletedAt,
                         isDelete=row.isDelete,
+                        excludeFromCalendar=bool(getattr(row, "excludeFromCalendar", False)),
                         balance=0
                     )
                 )
 
-            count_query = select(func.count()).select_from(bank_accounts_table).where(bank_accounts_table.c.isDelete == False)
-            count = await database.fetch_val(count_query)
+            count = await database.fetch_val(
+                select(func.count()).select_from(ba).where(*syarat)
+            )
 
             return {"data": response, "count": count if count is not None else 0}
         except Exception as e:
@@ -182,7 +247,8 @@ class BankAccount(BaseModel):
                     updatedAt=row.updatedAt,
                     deletedBy=row.deletedBy,
                     deletedAt=row.deletedAt,
-                    isDelete=row.isDelete
+                    isDelete=row.isDelete,
+                    excludeFromCalendar=bool(getattr(row, "excludeFromCalendar", False)),
                 )
             else:
                 return None
@@ -215,7 +281,8 @@ class BankAccount(BaseModel):
                     updatedAt=row.updatedAt,
                     deletedBy=row.deletedBy,
                     deletedAt=row.deletedAt,
-                    isDelete=row.isDelete
+                    isDelete=row.isDelete,
+                    excludeFromCalendar=bool(getattr(row, "excludeFromCalendar", False)),
                 )
             )
         return response

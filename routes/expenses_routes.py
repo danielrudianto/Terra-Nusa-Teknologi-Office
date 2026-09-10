@@ -120,7 +120,12 @@ async def delete_expense(expense_id: int, current_user: Annotated[User, Depends(
     """
     try:
         userID = current_user.id
-        result = await ExpenseController.delete_expense(expense_id, userID)
+        # Level ikut dikirim: menghapus beban ikut membatalkan
+        # pembayarannya, dan yang menentukan boleh-tidaknya adalah level —
+        # bukan izin modul beban semata.
+        result = await ExpenseController.delete_expense(
+            expense_id, userID, current_user.authenticationLevel or 1
+        )
         if "error" in result:
             raise HTTPException(
             status_code=result["status"], detail=error_detail(result)

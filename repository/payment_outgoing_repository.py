@@ -542,6 +542,37 @@ class PaymentOutgoingRepository:
             return -1
 
     @staticmethod
+    async def hitung_pembayaran_aktif_beban(expenseID: int) -> int:
+        """
+        Berapa pembayaran yang masih melekat pada sebuah beban.
+
+        Sengaja terpisah dari `hitung_pembayaran_aktif`, bukan satu fungsi
+        bergagang kolom: keduanya dipanggil dari jalur penghapusan yang
+        berbeda, dan fungsi yang menerima kolom sebagai parameter membuka
+        pintu untuk kolom yang keliru diteruskan dari luar — kekeliruan yang
+        tidak menimbulkan galat, hanya menghitung nol dan meloloskan
+        penghapusan yang seharusnya ditahan.
+
+        Dipakai memutuskan apakah penghapusan beban boleh dilakukan pada
+        level 2, atau harus level 4.
+        """
+        try:
+            return (
+                await database.fetch_val(
+                    select(func.count()).select_from(payments_outgoing_table).where(
+                        payments_outgoing_table.c.expenseID == expenseID,
+                        payments_outgoing_table.c.isDelete == False,  # noqa: E712
+                    )
+                )
+            ) or 0
+        except Exception as e:
+            log_error(f"Error counting payments for expense {expenseID}: {str(e)}")
+            # Gagal menghitung diperlakukan seolah pembayarannya ADA.
+            # Menolak penghapusan yang mungkin sah lebih ringan akibatnya
+            # daripada meloloskan penghapusan yang menghapus pembayaran.
+            return -1
+
+    @staticmethod
     async def get_payments_by_purchase_id(purchaseID: int):
         """
         Get all payments associated with a specific purchase ID.
@@ -926,6 +957,64 @@ class PaymentOutgoingRepository:
             return {"message": "Payments deleted successfully"}
         except Exception as e:
             log_error(f"Error deleting payments for purchase ID {purchaseID}: {str(e)}")
+            return internal_error()
+
+    @staticmethod
+    async def delete_payment_by_expense_id(expenseID: int, userID: int):
+        """
+        Hapus seluruh pembayaran yang melekat pada sebuah beban.
+
+        `isApprove` ikut dicabut, bukan hanya `isDelete`. Status lunas
+        dihitung dari pembayaran yang DISETUJUI dan belum dihapus; menyisakan
+        persetujuan pada baris yang sudah dihapus membuat dokumen terbaca
+        lunas oleh sebagian kueri dan belum lunas oleh sebagian yang lain.
+
+        Jejaknya dicatat per pembayaran, dengan id pembayarannya sendiri —
+        bukan id bebannya. Mencatat id dokumen induk pada entitas pembayaran
+        membuat jejaknya tidak dapat ditelusuri balik: yang mencarinya
+        membuka pembayaran bernomor itu dan menemukan pembayaran orang lain.
+        """
+        log_info(f"Deleting payments for expense ID: {expenseID}")
+        try:
+            # id-nya diambil LEBIH DULU: sesudah diperbarui, baris yang
+            # terkena tidak dapat dibedakan lagi dari yang sudah terhapus
+            # sebelumnya, dan jejaknya akan menyebut pembayaran yang tidak
+            # disentuh operasi ini.
+            terkena = await database.fetch_all(
+                select(payments_outgoing_table.c.id).where(
+                    payments_outgoing_table.c.expenseID == expenseID,
+                    payments_outgoing_table.c.isDelete == False,  # noqa: E712
+                )
+            )
+            ids = [row["id"] for row in terkena]
+
+            if ids:
+                await database.execute(
+                    payments_outgoing_table.update()
+                    .where(payments_outgoing_table.c.id.in_(ids))
+                    .values(
+                        isDelete=True,
+                        isApprove=False,
+                        updatedAt=dt.now(),
+                        updatedBy=userID,
+                    )
+                )
+
+                from repository.audit_log_repository import AuditLogRepository
+
+                for paymentID in ids:
+                    await AuditLogRepository.record(
+                        entity="payment_outgoing",
+                        entityID=int(paymentID),
+                        action="delete",
+                        userID=userID,
+                    )
+
+            return {"message": "Payments deleted successfully", "jumlah": len(ids)}
+        except Exception as e:
+            log_error(
+                f"Error deleting payments for expense ID {expenseID}: {str(e)}"
+            )
             return internal_error()
 
     @staticmethod

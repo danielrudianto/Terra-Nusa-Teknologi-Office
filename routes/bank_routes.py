@@ -20,12 +20,19 @@ async def create_bank_account(bank:BankAccount, current_user: Annotated[User, De
         raise e  # Re-raise to return the HTTPException response
     
 @router.get("/", dependencies=[Depends(require("bank", "read"))])
-async def get_bank_accounts(request: Request, current_user: Annotated[User, Depends(require("bank", "read"))], sortBy: str = Query(None), sortByDirection: str = Query("asc")):
-    # keyword = request.query_params.get("keyword")
+async def get_bank_accounts(
+    request: Request,
+    current_user: Annotated[User, Depends(require("bank", "read"))],
+    sortBy: str = Query(None),
+    sortByDirection: str = Query("asc"),
+    keyword: str = Query(None),
+    # "aktif" (bawaan) | "dihapus" | "semua"
+    keadaan: str = Query("aktif"),
+):
     page = int(request.query_params.get("page", 1))
     try:
         result = await BankController.get_bank_accounts(
-            page, sortBy, sortByDirection
+            page, sortBy, sortByDirection, keyword, keadaan
         )
         if "error" in result:
             raise HTTPException(

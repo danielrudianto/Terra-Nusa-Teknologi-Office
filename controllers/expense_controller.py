@@ -190,16 +190,70 @@ class ExpenseController:
             raise HTTPException(status_code=500, detail="Internal server error.")
 
     @staticmethod
-    async def delete_expense(expense_id: int, userID: int):
+    async def delete_expense(expense_id: int, userID: int, userLevel: int = 0):
         """
-        Delete an expense.
+        Hapus beban, beserta pembayarannya.
+
+        Menghapus beban TIDAK berhenti pada dokumennya: seluruh pembayaran
+        yang melekat ikut dihapus dan persetujuannya dicabut. Membiarkan
+        pembayarannya hidup meninggalkan uang keluar yang tidak punya
+        dokumen — terhitung pada saldo bank dan pada kalender kas, tetapi
+        tidak dapat ditelusuri ke beban mana pun.
+
+        Karena jalur ini ikut membatalkan pembayaran — sesuatu yang di pintu
+        lain hanya boleh dilakukan level 5 — penjaganya sama seperti pada
+        pembelian:
+
+          * Belum ada pembayaran  -> level 2 boleh menghapus.
+          * Sudah ada pembayaran  -> hanya level 4 ke atas.
+
+        Yang berlevel di bawah itu harus membatalkan pembayarannya lebih
+        dulu lewat orang yang berwenang, baru bebannya dapat dihapus.
         """
         try:
+            beban = await ExpenseRepository.get_by_id(expense_id)
+            if isinstance(beban, dict) and "error" in beban:
+                log_error(f"Error fetching expense: {beban['error']}")
+                raise HTTPException(
+                    status_code=beban["status"], detail=beban["error"]
+                )
+
+            if beban.get("isDelete"):
+                return {"error": "Expense is already deleted", "status": 400}
+
+            jumlah_pembayaran = (
+                await PaymentOutgoingRepository.hitung_pembayaran_aktif_beban(
+                    expense_id
+                )
+            )
+            if jumlah_pembayaran != 0 and (userLevel or 0) < 4:
+                log_error(
+                    f"Penghapusan beban {expense_id} ditolak: "
+                    f"{jumlah_pembayaran} pembayaran melekat, level {userLevel}."
+                )
+                return {"error": "EXPENSE_HAS_PAYMENTS", "status": 409}
+
             result = await ExpenseRepository.delete(expense_id, userID)
             if "error" in result:
                 log_error(f"Error deleting expense: {result['error']}")
                 raise HTTPException(status_code=result["status"], detail=result["error"])
-            
+
+            # Pembayarannya menyusul, dan kegagalannya TIDAK menggagalkan
+            # penghapusan dokumennya — sama seperti pada pembelian. Beban
+            # yang terhapus dengan pembayaran tersisa masih dapat dibereskan;
+            # beban yang gagal terhapus karena pembayarannya bermasalah
+            # meninggalkan pemakai tanpa jalan keluar sama sekali.
+            hasil_pembayaran = (
+                await PaymentOutgoingRepository.delete_payment_by_expense_id(
+                    expense_id, userID
+                )
+            )
+            if "error" in hasil_pembayaran:
+                log_error(
+                    f"Beban {expense_id} terhapus, tetapi pembayarannya gagal "
+                    f"dihapus: {hasil_pembayaran['error']}"
+                )
+
             return result
         except HTTPException:
             raise
