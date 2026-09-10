@@ -23,6 +23,7 @@ class BankAccount(BaseModel):
     deletedBy: Optional[int] = None  # ID of the user who deleted the bank account
     deletedAt: Optional[dt] = None  # Deletion date of the bank account
     isDelete: bool = False  # Flag to indicate if the purchase is deleted
+    excludeFromCalendar: bool = False  # Dikecualikan dari saldo gabungan dan kalender
     balance: float | None = None
 
     # Initialize the model with default values
@@ -50,6 +51,7 @@ class BankAccount(BaseModel):
                 deletedBy=self.deletedBy,
                 deletedAt=self.deletedAt,
                 isDelete=self.isDelete,
+                excludeFromCalendar=self.excludeFromCalendar,
             )
             result = await database.execute(query)
             
@@ -141,6 +143,7 @@ class BankAccount(BaseModel):
                         deletedBy=row.deletedBy,
                         deletedAt=row.deletedAt,
                         isDelete=row.isDelete,
+                        excludeFromCalendar=bool(getattr(row, "excludeFromCalendar", False)),
                         balance=0
                     )
                 )
@@ -182,7 +185,8 @@ class BankAccount(BaseModel):
                     updatedAt=row.updatedAt,
                     deletedBy=row.deletedBy,
                     deletedAt=row.deletedAt,
-                    isDelete=row.isDelete
+                    isDelete=row.isDelete,
+                    excludeFromCalendar=bool(getattr(row, "excludeFromCalendar", False)),
                 )
             else:
                 return None
@@ -215,7 +219,8 @@ class BankAccount(BaseModel):
                     updatedAt=row.updatedAt,
                     deletedBy=row.deletedBy,
                     deletedAt=row.deletedAt,
-                    isDelete=row.isDelete
+                    isDelete=row.isDelete,
+                    excludeFromCalendar=bool(getattr(row, "excludeFromCalendar", False)),
                 )
             )
         return response

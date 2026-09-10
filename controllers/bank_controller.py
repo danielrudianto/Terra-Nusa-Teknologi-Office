@@ -42,6 +42,9 @@ class BankController:
             bank_id = result['bank_account_id']            
 
             # Add to redis
+            # CATATAN: cache ini tidak lagi menjadi sumber banks/all.
+            # Tidak ada yang membacanya; update_bank_account pun tidak
+            # pernah menyegarkannya. Jangan dijadikan sumber data lagi.
             r.rpush("bank_account", json.dumps({
                 "id": bank_id,
                 "bankAccountNumber": bank_data["bankAccountNumber"],
@@ -118,21 +121,39 @@ class BankController:
     @staticmethod
     async def get_all_bank_accounts() -> List[Dict]:
         """
-        Retrieve the top bank accounts from the database.
-        
-        Returns:
-            List[Dict]: A list of top bank accounts.
+        Seluruh rekening bank untuk dropdown dan pemilih rekening kalender.
+
+        Sumbernya basis data, BUKAN Redis.
+
+        Cache "bank_account" tidak pernah diperbarui oleh update_bank_account,
+        sehingga isinya hanya benar sampai rekening itu pertama kali dibuat.
+        Setiap kolom baru — dan setiap perubahan nama rekening — tidak pernah
+        sampai ke pemanggil. Kegagalannya sunyi: bidangnya hilang, bukan
+        error, jadi tampilannya tampak bekerja padahal nilainya tidak pernah
+        terbaca.
         """
-        log_info("Getting top bank accounts")
+        log_info("Getting all bank accounts")
         try:
-            bank_accounts = r.lrange("bank_account", 0, -1)
-            accounts = [json.loads(account) for account in bank_accounts]
-            # Sort by isDelete (False first) and then by bankAccountNumber
-            
-            accounts.sort(key=lambda x: (x.get("isDelete", True), x.get("bankAccountNumber", "")))
-            return accounts
+            query = select(bank_accounts_table).order_by(
+                bank_accounts_table.c.isDelete,
+                bank_accounts_table.c.bankAccountNumber,
+            )
+            rows = await database.fetch_all(query)
+            return [
+                {
+                    "id": row.id,
+                    "bankName": row.bankName,
+                    "bankAccountName": row.bankAccountName,
+                    "bankAccountNumber": row.bankAccountNumber,
+                    "isDelete": bool(row.isDelete),
+                    "excludeFromCalendar": bool(
+                        getattr(row, "excludeFromCalendar", False)
+                    ),
+                }
+                for row in rows
+            ]
         except Exception as e:
-            log_error(f"Error retrieving top bank accounts: {str(e)}")
+            log_error(f"Error retrieving all bank accounts: {str(e)}")
             return internal_error()
     @staticmethod
     async def get_bank_account_by_id(bank_id: int) -> Optional[Dict]:
@@ -240,6 +261,9 @@ class BankController:
             if "error" in result:
                 return {"error": result["error"], "status": result["detail"]}
             
+            # CATATAN: cache ini tidak lagi menjadi sumber banks/all.
+            # Tidak ada yang membacanya; update_bank_account pun tidak
+            # pernah menyegarkannya. Jangan dijadikan sumber data lagi.
             bank_accounts = r.lrange("bank_account", 0, -1)
             for index, account in enumerate(bank_accounts):
                 account_data = json.loads(account)
