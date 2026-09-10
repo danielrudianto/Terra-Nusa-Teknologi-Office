@@ -282,6 +282,144 @@ class TaxController:
             return internal_error()
 
     @staticmethod
+    async def get_pph_position(month: int, year: int):
+        """
+        Posisi PPh satu masa: berapa yang terutang, berapa yang sudah disetor.
+
+        DIPISAH DUA — gaji dan pembelian — dan sengaja TIDAK dijumlahkan.
+        Keduanya disetor dengan kode billing dan formulir SPT yang berbeda,
+        dan yang melapor mengisinya sendiri-sendiri. Satu angka gabungan
+        membuat satu masa tampak lunas padahal yang disetor baru salah
+        satunya, dan tidak ada cara membacanya kembali menjadi dua.
+
+        Bedanya dengan posisi PPN, dan ini yang mudah keliru:
+
+        * TIDAK ADA kompensasi antar masa. Lebih bayar PPN dikreditkan ke masa
+          berikutnya; PPh potongan tidak — tiap masa berdiri sendiri.
+        * Terutangnya diakui saat DIBAYARKAN, bukan saat dokumennya terbit.
+          PPh 23 dan 4(2) dipotong pada saat pembayaran, sehingga sumbernya
+          pembayaran keluar yang sudah disetujui — bukan tanggal faktur.
+
+        Angkanya ESTIMASI, bergantung kelengkapan pencatatan saat dibuka.
+        """
+        try:
+            def bersih(hasil, nama):
+                """Kosong bukan galat; hanya kegagalan kueri yang dilaporkan."""
+                if isinstance(hasil, dict):
+                    if hasil.get("status") == 404:
+                        return []
+                    log_error(f"Error fetching PPh from {nama}: {hasil.get('error')}")
+                    raise RuntimeError(hasil.get("error"))
+                return hasil or []
+
+            def nilai_pph(row):
+                """PPh = DPP × persen / 100; `pphPercentage` selalu persen."""
+                dpp = float(row.get("dpp") or 0)
+                persen = float(row.get("pphPercentage") or 0)
+                return (dpp * persen) / 100
+
+            # ---------- Atas pembelian: PPh 23 & 4(2) ----------
+            dari_pembelian = bersih(
+                await PaymentOutgoingRepository.get_purchase_pph_report(month, year),
+                "purchases",
+            )
+            dari_beban = bersih(
+                await PaymentOutgoingRepository.get_expense_pph_report(month, year),
+                "expenses",
+            )
+
+            # Satu DOKUMEN dihitung sekali, walaupun dibayar beberapa kali.
+            #
+            # Kueri sumbernya menghasilkan satu baris per PEMBAYARAN, dan tiap
+            # baris membawa DPP dokumen secara utuh. Tanpa penyaringan ini,
+            # tagihan yang dibayar tiga kali dalam satu masa menghitung PPh-nya
+            # tiga kali — dan angka yang dipakai memutuskan berapa yang disetor
+            # tidak boleh bergantung pada berapa kali kasir mencicilnya.
+            baris_pembelian, terlihat = [], set()
+            for r in dari_pembelian:
+                kunci = ("purchase", r.get("id"))
+                if kunci in terlihat:
+                    continue
+                terlihat.add(kunci)
+                r = dict(r)
+                r["sumber"] = "purchase"
+                r["pphValue"] = nilai_pph(r)
+                baris_pembelian.append(r)
+            for r in dari_beban:
+                kunci = ("expense", r.get("id"))
+                if kunci in terlihat:
+                    continue
+                terlihat.add(kunci)
+                r = dict(r)
+                r["sumber"] = "expense"
+                r["pphValue"] = nilai_pph(r)
+                baris_pembelian.append(r)
+
+            terutang_pembelian = sum(r["pphValue"] for r in baris_pembelian)
+
+            setoran_pembelian_rows = bersih(
+                await ExpenseRepository.get_setoran_pajak(
+                    ExpenseRepository.KODE_SETORAN_PPH_POTONG, month, year
+                ),
+                "PPh 23/4(2) payments",
+            )
+
+            # ---------- Atas gaji: PPh 21 ----------
+            slip = await SalarySlipRepository.get_pph_report(month, year)
+            if isinstance(slip, dict) and slip.get("error"):
+                log_error(f"Error fetching PPh salary: {slip.get('error')}")
+                return internal_error()
+            baris_gaji = list((slip or {}).get("data") or [])
+            for r in baris_gaji:
+                r["pphValue"] = float(r.get("taxAmount") or 0)
+            terutang_gaji = sum(r["pphValue"] for r in baris_gaji)
+
+            setoran_gaji_rows = bersih(
+                await ExpenseRepository.get_setoran_pajak(
+                    ExpenseRepository.KODE_SETORAN_PPH_GAJI, month, year
+                ),
+                "PPh 21 payments",
+            )
+
+            def bagian(nama, terutang, setoran_rows, rows):
+                setoran_total = sum(float(r.get("dpp") or 0) for r in setoran_rows)
+                # Yang benar-benar sudah keluar uangnya; sisanya baru tercatat.
+                setoran_dibayar = sum(
+                    float(r.get("dpp") or 0) for r in setoran_rows if r.get("isPaid")
+                )
+                return {
+                    "nama": nama,
+                    "terutang": round(terutang, 2),
+                    "setoran": round(setoran_total, 2),
+                    "setoranDibayar": round(setoran_dibayar, 2),
+                    "sisa": round(terutang - setoran_total, 2),
+                    # Kesimpulannya diambil dari `utils/pajak`, tidak disusun
+                    # di sini: apakah satu masa sudah selesai adalah pernyataan
+                    # tentang uang, dan bila tiap layar menyimpulkannya sendiri,
+                    # dua layar akan menjawab berbeda atas angka yang sama.
+                    "keadaan": status_setoran(terutang, setoran_total),
+                    "rows": rows,
+                    "setoranRows": setoran_rows,
+                }
+
+            return {
+                "month": month,
+                "year": year,
+                "gaji": bagian("gaji", terutang_gaji, setoran_gaji_rows, baris_gaji),
+                "pembelian": bagian(
+                    "pembelian",
+                    terutang_pembelian,
+                    setoran_pembelian_rows,
+                    baris_pembelian,
+                ),
+            }
+        except RuntimeError:
+            return internal_error()
+        except Exception as e:
+            log_error(f"Unexpected error building PPh position: {str(e)}")
+            return internal_error()
+
+    @staticmethod
     async def get_pph_report(month: int, year: int):
         log_info(f"Fetching PPh report for month {month} and year {year}")
         try:
