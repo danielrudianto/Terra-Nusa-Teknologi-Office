@@ -149,14 +149,21 @@ class ExpenseRepository:
     # Negara (PPN)" adalah data yang diketik orang: satu huruf berbeda atau
     # satu lawan transaksi baru, dan pencocokannya diam-diam berhenti bekerja.
     KODE_SETORAN_PPN = "5.1.8.1"
-    #: Beban berkode ini adalah SETORAN PPh yang sudah dicatat.
+    #: Setoran PPh TIDAK dipetakan ke kode beban, dan itu disengaja.
     #:
-    #: Dipisah dua, bukan satu kode "PPh": keduanya disetor dengan kode billing
-    #: dan formulir SPT yang berbeda, dan yang melapor mengisinya sendiri-
-    #: sendiri. Menggabungkannya membuat satu masa tampak lunas padahal yang
-    #: disetor baru salah satunya.
-    KODE_SETORAN_PPH_POTONG = "5.1.8.2"   # PPh 23 & 4(2), potongan ke vendor
-    KODE_SETORAN_PPH_GAJI = "5.1.8.3"     # PPh 21, gaji karyawan
+    #: Sempat ada dua kode di sini — satu untuk PPh 23/4(2), satu untuk PPh 21
+    #: — dan posisi PPh memakainya untuk menyimpulkan "kurang setor" atau
+    #: "lunas". Pemetaannya tidak bertahan: setoran PPh tidak selalu tercatat
+    #: sebagai beban berkode tersebut, sehingga angka yang muncul bukan berapa
+    #: yang benar-benar disetor.
+    #:
+    #: Yang berbahaya bukan angkanya melainkan kesimpulannya: masa yang
+    #: sebenarnya sudah disetor tampil sebagai "kurang setor", dan yang
+    #: membacanya menyetor dua kali. Posisi PPh kini hanya melaporkan yang
+    #: TERUTANG; yang disetor dibaca dari bukti setornya sendiri.
+    #:
+    #: PPN berbeda dan kodenya tetap dipakai — setoran PPN memang dicatat
+    #: sebagai beban berkode di atas.
 
     @staticmethod
     async def get_setoran_ppn(month: int, year: int):
@@ -219,61 +226,6 @@ class ExpenseRepository:
             return [dict(r) for r in rows]
         except Exception as exc:
             log_error(f"Error fetching PPN payments (expense): {str(exc)}")
-            return {"error": "Internal server error.", "status": 500}
-
-    @staticmethod
-    async def get_setoran_pajak(kode: str, month: int, year: int):
-        """
-        Setoran pajak yang SUDAH TERCATAT sebagai beban, untuk satu masa.
-
-        Bentuknya sama persis dengan `get_setoran_ppn` — yang berbeda hanya
-        kode bebannya. Dipisahkan supaya posisi PPh tidak menyalin ulang kueri
-        yang sama: dua salinan berarti satu di antaranya pasti tertinggal
-        ketika perlakuan masanya disesuaikan, dan dua layar pajak akan
-        menjawab berbeda atas masa yang sama.
-
-        Dikelompokkan menurut MASA yang DITANGGUNG (`COALESCE(masaPajak,
-        date)`), bukan tanggal setornya: PPh masa Juni disetor pada Juli, dan
-        yang dicari layar ini adalah setoran UNTUK Juni.
-
-        `isPaid` dibawa apa adanya — beban yang tercatat tetapi belum dibayar
-        bukan setoran, dan layarnya yang memutuskan bagaimana menyebutnya.
-        """
-        try:
-            e = expenses_table.c
-            masa = ExpenseRepository.masa_pajak_efektif()
-            query = (
-                select(
-                    e.id,
-                    e.invoiceName,
-                    e.receiptName,
-                    e.description,
-                    e.date,
-                    e.masaPajak,
-                    e.dpp,
-                    e.isPaid,
-                    expense_opponents_table.c.name.label("opponentName"),
-                )
-                .select_from(
-                    expenses_table.outerjoin(
-                        expense_opponents_table,
-                        expenses_table.c.opponentID
-                        == expense_opponents_table.c.id,
-                    )
-                )
-                .where(
-                    e.isDelete == False,  # noqa: E712
-                    e.purchaseType == kode,
-                    func.extract("month", masa) == month,
-                    func.extract("year", masa) == year,
-                    masa >= MASA_PAJAK_AWAL,
-                )
-                .order_by(e.date.asc())
-            )
-            rows = await database.fetch_all(query)
-            return [dict(r) for r in rows]
-        except Exception as exc:
-            log_error(f"Error fetching tax payments ({kode}): {str(exc)}")
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod

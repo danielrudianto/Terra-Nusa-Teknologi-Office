@@ -284,13 +284,29 @@ class TaxController:
     @staticmethod
     async def get_pph_position(month: int, year: int):
         """
-        Posisi PPh satu masa: berapa yang terutang, berapa yang sudah disetor.
+        Posisi PPh satu masa: berapa yang TERUTANG.
 
         DIPISAH DUA — gaji dan pembelian — dan sengaja TIDAK dijumlahkan.
         Keduanya disetor dengan kode billing dan formulir SPT yang berbeda,
         dan yang melapor mengisinya sendiri-sendiri. Satu angka gabungan
-        membuat satu masa tampak lunas padahal yang disetor baru salah
+        membuat satu masa tampak selesai padahal yang disetor baru salah
         satunya, dan tidak ada cara membacanya kembali menjadi dua.
+
+        Setorannya TIDAK dilaporkan di sini
+        -----------------------------------
+
+        Sempat ada, dan itu keliru. Setorannya dicari di antara beban dengan
+        kode tertentu, lalu dikurangkan dari terutang untuk menyimpulkan
+        "kurang setor" atau "lunas". Kesimpulan itu hanya sekuat pemetaan
+        kodenya — dan pemetaan itu tidak bertahan: setoran PPh tidak selalu
+        tercatat sebagai beban berkode tersebut, sehingga angka yang muncul
+        bukan berapa yang benar-benar disetor.
+
+        Yang berbahaya bukan angkanya melainkan kesimpulannya: masa yang
+        sebenarnya sudah disetor tampil sebagai "kurang setor", dan yang
+        membacanya menyetor dua kali. Lebih baik tidak menyatakan apa pun
+        tentang setoran daripada menyatakannya salah — yang disetor dibaca
+        dari bukti setornya sendiri, bukan disimpulkan dari sini.
 
         Bedanya dengan posisi PPN, dan ini yang mudah keliru:
 
@@ -357,13 +373,6 @@ class TaxController:
 
             terutang_pembelian = sum(r["pphValue"] for r in baris_pembelian)
 
-            setoran_pembelian_rows = bersih(
-                await ExpenseRepository.get_setoran_pajak(
-                    ExpenseRepository.KODE_SETORAN_PPH_POTONG, month, year
-                ),
-                "PPh 23/4(2) payments",
-            )
-
             # ---------- Atas gaji: PPh 21 ----------
             slip = await SalarySlipRepository.get_pph_report(month, year)
             if isinstance(slip, dict) and slip.get("error"):
@@ -374,43 +383,27 @@ class TaxController:
                 r["pphValue"] = float(r.get("taxAmount") or 0)
             terutang_gaji = sum(r["pphValue"] for r in baris_gaji)
 
-            setoran_gaji_rows = bersih(
-                await ExpenseRepository.get_setoran_pajak(
-                    ExpenseRepository.KODE_SETORAN_PPH_GAJI, month, year
-                ),
-                "PPh 21 payments",
-            )
+            def bagian(nama, terutang, rows):
+                """
+                Terutang beserta rinciannya — tidak lebih.
 
-            def bagian(nama, terutang, setoran_rows, rows):
-                setoran_total = sum(float(r.get("dpp") or 0) for r in setoran_rows)
-                # Yang benar-benar sudah keluar uangnya; sisanya baru tercatat.
-                setoran_dibayar = sum(
-                    float(r.get("dpp") or 0) for r in setoran_rows if r.get("isPaid")
-                )
+                Tidak ada `setoran`, `sisa`, maupun `keadaan` di sini. Layar
+                yang menerima ketiganya akan menampilkan kesimpulan, dan
+                kesimpulan atas setoran hanya boleh datang dari bukti
+                setornya sendiri.
+                """
                 return {
                     "nama": nama,
                     "terutang": round(terutang, 2),
-                    "setoran": round(setoran_total, 2),
-                    "setoranDibayar": round(setoran_dibayar, 2),
-                    "sisa": round(terutang - setoran_total, 2),
-                    # Kesimpulannya diambil dari `utils/pajak`, tidak disusun
-                    # di sini: apakah satu masa sudah selesai adalah pernyataan
-                    # tentang uang, dan bila tiap layar menyimpulkannya sendiri,
-                    # dua layar akan menjawab berbeda atas angka yang sama.
-                    "keadaan": status_setoran(terutang, setoran_total),
                     "rows": rows,
-                    "setoranRows": setoran_rows,
                 }
 
             return {
                 "month": month,
                 "year": year,
-                "gaji": bagian("gaji", terutang_gaji, setoran_gaji_rows, baris_gaji),
+                "gaji": bagian("gaji", terutang_gaji, baris_gaji),
                 "pembelian": bagian(
-                    "pembelian",
-                    terutang_pembelian,
-                    setoran_pembelian_rows,
-                    baris_pembelian,
+                    "pembelian", terutang_pembelian, baris_pembelian
                 ),
             }
         except RuntimeError:

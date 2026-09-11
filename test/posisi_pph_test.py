@@ -61,19 +61,14 @@ def test_keduanya_tidak_dijumlahkan_menjadi_satu_angka():
     assert not re.search(r"terutang_pembelian\s*\+\s*terutang_gaji", b)
 
 
-def test_tiap_bagian_menyebut_terutang_setoran_dan_sisanya():
+def test_tiap_bagian_menyebut_terutang_dan_rinciannya():
+    """
+    Dua kunci, bukan lima. Yang dibuang — setoran, sisanya, dan kesimpulan
+    lunas/kurang — dijaga terpisah di bawah.
+    """
     b = _blok(CTRL, "get_pph_position")
-    for kunci in ('"terutang"', '"setoran"', '"setoranDibayar"', '"sisa"', '"keadaan"'):
+    for kunci in ('"terutang"', '"rows"', '"nama"'):
         assert kunci in b, f"bagian posisi tidak menyebut {kunci}"
-
-
-def test_kesimpulan_keadaan_diambil_dari_utils_pajak():
-    """
-    Bila tiap layar menyimpulkan sendiri apakah satu masa sudah selesai, dua
-    layar akan menjawab berbeda atas angka yang sama.
-    """
-    b = _blok(CTRL, "get_pph_position")
-    assert "status_setoran(" in b
 
 
 # ----------------------------------------------------------------------
@@ -110,48 +105,65 @@ def test_tidak_ada_kompensasi_antar_masa():
 
 
 # ----------------------------------------------------------------------
-# Setoran
+# Setoran — TIDAK dilaporkan di sini
 # ----------------------------------------------------------------------
 
-def test_kode_setoran_pph_terpisah_dua():
+def test_posisi_pph_tidak_menyebut_setoran():
+    """
+    Setorannya sempat dicari di antara beban dengan kode tertentu, lalu
+    dikurangkan dari terutang untuk menyimpulkan "kurang setor" atau "lunas".
+
+    Pemetaan kodenya tidak bertahan: setoran PPh tidak selalu tercatat sebagai
+    beban berkode tersebut, sehingga angka yang muncul bukan berapa yang
+    benar-benar disetor. Dan yang berbahaya bukan angkanya melainkan
+    kesimpulannya — masa yang sebenarnya sudah disetor tampil sebagai "kurang
+    setor", dan yang membacanya menyetor dua kali.
+
+    Lebih baik tidak menyatakan apa pun tentang setoran daripada
+    menyatakannya salah.
+    """
+    b = _blok(CTRL, "get_pph_position")
+    for kata in ("get_setoran_pajak", "setoran_total", "setoranRows", "sisa"):
+        assert kata not in b, (
+            f"posisi PPh masih menghitung setoran ({kata})"
+        )
+
+
+def test_kesimpulan_setoran_tidak_disusun_untuk_pph():
+    """
+    `status_setoran` menjawab lunas/kurang/lebih. Dipakai di sini, ia
+    menyatakan sesuatu tentang uang yang tidak diketahui sumbernya.
+    """
+    b = _blok(CTRL, "get_pph_position")
+    assert "status_setoran" not in b
+    assert "keadaan" not in b
+
+
+def test_kode_setoran_pph_tidak_ada_lagi():
+    """
+    Konstantanya ikut dihapus, bukan sekadar tidak dipanggil.
+
+    Konstanta yang tertinggal menyatakan pemetaan yang keliru sebagai
+    fakta — dan yang membacanya nanti akan memakainya lagi.
+    """
     from repository.expense_repository import ExpenseRepository
 
-    assert ExpenseRepository.KODE_SETORAN_PPH_POTONG == "5.1.8.2"
-    assert ExpenseRepository.KODE_SETORAN_PPH_GAJI == "5.1.8.3"
+    assert not hasattr(ExpenseRepository, "KODE_SETORAN_PPH_POTONG")
+    assert not hasattr(ExpenseRepository, "KODE_SETORAN_PPH_GAJI")
+
+
+def test_kode_setoran_ppn_tetap_ada():
+    """
+    PPN berbeda: setorannya memang dicatat sebagai beban berkode itu, dan
+    posisi PPN tetap memakainya. Yang dicabut hanya PPh.
+    """
+    from repository.expense_repository import ExpenseRepository
+
     assert ExpenseRepository.KODE_SETORAN_PPN == "5.1.8.1"
-    # Ketiganya harus berbeda; satu kode dipakai dua pajak membuat setoran
-    # yang satu menutupi kekurangan yang lain.
-    assert len({
-        ExpenseRepository.KODE_SETORAN_PPN,
-        ExpenseRepository.KODE_SETORAN_PPH_POTONG,
-        ExpenseRepository.KODE_SETORAN_PPH_GAJI,
-    }) == 3
 
 
-def test_setoran_dikelompokkan_menurut_masa_yang_ditanggung():
-    """
-    PPh masa Juni disetor pada Juli. Mengelompokkan menurut tanggal setor
-    membuat masa Juni selamanya tampak belum dibayar.
-    """
-    b = _blok(REPO, "get_setoran_pajak")
-    assert "masa_pajak_efektif()" in b
-    assert 'func.extract("month", masa) == month' in b
-
-
-def test_kueri_setoran_tidak_disalin_dua_kali():
-    """
-    Dua salinan berarti satu di antaranya pasti tertinggal ketika perlakuan
-    masanya disesuaikan — dan dua layar pajak akan menjawab berbeda atas masa
-    yang sama.
-    """
+def test_terutang_beserta_rinciannya_tetap_dilaporkan():
+    """Yang dibuang hanya setorannya; terutang dan rinciannya tetap."""
     b = _blok(CTRL, "get_pph_position")
-    assert b.count("get_setoran_pajak(") == 2, (
-        "posisi PPh tidak memakai kueri setoran bersama"
-    )
-
-
-def test_beban_belum_dibayar_bukan_setoran_yang_dibayar():
-    b = _blok(CTRL, "get_pph_position")
-    assert 'r.get("isPaid")' in b, (
-        "setoran yang baru tercatat tetapi belum dibayar tidak dibedakan"
-    )
+    assert '"terutang"' in b
+    assert '"rows"' in b
