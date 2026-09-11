@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from sqlalchemy import Table, Column, DateTime, Integer, String, Boolean, ForeignKey, Date
+from sqlalchemy import Table, Column, DateTime, Integer, Numeric, String, Boolean, ForeignKey, Date
 from utils.database import metadata
 from datetime import date as d, datetime as dt
 
@@ -50,13 +50,21 @@ payments_outgoing_table = Table(
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("date", Date(), nullable=False),
-    # DECIMAL(17,4) di basis data, BUKAN Integer.
+    # DECIMAL(17,4) — sama seperti di basis data.
     #
-    # `Integer` di sini keliru dan sudah lama begitu; tabelnya DECIMAL sejak
-    # awal. Tipe yang tertulis dibiarkan agar perilaku pembacaannya tidak
-    # berubah dalam satu perubahan yang sama, tetapi jangan menyimpulkan dari
-    # baris ini bahwa nilainya bilangan bulat — ia tidak pernah bulat.
-    Column("amount", Integer, nullable=False),
+    # Sempat tertulis `Integer`, dan itu tidak berakibat apa pun selama
+    # tabelnya sudah ada: MySQL tetap mengembalikan DECIMAL, dan yang
+    # tertulis di sini hanya dibaca saat tabelnya DIBUAT.
+    #
+    # Justru itu bahayanya. Sejak skema dapat dibangun ulang dari model,
+    # baris ini menentukan bentuk tabel pada basis data baru — pemulihan dari
+    # cadangan, mesin uji, atau server pengganti. Dengan `Integer`, kolomnya
+    # menjadi INT dan setiap nominal berkoma dibulatkan DIAM-DIAM saat
+    # disimpan: Rp 0,11 tersimpan sebagai 0, dan tidak ada galat apa pun.
+    #
+    # Tidak ada yang berubah pada basis data yang sudah berjalan; yang
+    # berubah adalah apa yang dibangun untuk yang berikutnya.
+    Column("amount", Numeric(17, 4), nullable=False),
     Column("purchaseID", Integer, ForeignKey("purchases.id"), nullable=True),
     Column("expenseID", Integer, ForeignKey('expenses.id'), nullable=True),
     Column("reimbursementID", Integer, ForeignKey('reimbursements.id'), nullable=True),

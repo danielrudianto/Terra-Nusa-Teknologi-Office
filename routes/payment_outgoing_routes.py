@@ -39,23 +39,41 @@ async def fetch_mutation(
     )
     
     if "error" in result:
-        log_error(f"Error creating payment: {result['error']}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-    
+        log_error(f"Error fetching mutation: {result['error']}")
+        raise HTTPException(
+            status_code=result.get("status", 500), detail=error_detail(result)
+        )
+
     return result
 
 @router.post("/")
 async def create_payment(payment: PaymentOutgoing, user: Annotated[dict, Depends(require("payment_outgoing", "create"))]):
     """
     Create a new payment. Requires a valid token.
+
+    Status dan pesannya diteruskan APA ADANYA dari controller.
+
+    Sebelumnya SETIAP kegagalan dijadikan 500 "Internal server error" — juga
+    penolakan yang disengaja dan sudah membawa pesannya sendiri: "dokumen ini
+    sudah lunas", "nominal melebihi sisa tagihan". Yang sampai ke pemakai
+    hanya "terjadi kesalahan di server, coba lagi nanti", sehingga ia mencoba
+    lagi — padahal mencoba lagi tidak akan pernah berhasil, dan yang perlu
+    diperbaiki adalah angkanya.
+
+    Lebih buruk lagi ketika dipanggil beruntun: pembuatan beban berhasil,
+    pembuatan slipnya ditolak, dan pemakai melihat pesan galat server di atas
+    beban yang sebenarnya TERSIMPAN. Ia lalu mengira bebannya gagal dan
+    membuatnya sekali lagi.
     """
     userID = user["id"]
     result = await PaymentOutgoingController.create_payment(payment.model_dump(), userID)
-    
+
     if "error" in result:
         log_error(f"Error creating payment: {result['error']}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-    
+        raise HTTPException(
+            status_code=result.get("status", 500), detail=error_detail(result)
+        )
+
     return result
 
 @router.get("/{paymentID}")
@@ -65,9 +83,14 @@ async def get_payment_by_id(paymentID: int, user: Annotated[dict, Depends(requir
     """
     result = await PaymentOutgoingController.get_payment_by_id(paymentID)
     
+    # Pembayaran yang tidak ada menjawab 404, bukan 500. Dulu keduanya
+    # dijadikan 500, sehingga tautan ke pembayaran yang sudah dihapus
+    # terbaca sebagai server rusak.
     if "error" in result:
         log_error(f"Error fetching payment with ID {paymentID}: {result['error']}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(
+            status_code=result.get("status", 500), detail=error_detail(result)
+        )
     
     return result
 
@@ -106,7 +129,9 @@ async def get_payments(
     
     if "error" in result:
         log_error(f"Error fetching payments: {result['error']}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(
+            status_code=result.get("status", 500), detail=error_detail(result)
+        )
     
     return result
 
@@ -216,9 +241,14 @@ async def reject_payment_status(
     userID = user["id"]
     result = await PaymentOutgoingController.update_payment_status(paymentID, "reject", userID)
     
+    # Penolakan karena LEVEL menjawab 403, bukan 500 — yang tidak berwenang
+    # perlu tahu bahwa ia tidak berwenang, bukan mengira sistemnya sedang
+    # bermasalah dan mencoba lagi.
     if "error" in result:
         log_error(f"Error rejecting payment with ID {paymentID}: {result['error']}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(
+            status_code=result.get("status", 500), detail=error_detail(result)
+        )
 
     return result
 

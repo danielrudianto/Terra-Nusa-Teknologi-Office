@@ -54,6 +54,31 @@ def terbaca(baris) -> bool:
         return False
 
 
+#: Selisih rupiah yang masih dianggap NOL.
+#
+#: Ada untuk menyerap sisa pembulatan pajak: PPN dan PPh dibulatkan ke rupiah
+#: penuh, dan penjumlahannya kerap meleset satu-dua rupiah dari nominal yang
+#: benar-benar ditransfer. Tanpa toleransi, tagihan yang sudah dibayar lunas
+#: tetap tercatat kurang bayar beberapa rupiah selamanya.
+#:
+#: Yang TIDAK boleh disimpulkan darinya: bahwa dokumen bernilai di bawah lima
+#: rupiah sudah lunas. Toleransi berlaku pada SISA setelah ada pembayaran,
+#: bukan pada nilai dokumennya sendiri.
+TOLERANSI_RUPIAH = 5
+
+
+def tertunda_saja(tagihan: dict) -> bool:
+    """
+    Apakah yang menutup tagihan ini HANYA slip yang belum disetujui?
+
+    Membedakan dua keadaan yang mudah tertukar: dokumen yang uangnya sudah
+    keluar, dan dokumen yang slipnya sudah dibuat tetapi masih menunggu
+    seseorang menyetujuinya. Keduanya menolak slip baru, tetapi yang perlu
+    dilakukan pemakai berbeda sama sekali.
+    """
+    return tagihan.get("tertunda", 0) > 0 and tagihan.get("disetujui", 0) <= 0
+
+
 def nilai_pembelian(pembelian) -> float:
     """
     Nilai tagihan sebuah pembelian: yang BENAR-BENAR keluar dari bank.
@@ -153,21 +178,44 @@ class PaymentOutgoingController:
         """
         Berapa yang masih boleh dibayarkan atas dokumen ini.
 
-        Dihitung dari nilai dokumennya dikurangi pembayaran yang sudah
-        DISETUJUI dan belum dihapus — sama persis dengan cara `isPaid`
-        disimpulkan, sehingga keduanya tidak pernah berbeda pendapat.
-
         Mengembalikan `None` bila dokumennya tidak dikenali; pemanggil
         memperlakukannya sebagai "tidak dapat diperiksa" dan melanjutkan,
         bukan menolak. Menolak yang tidak dapat diperiksa akan memblokir
         jenis pembayaran baru yang belum sempat didaftarkan di sini.
+
+        Tiga angka, bukan satu
+        ----------------------
+
+        `disetujui`  pembayaran yang sudah disetujui — dasar `isPaid`.
+        `tertunda`   slip yang sudah dibuat tetapi belum disetujui.
+        `sisa`       nilai dokumen dikurangi KEDUANYA.
+
+        Slip yang menunggu persetujuan IKUT DIHITUNG, dan ini sengaja berbeda
+        dari cara `isPaid` disimpulkan.
+
+        Alasannya: yang dijaga di sini adalah uang keluar dua kali. Slip yang
+        tertunda akan menjadi uang keluar begitu disetujui, jadi ia sudah
+        memesan nominalnya. Menghitung yang disetujui saja membiarkan jalur
+        yang justru paling sering terjadi — tombol simpan tertekan dua kali,
+        dua slip terbentuk, keduanya disetujui belakangan oleh orang yang
+        tidak tahu ada dua.
+
+        Pemesanan itu tidak permanen: menolak slip menyetel `isDelete`,
+        sehingga nominalnya kembali tersedia.
+
+        `isPaid` tetap dihitung dari yang DISETUJUI saja — dokumen belum
+        lunas hanya karena slipnya sudah dibuat.
         """
 
-        def jumlah(daftar) -> float:
+        def jumlah(daftar, disetujui: bool) -> float:
             if isinstance(daftar, dict):
                 return 0.0
             return float(
-                sum(p.amount for p in daftar if p.isApprove and not p.isDelete)
+                sum(
+                    p.amount
+                    for p in daftar
+                    if not p.isDelete and bool(p.isApprove) is disetujui
+                )
             )
 
         try:
@@ -207,7 +255,15 @@ class PaymentOutgoingController:
             else:
                 return None
 
-            return float(nilai) - jumlah(bayar)
+            disetujui = jumlah(bayar, True)
+            tertunda = jumlah(bayar, False)
+            return {
+                "nilai": float(nilai),
+                "disetujui": disetujui,
+                "tertunda": tertunda,
+                "dibayar": disetujui + tertunda,
+                "sisa": float(nilai) - disetujui - tertunda,
+            }
         except Exception as e:
             log_error(f"Gagal menghitung sisa tagihan: {e}")
             return None
@@ -240,22 +296,49 @@ class PaymentOutgoingController:
         # Diperiksa di SERVER, bukan cukup dengan menyembunyikan tombolnya —
         # muatan permintaan dapat disusun sendiri oleh siapa pun yang membuka
         # Network tab.
-        sisa = await PaymentOutgoingController._sisa_tagihan(payment_data)
-        if sisa is not None:
+        tagihan = await PaymentOutgoingController._sisa_tagihan(payment_data)
+        if tagihan is not None:
             nominal = float(payment_data.get("amount") or 0)
+            sisa = tagihan["sisa"]
 
-            if sisa <= 5:
+            # Toleransi hanya berlaku bila SUDAH ADA yang dibayar.
+            #
+            # Toleransi ini ada untuk menyerap sisa PEMBULATAN — beberapa
+            # rupiah yang tertinggal setelah pembayaran, bukan tagihan
+            # sungguhan. Dulu ia dipakai tanpa syarat, sehingga setiap
+            # dokumen yang nilainya sendiri di bawah lima rupiah langsung
+            # dinyatakan lunas dan TIDAK PERNAH DAPAT DIBAYAR — padahal
+            # belum sepeser pun keluar.
+            #
+            # Itu yang terjadi pada beban bernilai Rp 0,11: beban tersimpan,
+            # lalu pembuatan slipnya ditolak, dan yang sampai ke pemakai
+            # hanya "terjadi kesalahan di server".
+            if sisa <= 0 or (sisa <= TOLERANSI_RUPIAH and tagihan["dibayar"] > 0):
+                # Slip yang menunggu persetujuan BUKAN dokumen lunas.
+                #
+                # Menyebut keduanya "sudah lunas" menyesatkan: yang satu
+                # sudah selesai, yang satu lagi justru menunggu tindakan
+                # seseorang. Pemakai yang menerima kalimat yang salah akan
+                # mencari dokumen itu di daftar yang keliru.
+                if tertunda_saja(tagihan):
+                    return app_error(
+                        ErrorCode.PAYMENT_LOCKED,
+                        "Sudah ada slip pembayaran untuk dokumen ini yang "
+                        "menunggu persetujuan. Tolak slip itu lebih dulu bila "
+                        "ingin menggantinya.",
+                        400,
+                    )
                 return app_error(
                     ErrorCode.PAYMENT_LOCKED,
                     "Dokumen ini sudah lunas; tidak ada sisa tagihan yang "
                     "dapat dibayarkan.",
                     400,
                 )
-            if nominal - sisa > 5:
+            if nominal - sisa > TOLERANSI_RUPIAH:
                 return app_error(
                     ErrorCode.VALIDATION,
                     f"Nominal melebihi sisa tagihan. Sisa yang dapat "
-                    f"dibayarkan: {sisa:,.0f}.",
+                    f"dibayarkan: {sisa:,.2f}.",
                     400,
                 )
 

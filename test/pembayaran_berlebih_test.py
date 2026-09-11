@@ -48,7 +48,7 @@ def test_pembuatan_menolak_yang_lunas():
 
 def test_pembuatan_menolak_yang_melebihi():
     b = _blok('create_payment')
-    assert 'nominal - sisa > 5' in b
+    assert 'nominal - sisa > TOLERANSI_RUPIAH' in b
 
 
 def test_toleransi_lima_rupiah():
@@ -56,8 +56,34 @@ def test_toleransi_lima_rupiah():
     Pembulatan pajak menyisakan selisih beberapa rupiah yang bukan kelebihan
     bayar. Angka lima dipakai konsisten dengan perhitungan `isPaid`.
     """
+    s = open(BERKAS).read()
+    assert 'TOLERANSI_RUPIAH = 5' in s
+
+
+def test_toleransi_hanya_berlaku_setelah_ada_pembayaran():
+    """
+    Toleransi menyerap sisa PEMBULATAN, bukan menyatakan dokumen kecil lunas.
+
+    Dipakai tanpa syarat, ia membuat setiap dokumen yang nilainya sendiri di
+    bawah lima rupiah langsung dinyatakan lunas dan TIDAK PERNAH DAPAT
+    DIBAYAR — padahal belum sepeser pun keluar. Persis itu yang terjadi pada
+    beban bernilai Rp 0,11: bebannya tersimpan, slip pembayarannya ditolak.
+    """
     b = _blok('create_payment')
-    assert 'sisa <= 5' in b
+    assert 'tagihan["dibayar"] > 0' in b, (
+        'penjaga "sudah lunas" harus menuntut adanya pembayaran sebelum '
+        'toleransi diberlakukan'
+    )
+
+
+def test_sisa_tagihan_melaporkan_yang_sudah_dibayar():
+    """
+    Tanpa angka itu, "tersisa dua rupiah karena pembulatan" tidak dapat
+    dibedakan dari "dokumen ini memang bernilai dua rupiah".
+    """
+    b = _blok('_sisa_tagihan')
+    assert '"dibayar"' in b
+    assert '"sisa"' in b
 
 
 def test_dokumen_tak_dikenal_tidak_diblokir():
@@ -68,4 +94,4 @@ def test_dokumen_tak_dikenal_tidak_diblokir():
     yang belum sempat ditambahkan.
     """
     b = _blok('create_payment')
-    assert 'if sisa is not None:' in b
+    assert 'if tagihan is not None:' in b
