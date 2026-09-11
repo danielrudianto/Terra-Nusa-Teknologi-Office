@@ -12,7 +12,7 @@ from repository.loan_repository import LoanRepository
 from repository.bank_account_repository import BankAccount
 from repository.expense_repository import ExpenseRepository
 from utils.errors import internal_error
-from utils.pajak import status_setoran
+from utils.pajak import periode_slip_untuk_masa, status_setoran
 
 class TaxController:
     @staticmethod
@@ -374,7 +374,20 @@ class TaxController:
             terutang_pembelian = sum(r["pphValue"] for r in baris_pembelian)
 
             # ---------- Atas gaji: PPh 21 ----------
-            slip = await SalarySlipRepository.get_pph_report(month, year)
+            #
+            # Slip yang diambil BUKAN slip bulan ini melainkan bulan
+            # sebelumnya: gaji Agustus dibayarkan September, dan PPh 21
+            # terutang saat penghasilannya dibayarkan. Lihat
+            # `periode_slip_untuk_masa`.
+            #
+            # Pergeserannya di SINI, bukan di dalam repository. Kueri yang
+            # sama dipakai laporan lain yang memang berbicara tentang slip
+            # bulan itu sendiri; menggeser di repository memindahkan artinya
+            # untuk semua pemanggil sekaligus, termasuk yang tidak diminta.
+            bulan_slip, tahun_slip = periode_slip_untuk_masa(month, year)
+            slip = await SalarySlipRepository.get_pph_report(
+                bulan_slip, tahun_slip
+            )
             if isinstance(slip, dict) and slip.get("error"):
                 log_error(f"Error fetching PPh salary: {slip.get('error')}")
                 return internal_error()
@@ -383,7 +396,7 @@ class TaxController:
                 r["pphValue"] = float(r.get("taxAmount") or 0)
             terutang_gaji = sum(r["pphValue"] for r in baris_gaji)
 
-            def bagian(nama, terutang, rows):
+            def bagian(nama, terutang, rows, periode=None):
                 """
                 Terutang beserta rinciannya — tidak lebih.
 
@@ -392,16 +405,31 @@ class TaxController:
                 kesimpulan atas setoran hanya boleh datang dari bukti
                 setornya sendiri.
                 """
-                return {
+                hasil = {
                     "nama": nama,
                     "terutang": round(terutang, 2),
                     "rows": rows,
                 }
+                # Periode yang MENJADI SUMBER bagian ini, bila berbeda dari
+                # masanya. Layar menyebutkannya apa adanya; tanpa itu yang
+                # membaca "Masa September" melihat slip Agustus dan mengira
+                # ada yang keliru.
+                if periode:
+                    hasil["periodeSlip"] = {
+                        "month": periode[0],
+                        "year": periode[1],
+                    }
+                return hasil
 
             return {
                 "month": month,
                 "year": year,
-                "gaji": bagian("gaji", terutang_gaji, baris_gaji),
+                "gaji": bagian(
+                    "gaji",
+                    terutang_gaji,
+                    baris_gaji,
+                    periode=(bulan_slip, tahun_slip),
+                ),
                 "pembelian": bagian(
                     "pembelian", terutang_pembelian, baris_pembelian
                 ),
@@ -439,13 +467,40 @@ class TaxController:
         
     @staticmethod
     async def get_pph_salary_report(month: int, year: int):
-        log_info(f"Fetching PPh report for month {month} and year {year}")
+        """
+        Rekap PPh 21 satu MASA — bukan satu periode slip.
+
+        `month`/`year` di sini masa pajaknya, sama seperti pada posisi PPh,
+        dan slip yang diambil bulan sebelumnya: gaji Agustus dibayarkan
+        September, dan PPh 21 terutang saat penghasilannya dibayarkan.
+
+        Disamakan dengan posisi PPh dengan sengaja. Keduanya tombol pada
+        kartu yang sama; bila yang satu berarti "masa" dan yang lain "periode
+        slip", angka pada layar tidak akan pernah cocok dengan angka pada
+        unduhannya — dan yang membandingkannya menyimpulkan salah satunya
+        rusak.
+        """
+        log_info(
+            f"Fetching PPh salary report for masa {month}/{year}"
+        )
         try:
-            salary_slip = await SalarySlipRepository.get_pph_report(month, year)
+            bulan_slip, tahun_slip = periode_slip_untuk_masa(month, year)
+            salary_slip = await SalarySlipRepository.get_pph_report(
+                bulan_slip, tahun_slip
+            )
             if "error" in salary_slip:
                 log_error(f"Error fetching salary slip data: {salary_slip['error']}")
                 raise HTTPException(status_code=salary_slip.get("status", 500), detail=salary_slip["error"])
             
+            # Masa dan periode slipnya ikut dikirim supaya lembar unduhan
+            # dapat menyebut keduanya. Tanpa itu yang membukanya melihat
+            # "September" di judul dan slip Agustus di isinya.
+            if isinstance(salary_slip, dict):
+                salary_slip["masa"] = {"month": month, "year": year}
+                salary_slip["periodeSlip"] = {
+                    "month": bulan_slip,
+                    "year": tahun_slip,
+                }
             return salary_slip
         except IntegrityError as e:
             log_error(f"Integrity error: {str(e)}")

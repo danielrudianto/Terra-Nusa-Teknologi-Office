@@ -19,6 +19,7 @@ import re
 
 AKAR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CTRL = "controllers/tax_controller.py"
+REPO_SLIP = os.path.join(AKAR, "repository", "salary_slip_repository.py")
 REPO = "repository/expense_repository.py"
 
 
@@ -167,3 +168,75 @@ def test_terutang_beserta_rinciannya_tetap_dilaporkan():
     b = _blok(CTRL, "get_pph_position")
     assert '"terutang"' in b
     assert '"rows"' in b
+
+
+# ----------------------------------------------------------------------
+# Masa PPh 21 — digeser satu bulan dari periode slipnya
+# ----------------------------------------------------------------------
+
+def test_periode_slip_untuk_masa():
+    """
+    Gaji Agustus dibayarkan September, dan PPh 21 terutang saat
+    penghasilannya DIBAYARKAN. Masa September karena itu memuat slip Agustus.
+    """
+    from utils.pajak import periode_slip_untuk_masa as f
+
+    assert f(9, 2026) == (8, 2026)
+    assert f(12, 2026) == (11, 2026)
+
+
+def test_masa_januari_menyeberang_tahun():
+    """
+    Satu-satunya masa yang menyeberang tahun. Pemanggil yang mengurangkan
+    bulannya sendiri akan benar sebelas kali lalu salah sekali — tepat pada
+    masa yang paling sibuk.
+    """
+    from utils.pajak import periode_slip_untuk_masa as f
+
+    assert f(1, 2026) == (12, 2025)
+
+
+def test_posisi_pph_mengambil_slip_masa_sebelumnya():
+    """
+    Sebelum ini satu layar memakai DUA arti "masa" sekaligus: sisi pembelian
+    disaring dari tanggal PEMBAYARAN, sisi gaji dari periode slipnya sendiri.
+    Dua arti untuk satu kata pada satu halaman.
+    """
+    b = _blok(CTRL, "get_pph_position")
+    assert "periode_slip_untuk_masa(month, year)" in b
+    assert "get_pph_report(\n                bulan_slip, tahun_slip\n            )" in b, (
+        "posisi PPh masih mengambil slip bulan yang sama dengan masanya"
+    )
+
+
+def test_pergeseran_tidak_ditanam_di_repository():
+    """
+    Kueri yang sama dipakai laporan lain yang memang berbicara tentang slip
+    bulan itu sendiri. Menggeser di repository memindahkan artinya untuk
+    SEMUA pemanggil sekaligus, termasuk yang tidak diminta.
+    """
+    import io
+    isi = io.open(REPO_SLIP, encoding="utf-8").read()
+    assert "periode_slip_untuk_masa" not in isi
+    assert "OFFSET_MASA_PPH21" not in isi
+
+
+def test_unduhan_gaji_memakai_masa_yang_sama():
+    """
+    Keduanya tombol pada kartu yang sama. Bila yang satu berarti "masa" dan
+    yang lain "periode slip", angka pada layar tidak akan pernah cocok dengan
+    angka pada unduhannya — dan yang membandingkannya menyimpulkan salah
+    satunya rusak.
+    """
+    b = _blok(CTRL, "get_pph_salary_report")
+    assert "periode_slip_untuk_masa(month, year)" in b
+
+
+def test_periode_slip_ikut_dikirim_ke_layar():
+    """
+    Yang membaca "Masa September" lalu melihat slip Agustus di rinciannya
+    akan mengira ada yang keliru — padahal justru itu yang benar. Karena itu
+    periodenya disebut, bukan dibiarkan ditebak.
+    """
+    b = _blok(CTRL, "get_pph_position")
+    assert '"periodeSlip"' in b

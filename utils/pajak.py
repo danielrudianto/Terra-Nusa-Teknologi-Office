@@ -75,3 +75,52 @@ def status_setoran(selisih: float, setoran: float) -> str:
     if abs(sisa) <= TOLERANSI_SETORAN:
         return "lunas"
     return "kurang" if sisa > 0 else "lebih"
+
+
+# Jarak bulan antara PERIODE slip gaji dan MASA PPh 21-nya.
+#
+# Gaji Agustus di AKN dibayarkan pada September, dan PPh 21 terutang saat
+# penghasilannya DIBAYARKAN — bukan saat bulan kerjanya berakhir. Masa
+# September karena itu memuat PPh 21 atas slip Agustus, disetor paling lambat
+# 10 Oktober, dan dilaporkan pada SPT Masa September.
+#
+# Sebelum ini posisi PPh menyaring slip menurut periodenya sendiri, sehingga
+# satu layar memakai DUA arti "masa" sekaligus: sisi pembelian sudah benar —
+# PPh 23 dan 4(2) disaring dari tanggal pembayaran — sedangkan sisi gaji
+# menjawab "gaji bulan ini". Dua arti untuk satu kata pada satu halaman.
+#
+# Digeser tetap satu bulan, bukan dibaca dari tanggal pembayaran slipnya.
+# Dua alasan:
+#
+#   * Masa yang sudah dilaporkan tidak boleh berpindah. Tanggal pembayaran
+#     masih dapat disunting; kalau masanya mengikuti, satu suntingan
+#     memindahkan baris ke masa lain setelah SPT-nya dikirim.
+#   * Posisinya perlu terbaca SEBELUM gajinya ditransfer — justru itu saat
+#     kode billingnya disiapkan. Menyaring dari tanggal bayar membuat masa
+#     berjalan selalu kosong sampai uangnya keluar.
+#
+# Bila pola penggajiannya berubah, ubah di sini — dan hanya di sini.
+OFFSET_MASA_PPH21 = 1
+
+
+def periode_slip_untuk_masa(month: int, year: int) -> tuple[int, int]:
+    """
+    Periode slip gaji yang PPh 21-nya jatuh pada masa `month`/`year`.
+
+    Masa September 2026 -> slip Agustus 2026.
+    Masa Januari 2026   -> slip Desember 2025.
+
+    Pergantian tahun ikut ditangani di sini, bukan di pemanggilnya: masa
+    Januari adalah satu-satunya yang menyeberang tahun, dan pemanggil yang
+    mengurangkan bulannya sendiri akan benar sebelas kali lalu salah sekali —
+    tepat pada masa yang paling sibuk.
+    """
+    bulan = int(month) - OFFSET_MASA_PPH21
+    tahun = int(year)
+    while bulan < 1:
+        bulan += 12
+        tahun -= 1
+    while bulan > 12:
+        bulan -= 12
+        tahun += 1
+    return bulan, tahun
