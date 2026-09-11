@@ -66,6 +66,59 @@ def terbaca(baris) -> bool:
 #: bukan pada nilai dokumennya sendiri.
 TOLERANSI_RUPIAH = 5
 
+#: Selisih yang benar-benar dianggap NOL — satu sen.
+#:
+#: Di bawah ambang ini dokumen ditandai lunas tanpa bertanya. Di ATASNYA,
+#: sampai `TOLERANSI_RUPIAH`, selisihnya kecil tetapi nyata: biaya pembulatan
+#: antara pembukuan AKN dan pembukuan pihak lain, yang di sini memang dicatat
+#: sebagai pembayaran tersendiri bernilai di bawah satu rupiah.
+#:
+#: Selisih sebesar itu tidak boleh diputuskan sendiri oleh sistem. Ditandai
+#: lunas diam-diam, ia menghilangkan satu-satunya isyarat bahwa masih ada
+#: sesuatu yang perlu dicatat — dan yang menekan "selaraskan" tidak pernah
+#: tahu ada yang dilewati. Karena itu jaraknya ditanyakan lebih dulu.
+TOLERANSI_LUNAS = 0.01
+
+
+def putuskan_lunas(nilai: float, terbayar: float) -> dict:
+    """
+    Tiga keadaan, bukan dua.
+
+        selisih <= 0,01      -> lunas, tanpa bertanya
+        0,01 < selisih <= 5  -> selisih kecil: TANYAKAN dulu
+        selisih > 5          -> belum lunas
+
+    Lapisan tengah itu yang selama ini hilang. Ambang lima rupiah dibuat untuk
+    menyerap pembulatan pajak, dan ia memang perlu — tetapi dipakai sebagai
+    keputusan otomatis, ia juga menelan selisih pembulatan antar-pembukuan
+    yang di sini justru dicatat sebagai pembayaran tersendiri. Dokumennya
+    langsung bertanda lunas, dan pembayaran pembulatan itu tidak pernah
+    sempat dibuat karena tidak ada lagi yang menunjukkan bahwa ia kurang.
+
+    Yang dikembalikan keterangan lengkapnya, bukan satu boolean: pemanggil
+    perlu menyebut ANGKANYA saat bertanya, dan angka yang dihitung ulang di
+    tempat lain adalah angka yang akan berselisih dengan yang ini.
+    """
+    selisih = abs(float(nilai) - float(terbayar))
+
+    # Perbandingannya diberi kelonggaran sangat kecil.
+    #
+    # `1_000_000 - 999_999.99` tidak menghasilkan 0,01 melainkan
+    # 0,010000000232830644 — sisa representasi biner, bukan uang. Tanpa
+    # kelonggaran ini, selisih yang persis satu sen jatuh ke lapisan
+    # "tanyakan dulu", dan yang menekan selaraskan ditanyai tentang selisih
+    # yang tidak ada.
+    EPS = 1e-9
+    nol = selisih <= TOLERANSI_LUNAS + EPS
+
+    return {
+        "nilai": float(nilai),
+        "dibayar": float(terbayar),
+        "selisih": selisih,
+        "lunas": nol,
+        "butuh_konfirmasi": (not nol) and selisih <= TOLERANSI_RUPIAH + EPS,
+    }
+
 
 def tertunda_saja(tagihan: dict) -> bool:
     """
@@ -301,19 +354,19 @@ class PaymentOutgoingController:
             nominal = float(payment_data.get("amount") or 0)
             sisa = tagihan["sisa"]
 
-            # Toleransi hanya berlaku bila SUDAH ADA yang dibayar.
+            # Yang menutup pintu di sini SATU SEN, bukan lima rupiah.
             #
-            # Toleransi ini ada untuk menyerap sisa PEMBULATAN — beberapa
-            # rupiah yang tertinggal setelah pembayaran, bukan tagihan
-            # sungguhan. Dulu ia dipakai tanpa syarat, sehingga setiap
-            # dokumen yang nilainya sendiri di bawah lima rupiah langsung
-            # dinyatakan lunas dan TIDAK PERNAH DAPAT DIBAYAR — padahal
-            # belum sepeser pun keluar.
+            # Lima rupiah dulu dipakai, dan akibatnya dua-duanya buruk.
+            # Dokumen yang nilainya SENDIRI di bawah lima rupiah langsung
+            # dinyatakan lunas dan tidak pernah dapat dibayar — itu yang
+            # terjadi pada beban Rp 0,11, yang slipnya ditolak dengan pesan
+            # "terjadi kesalahan di server". Dan sisa di bawah lima rupiah
+            # pada dokumen besar pun ikut tertutup — padahal justru sisa
+            # itulah yang dicatat sebagai pembayaran pembulatan, bernilai
+            # di bawah satu rupiah.
             #
-            # Itu yang terjadi pada beban bernilai Rp 0,11: beban tersimpan,
-            # lalu pembuatan slipnya ditolak, dan yang sampai ke pemakai
-            # hanya "terjadi kesalahan di server".
-            if sisa <= 0 or (sisa <= TOLERANSI_RUPIAH and tagihan["dibayar"] > 0):
+            # Yang benar-benar tidak dapat dibayar hanya sisa yang sudah nol.
+            if sisa <= TOLERANSI_LUNAS:
                 # Slip yang menunggu persetujuan BUKAN dokumen lunas.
                 #
                 # Menyebut keduanya "sudah lunas" menyesatkan: yang satu
@@ -964,7 +1017,9 @@ class PaymentOutgoingController:
             return internal_error()
 
     @staticmethod
-    async def selaraskan_dokumen(jenis: str, dokumen_id: int, userID: int):
+    async def selaraskan_dokumen(
+        jenis: str, dokumen_id: int, userID: int, konfirmasi: bool = False
+    ):
         """
         Hitung ulang status lunas satu dokumen, atas permintaan pengguna.
 
@@ -976,6 +1031,21 @@ class PaymentOutgoingController:
         Menghitung ulang selalu aman: hasilnya diturunkan dari pembayaran
         yang tersimpan, bukan ditambahkan padanya. Menjalankannya dua kali
         memberi hasil yang sama.
+
+        DUA LANGKAH bila selisihnya kecil
+        ---------------------------------
+
+        Selisih di antara satu sen dan lima rupiah tidak langsung ditandai
+        lunas. Panggilan pertama menjawab `butuh_konfirmasi` beserta
+        ANGKANYA — nilai dokumen, jumlah terbayar, dan selisihnya — supaya
+        layar dapat menanyakannya dengan menyebut angka, bukan sekadar
+        "ada selisih". Panggilan kedua dengan `konfirmasi=True` menandainya.
+
+        Selisih sebesar itu di sini bukan kekeliruan: ia biaya pembulatan
+        antara pembukuan AKN dan pembukuan pihak lain, yang dicatat sebagai
+        pembayaran tersendiri bernilai di bawah satu rupiah. Ditandai lunas
+        diam-diam, pembayaran itu tidak pernah sempat dibuat — sebab tidak
+        ada lagi yang menunjukkan bahwa masih ada yang kurang.
         """
 
         class _Sasaran:
@@ -1004,11 +1074,45 @@ class PaymentOutgoingController:
 
         sasaran = _Sasaran()
         setattr(sasaran, kolom, dokumen_id)
-        await PaymentOutgoingController.selaraskan_status_lunas(sasaran, userID)
-        return {"message": "Status pembayaran diselaraskan."}
+        hasil = await PaymentOutgoingController.selaraskan_status_lunas(
+            sasaran, userID, konfirmasi=konfirmasi
+        )
+
+        if hasil is None:
+            # Dokumennya tidak terbaca, atau daftar pembayarannya gagal
+            # diambil. Statusnya sengaja dibiarkan apa adanya — menuliskan
+            # sesuatu di atas keadaan yang tidak diketahui lebih buruk
+            # daripada membiarkannya.
+            return app_error(
+                ErrorCode.INTERNAL,
+                "Dokumennya tidak dapat dibaca; status lunasnya dibiarkan "
+                "apa adanya.",
+                500,
+            )
+
+        if hasil.get("butuh_konfirmasi") and not konfirmasi:
+            return {
+                "butuh_konfirmasi": True,
+                "jenis": hasil["jenis"],
+                "id": hasil["id"],
+                "nilai": hasil["nilai"],
+                "dibayar": hasil["dibayar"],
+                "selisih": hasil["selisih"],
+            }
+
+        return {
+            "message": "Status pembayaran diselaraskan.",
+            "butuh_konfirmasi": False,
+            "lunas": hasil["lunas"],
+            "nilai": hasil["nilai"],
+            "dibayar": hasil["dibayar"],
+            "selisih": hasil["selisih"],
+        }
 
     @staticmethod
-    async def selaraskan_status_lunas(payment, userID: int | None = None):
+    async def selaraskan_status_lunas(
+        payment, userID: int | None = None, konfirmasi: bool = False
+    ):
         """
         Hitung ulang status lunas dokumen yang ditagih sebuah pembayaran.
 
@@ -1017,9 +1121,24 @@ class PaymentOutgoingController:
         disetel menjadi lunas — sehingga pembayaran yang dibatalkan
         meninggalkan dokumen bertanda lunas padahal uangnya tidak keluar.
 
-        Toleransi 5 rupiah, sama seperti pada persetujuan pembayaran:
-        pembulatan pajak menyisakan selisih beberapa rupiah yang bukan
-        kekurangan bayar.
+        Selisih KECIL tidak diputuskan sendiri
+        --------------------------------------
+
+        Lihat `putuskan_lunas`. Hanya selisih di bawah satu sen yang ditandai
+        lunas tanpa bertanya. Selisih di antara satu sen dan lima rupiah
+        dibiarkan APA ADANYA di sini — tidak ditandai lunas, tidak pula
+        dicabut — dan yang memutuskan adalah orang, lewat
+        `selaraskan_dokumen` dengan `konfirmasi=True`.
+
+        Jalur ini dipanggil otomatis sesudah pembayaran disetujui atau
+        dihapus, saat tidak ada siapa pun yang dapat ditanyai. Menandai lunas
+        di sana berarti memutuskan diam-diam; membiarkannya berarti menunda
+        keputusan sampai ada yang melihatnya — dan itu yang benar, karena
+        isyarat "masih kurang sedikit" persis yang diperlukan untuk mencatat
+        pembayaran pembulatannya.
+
+        Yang dikembalikan ringkasan keputusannya, atau `None` bila dokumennya
+        tidak terbaca.
 
         Satu pembayaran hanya menagih SATU jenis dokumen; percabangan di
         bawah karena itu saling meniadakan, bukan menumpuk.
@@ -1030,8 +1149,36 @@ class PaymentOutgoingController:
         ambang toleransi, sehingga dokumen yang pembayarannya baru saja
         dihapus justru ditandai LUNAS. Lihat `terbaca`.
         """
-        def lunas(nilai, terbayar) -> bool:
-            return abs(float(nilai) - float(terbayar)) < 5
+        async def putuskan(jenis, dokumen_id, nilai, bayar, tulis):
+            """
+            Satu tempat keputusan untuk kelima jenis dokumen.
+
+            Sebelumnya tiap cabang memanggil `lunas(...)` sendiri-sendiri.
+            Lima salinan aturan yang sama adalah lima kesempatan untuk
+            berselisih — dan selisihnya berupa satu jenis dokumen yang
+            diam-diam memakai ambang lain.
+            """
+            if isinstance(bayar, dict):
+                return None
+
+            hasil = putuskan_lunas(nilai, jumlah(bayar))
+            hasil["jenis"] = jenis
+            hasil["id"] = dokumen_id
+
+            if hasil["butuh_konfirmasi"] and not konfirmasi:
+                log_info(
+                    f"Status lunas {jenis} {dokumen_id} ditunda: selisih "
+                    f"{hasil['selisih']:.2f} menunggu konfirmasi."
+                )
+                return hasil
+
+            # Konfirmasi menjadikannya lunas; itulah yang dikonfirmasi.
+            if hasil["butuh_konfirmasi"]:
+                hasil["lunas"] = True
+                hasil["dikonfirmasi"] = True
+
+            await tulis(hasil["lunas"])
+            return hasil
 
         def jumlah(daftar) -> float:
             return float(
@@ -1051,10 +1198,15 @@ class PaymentOutgoingController:
                 bayar = await PaymentOutgoingRepository.get_payments_by_purchase_id(
                     payment.purchaseID
                 )
-                if not isinstance(bayar, dict):
-                    await PurchaseRepository.update_payment_status(
-                        payment.purchaseID, lunas(nilai, jumlah(bayar))
-                    )
+                return await putuskan(
+                    "purchase",
+                    payment.purchaseID,
+                    nilai,
+                    bayar,
+                    lambda v: PurchaseRepository.update_payment_status(
+                        payment.purchaseID, v
+                    ),
+                )
 
             elif payment.reimbursementID is not None:
                 items = await ReimbursementRepository.get_reimbursement_items_by_reimbursement_id(
@@ -1070,10 +1222,15 @@ class PaymentOutgoingController:
                 bayar = await PaymentOutgoingRepository.get_payments_by_reimbursement_id(
                     payment.reimbursementID
                 )
-                if not isinstance(bayar, dict):
-                    await ReimbursementRepository.update_payment_status(
-                        payment.reimbursementID, lunas(nilai, jumlah(bayar)), userID
-                    )
+                return await putuskan(
+                    "reimbursement",
+                    payment.reimbursementID,
+                    nilai,
+                    bayar,
+                    lambda v: ReimbursementRepository.update_payment_status(
+                        payment.reimbursementID, v, userID
+                    ),
+                )
 
             elif payment.expenseID is not None:
                 # `get_by_id` — bukan `get_expense_by_id`, yang tidak pernah
@@ -1092,10 +1249,15 @@ class PaymentOutgoingController:
                 bayar = await PaymentOutgoingRepository.get_payments_by_expense_id(
                     payment.expenseID
                 )
-                if not isinstance(bayar, dict):
-                    await ExpenseRepository.update_payment_status(
-                        payment.expenseID, lunas(nilai, jumlah(bayar)), userID
-                    )
+                return await putuskan(
+                    "expense",
+                    payment.expenseID,
+                    nilai,
+                    bayar,
+                    lambda v: ExpenseRepository.update_payment_status(
+                        payment.expenseID, v, userID
+                    ),
+                )
 
             elif payment.salarySlipID is not None:
                 d = await SalarySlipRepository.get_by_id(payment.salarySlipID)
@@ -1119,10 +1281,15 @@ class PaymentOutgoingController:
                 bayar = await PaymentOutgoingRepository.get_payments_by_salary_slip_id(
                     payment.salarySlipID
                 )
-                if not isinstance(bayar, dict):
-                    await SalarySlipRepository.update_payment_status(
-                        payment.salarySlipID, lunas(nilai, jumlah(bayar)), userID
-                    )
+                return await putuskan(
+                    "salary_slip",
+                    payment.salarySlipID,
+                    nilai,
+                    bayar,
+                    lambda v: SalarySlipRepository.update_payment_status(
+                        payment.salarySlipID, v, userID
+                    ),
+                )
 
             elif payment.loanID is not None:
                 pinjaman = await LoanRepository.get_loan_by_id(payment.loanID)
@@ -1136,15 +1303,22 @@ class PaymentOutgoingController:
                 bayar = await PaymentOutgoingRepository.get_payments_by_loan_id(
                     payment.loanID
                 )
-                if not isinstance(bayar, dict):
-                    await LoanRepository.update_payment_status(
-                        payment.loanID, lunas(nilai, jumlah(bayar)), userID
-                    )
+                return await putuskan(
+                    "loan",
+                    payment.loanID,
+                    nilai,
+                    bayar,
+                    lambda v: LoanRepository.update_payment_status(
+                        payment.loanID, v, userID
+                    ),
+                )
+            return None
         except Exception as e:
             # Kegagalan penyelarasan TIDAK menggagalkan tindakan utamanya;
             # yang terjadi hanya statusnya tertinggal, dan itu dapat
             # diperbaiki lewat penyelarasan ulang.
             log_error(f"Gagal menyelaraskan status lunas: {e}")
+            return None
 
     @staticmethod
     async def delete_payment_by_id(id: int, userID: int | None = None):

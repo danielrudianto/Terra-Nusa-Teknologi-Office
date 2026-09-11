@@ -286,6 +286,7 @@ async def selaraskan_status_lunas(
     jenis: str,
     dokumen_id: int,
     user: Annotated[User, Depends(require("payment_outgoing", "update"))],
+    konfirmasi: bool = False,
 ):
     """
     Hitung ulang status lunas satu dokumen.
@@ -296,10 +297,18 @@ async def selaraskan_status_lunas(
 
     Aman diulang — hasilnya diturunkan dari pembayaran yang tersimpan, bukan
     ditambahkan padanya.
+
+    DUA LANGKAH bila selisihnya kecil. Tanpa `konfirmasi`, selisih di antara
+    satu sen dan lima rupiah dijawab `butuh_konfirmasi: true` beserta nilai
+    dokumen, jumlah terbayar, dan selisihnya — dan TIDAK ada yang ditulis.
+    Panggilan kedua dengan `konfirmasi=true` yang menandainya lunas.
+
+    Jawabannya 200, bukan galat: tidak ada yang keliru pada permintaannya,
+    dan yang diperlukan bukan perbaikan melainkan keputusan.
     """
     userID = user["id"]
     hasil = await PaymentOutgoingController.selaraskan_dokumen(
-        jenis, dokumen_id, userID
+        jenis, dokumen_id, userID, konfirmasi=konfirmasi
     )
     if isinstance(hasil, dict) and "error" in hasil:
         raise HTTPException(

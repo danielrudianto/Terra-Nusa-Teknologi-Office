@@ -60,20 +60,42 @@ def test_toleransi_lima_rupiah():
     assert 'TOLERANSI_RUPIAH = 5' in s
 
 
-def test_toleransi_hanya_berlaku_setelah_ada_pembayaran():
+def test_pintu_ditutup_pada_satu_sen_bukan_lima_rupiah():
     """
-    Toleransi menyerap sisa PEMBULATAN, bukan menyatakan dokumen kecil lunas.
+    Yang benar-benar tidak dapat dibayar hanya sisa yang sudah NOL.
 
-    Dipakai tanpa syarat, ia membuat setiap dokumen yang nilainya sendiri di
-    bawah lima rupiah langsung dinyatakan lunas dan TIDAK PERNAH DAPAT
-    DIBAYAR — padahal belum sepeser pun keluar. Persis itu yang terjadi pada
-    beban bernilai Rp 0,11: bebannya tersimpan, slip pembayarannya ditolak.
+    Ambang lima rupiah di sini merugikan dua arah. Dokumen yang nilainya
+    SENDIRI di bawah lima rupiah langsung dinyatakan lunas dan tidak pernah
+    dapat dibayar — itu yang terjadi pada beban Rp 0,11, yang slipnya ditolak
+    dengan pesan "terjadi kesalahan di server". Dan sisa di bawah lima rupiah
+    pada dokumen besar pun ikut tertutup — padahal justru sisa itulah yang
+    dicatat sebagai pembayaran pembulatan, bernilai di bawah satu rupiah.
     """
     b = _blok('create_payment')
-    assert 'tagihan["dibayar"] > 0' in b, (
-        'penjaga "sudah lunas" harus menuntut adanya pembayaran sebelum '
-        'toleransi diberlakukan'
+    assert 'sisa <= TOLERANSI_LUNAS' in b, (
+        'penjaga "sudah lunas" harus memakai ambang satu sen, bukan lima '
+        'rupiah — pembayaran pembulatan berada tepat di antara keduanya'
     )
+
+
+def test_tiga_lapisan_keputusan_lunas():
+    """
+    Selisih kecil DITANYAKAN, tidak diputuskan sendiri.
+
+    Ambang lima rupiah dibuat untuk menyerap pembulatan pajak, dan ia perlu.
+    Tetapi dipakai sebagai keputusan otomatis, ia juga menelan selisih
+    pembulatan antar-pembukuan yang di sini justru dicatat sebagai pembayaran
+    tersendiri — dan begitu dokumennya bertanda lunas, pembayaran itu tidak
+    pernah sempat dibuat.
+    """
+    s = open(BERKAS).read()
+    assert 'def putuskan_lunas(' in s
+    assert 'TOLERANSI_LUNAS = 0.01' in s
+
+    i = s.index('def putuskan_lunas(')
+    b = s[i:s.index('\n\ndef ', i + 1)]
+    assert 'butuh_konfirmasi' in b
+    assert 'TOLERANSI_RUPIAH' in b
 
 
 def test_sisa_tagihan_melaporkan_yang_sudah_dibayar():

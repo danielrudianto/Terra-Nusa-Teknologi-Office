@@ -377,6 +377,47 @@ class PurchaseOrderRepository:
             return True
 
     @staticmethod
+    async def cari_aktif_berdasarkan_nama(name: str):
+        """
+        Satu purchase order AKTIF dengan nomor persis ini, atau `None`.
+
+        Dipakai saat nomor PO sebuah pembelian dibetulkan. Layarnya memang
+        memakai autocomplete, tetapi muatan permintaan dapat disusun sendiri
+        oleh siapa pun yang membuka Network tab — dan nomor PO pada pembelian
+        disimpan sebagai TEKS, bukan tautan. Tidak ada satu pun penjaga basis
+        data yang akan menolak nomor yang tidak pernah ada; yang terjadi hanya
+        pembelian yang diam-diam tidak menunjuk dokumen mana pun, dan baru
+        ketahuan ketika ada yang mencarinya setahun kemudian.
+
+        Yang dikembalikan hanya yang diperlukan pemanggil: proyeknya ikut,
+        sebab pembelian menyimpan nama proyek sendiri dan keduanya harus
+        bergerak bersama.
+
+        Baris TERHAPUS sengaja tidak dihitung: nomornya boleh saja masih ada
+        di sana, tetapi menautkan pembelian ke dokumen yang sudah dibatalkan
+        justru kekeliruan yang sedang dicegah.
+        """
+        try:
+            return await database.fetch_one(
+                select(
+                    purchase_orders_table.c.id,
+                    purchase_orders_table.c.name,
+                    purchase_orders_table.c.projectName,
+                    purchase_orders_table.c.supplierID,
+                ).where(
+                    purchase_orders_table.c.name == name,
+                    purchase_orders_table.c.isDelete == False,  # noqa: E712
+                )
+            )
+        except Exception as e:
+            log_error(f"Error finding PO by name '{name}': {str(e)}")
+            # Gagal memeriksa TIDAK boleh dibaca sebagai "tidak ada": pemanggil
+            # memperlakukannya sebagai nomor yang tidak sah dan menolak, yang
+            # aman. Membiarkannya lewat berarti menyimpan tautan yang mungkin
+            # menunjuk ke mana pun.
+            return None
+
+    @staticmethod
     async def bebaskan_nama_terhapus(name: str) -> bool:
         """
         Kosongkan `name` yang masih dipegang baris TERHAPUS.

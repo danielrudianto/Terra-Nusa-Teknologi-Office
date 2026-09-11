@@ -2,7 +2,9 @@ from repository.purchase_repository import PurchaseRepository, PurchaseStatusRep
 from models.payment_outgoing_model import PaymentOutgoing
 from repository.payment_outgoing_repository import PaymentOutgoingRepository
 from models.mutation_model import Mutation
+from repository.purchase_order_repository import PurchaseOrderRepository
 from repository.reimbursement_repository import ReimbursementRepository
+from utils.errors import app_error, ErrorCode
 from repository.sales_invoice_repository import SalesInvoiceRepository
 from models.purchase_draft_model import PurchaseDraft
 from utils.logger_utils import log_error, log_info
@@ -464,6 +466,17 @@ class PurchaseController:
     _META_BOLEH = {
         "date", "taxInvoiceName", "invoiceName", "receiptName",
         "pphCode", "pphTaxObject", "taxPeriod",
+        # Nomor PO ikut boleh dibetulkan, dan proyeknya MENGIKUTI.
+        #
+        # Keduanya keterangan, bukan nominal: tidak satu rupiah pun bergeser,
+        # jadi tidak ikut terkunci oleh pembayaran — sama seperti nomor faktur
+        # pajak dan masa pajak, yang justru paling sering perlu dibetulkan
+        # setelah dokumennya dibayar.
+        #
+        # `projectName` TIDAK datang dari layar. Ia diisi ulang di bawah dari
+        # purchase order yang dipilih; nilai apa pun yang dikirim klien untuk
+        # bidang ini ditimpa. Lihat `update_purchase_meta`.
+        "purchaseOrderName", "projectName",
     }
     _META_NILAI = {"dpp", "ppn", "pphPercentage"}
     LEVEL_EDIT_META = 5
@@ -537,6 +550,54 @@ class PurchaseController:
             bersih = {k: v for k, v in (data or {}).items() if k in boleh}
             if not bersih:
                 return {"error": "No editable field supplied.", "status": 400}
+
+            # ---- nomor PO -------------------------------------------------
+            #
+            # Nomor PO pada pembelian disimpan sebagai TEKS, bukan tautan.
+            # Tidak ada penjaga basis data yang menolak nomor yang tidak
+            # pernah ada — yang terjadi hanya pembelian yang diam-diam tidak
+            # menunjuk dokumen mana pun, dan baru ketahuan ketika ada yang
+            # mencarinya setahun kemudian. Karena itu nomornya dicocokkan di
+            # sini, sebelum disimpan.
+            #
+            # Proyeknya diambil dari purchase order itu, BUKAN dari yang
+            # dikirim layar. Pembelian menyimpan nama proyeknya sendiri; bila
+            # keduanya boleh berbeda, rekap per proyek menghitung pembelian ini
+            # di proyek yang berbeda dari PO-nya, dan tidak ada yang tahu mana
+            # yang benar. Satu sumber: dokumen PO-nya.
+            if "purchaseOrderName" in bersih:
+                nomor = str(bersih["purchaseOrderName"] or "").strip()
+                if not nomor:
+                    return app_error(
+                        ErrorCode.VALIDATION,
+                        "Nomor purchase order tidak boleh kosong.",
+                        400,
+                    )
+
+                if nomor != str(lama.get("purchaseOrderName") or ""):
+                    po = await PurchaseOrderRepository.cari_aktif_berdasarkan_nama(
+                        nomor
+                    )
+                    if po is None:
+                        log_error(
+                            f"Sunting meta pembelian {purchaseID} ditolak: "
+                            f"purchase order '{nomor}' tidak ditemukan."
+                        )
+                        return app_error(
+                            ErrorCode.VALIDATION,
+                            f"Purchase order '{nomor}' tidak ditemukan atau "
+                            f"sudah dihapus.",
+                            400,
+                        )
+                    bersih["purchaseOrderName"] = po["name"]
+                    bersih["projectName"] = po["projectName"]
+                else:
+                    # Nomornya tidak berubah — proyeknya pun tidak boleh
+                    # ikut berubah lewat jalur ini.
+                    bersih.pop("projectName", None)
+            else:
+                # `projectName` hanya boleh bergerak bersama nomor PO-nya.
+                bersih.pop("projectName", None)
 
             diubah_nilai = {
                 k for k in PurchaseController._META_NILAI
