@@ -40,15 +40,25 @@ class SupplierRepository:
             if project_name:
                 syarat.append(purchases_table.c.projectName == project_name)
 
-            # Nilai tagihan sebuah pembelian.
+            # Nilai tagihan sebuah pembelian, seperti tertulis di fakturnya.
             #
             # PPn disimpan sebagai PERSEN, bukan rupiah — mengalikannya
             # langsung menghasilkan angka yang terlalu kecil sepersekian
             # ribu kali.
+            #
+            # `otherValue` IKUT. Ia bagian dari nilai faktur — ongkos angkut,
+            # bongkar muat — dan sempat tertinggal di sini saja, sehingga
+            # total yang ditagihkan pemasok pada laporan ini lebih kecil
+            # daripada di halaman pembeliannya sendiri.
+            #
+            # PPh sengaja TIDAK dipotong: yang dilaporkan di sini nilai yang
+            # DITAGIHKAN pemasok, bukan yang ditransfer kepadanya. Berbeda
+            # dari utang usaha, yang memang menghitung sisa transfer.
             nilai = (
                 purchases_table.c.dpp
                 + (purchases_table.c.ppn * purchases_table.c.dpp / 100)
                 + func.coalesce(purchases_table.c.pbbkb, 0)
+                + func.coalesce(purchases_table.c.otherValue, 0)
             )
 
             ringkas = await database.fetch_one(
