@@ -22,7 +22,11 @@ loans_table = Table(
     Column("bankName", String(100), nullable=False),
     # rekening PERUSAHAAN tempat dana pinjaman diterima (beda dari rekening kreditur di atas)
     Column("bankAccountID", Integer, ForeignKey("bank_accounts.id"), nullable=True, default=None),
-    Column("createdAt", DateTime(), nullable=False, default=dt.now()),
+    # Bawaannya CALLABLE (tanpa tanda kurung), bukan waktu yang sudah
+    # dihitung. `default=dt.now()` dijalankan SEKALI saat modulnya diimpor,
+    # sehingga nilainya membeku pada saat server dinyalakan — bukan saat
+    # barisnya dibuat.
+    Column("createdAt", DateTime(), nullable=False, default=dt.now),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
     Column("updatedAt", DateTime(), nullable=True, default=None),
     Column("updatedBy", Integer, ForeignKey("users.id"), nullable=True, default=None),

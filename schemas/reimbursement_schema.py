@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List
 from datetime import date as d, datetime
 
@@ -14,8 +14,7 @@ class ReimbursementItems(ReimbursementItemsBase):
     id: int
     reimbursementID: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ReimbursementBase(BaseModel):
     date: d
@@ -51,8 +50,7 @@ class Reimbursement(ReimbursementBase):
     deletedBy: Optional[int] = None
     reimbursementItems: List[ReimbursementItems] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ReimbursementWithAmount(Reimbursement):
     amount: Optional[float] = None

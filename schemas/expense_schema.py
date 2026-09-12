@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import date as d, datetime as dt
 from typing import Optional
 
@@ -67,8 +67,7 @@ class ExpenseResponse(ExpenseBase):
     deletedBy: Optional[int] = None
     opponentName: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ExpenseListResponse(BaseModel):
     data: list[ExpenseResponse]

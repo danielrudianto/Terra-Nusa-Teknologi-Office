@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Any, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RiwayatPendidikan(BaseModel):
@@ -114,6 +114,4 @@ class EmployeeProfileResponse(BaseModel):
     id: int
     employeeID: int
 
-    class Config:
-        from_attributes = True
-        extra = "allow"
+    model_config = ConfigDict(from_attributes=True, extra="allow")

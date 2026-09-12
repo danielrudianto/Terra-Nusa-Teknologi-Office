@@ -50,7 +50,22 @@ sales_invoice_tables = Table(
     Column('separatedInvoice', Boolean, nullable=True, default=False),
     Column("bankAccountID", Integer, ForeignKey("bank_accounts.id"), nullable=False),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False, default=1),
-    Column("createdAt", Date, nullable=False, default=dt.utcnow().date()),
+    # Bawaannya CALLABLE, bukan tanggal yang sudah dihitung.
+    #
+    # `default=dt.utcnow().date()` dijalankan SEKALI saat modulnya diimpor,
+    # sehingga nilainya membeku pada tanggal server dinyalakan — bukan
+    # tanggal fakturnya dibuat. Sebuah layanan yang hidup tiga bulan akan
+    # memberi bawaan yang sama kepada seluruh faktur selama tiga bulan itu.
+    #
+    # Tidak pernah menggigit sampai sekarang karena `SalesInvoiceRepository.
+    # create` selalu mengisi `createdAt` sendiri — dan memang harus, sebab
+    # pustaka `databases` menjalankan kueri TERKOMPILASI sehingga bawaan
+    # sisi-Python tidak pernah dipakai (lihat CLAUDE.md). Dibetulkan supaya
+    # jebakannya tidak menunggu pemanggil berikutnya yang lupa mengisinya.
+    #
+    # Sekalian membuang `utcnow()` yang sudah usang: ia mengembalikan waktu
+    # tanpa zona, dan Python akan menghapusnya.
+    Column("createdAt", Date, nullable=False, default=lambda: dt.now().date()),
     Column("isApprove", Boolean, nullable=False, default=False),
     Column("isDelete", Boolean, nullable=False, default=False),
     Column("updatedBy", Integer, ForeignKey("users.id"), nullable=True),

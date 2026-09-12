@@ -20,7 +20,9 @@ users_table = Table(
     Column("isActive", Boolean, default=True),
     Column("isDeleted", Boolean, default=False),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=True),
-    Column("createdAt", DateTime(), nullable=False, default=datetime.now()),
+    # Bawaannya CALLABLE (tanpa tanda kurung); lihat keterangan yang sama
+    # pada model lain. `default=datetime.now()` membeku saat modulnya diimpor.
+    Column("createdAt", DateTime(), nullable=False, default=datetime.now),
     Column("updatedAt", DateTime(), nullable=True, default=None),
     Column("deletedAt", DateTime(), nullable=True, default=None),
     Column("authenticationLevel", Integer, default=1, nullable=False, comment="Authentication level of the user, between 1 and 5"),

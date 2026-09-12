@@ -46,7 +46,21 @@ async def login(loginData: LoginData, request: Request):
 
     bersihkan(loginData.email, ip)
     
-    now = datetime.utcnow()
+    # BERZONA, bukan `utcnow()` yang naif.
+    #
+    # `datetime.utcnow()` mengembalikan waktu UTC TANPA zona, dan
+    # `.timestamp()` atas waktu tanpa zona ditafsirkan Python sebagai waktu
+    # LOKAL mesin. Selama server berjalan pada UTC, keduanya kebetulan sama
+    # dan tidak ada yang terlihat keliru.
+    #
+    # Begitu zona servernya disetel ke WIB, `iat` dan `exp` bergeser TUJUH
+    # JAM ke belakang — dan setiap access token lahir dalam keadaan sudah
+    # kedaluwarsa. Bukan satu orang gagal masuk, melainkan tidak seorang pun
+    # dapat masuk, dan galatnya cuma "sesi berakhir".
+    #
+    # Rute penyegaran token di bawah sudah memakai bentuk berzona; hanya
+    # penerbitan token saat login yang tertinggal.
+    now = datetime.now(timezone.utc)
 
     # Generate JWT token
     payload = {

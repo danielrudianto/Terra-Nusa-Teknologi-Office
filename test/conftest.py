@@ -37,7 +37,24 @@ if UJI_DB:
     os.environ["DATABASE_URL"] = UJI_DB
 
 os.environ.setdefault("DATABASE_URL", "mysql://user:pass@localhost/test_db")
-os.environ.setdefault("SECRET_KEY", "test-secret-key")
+# Kunci uji PANJANGNYA SAMA dengan yang dituntut produksi: 32 bita.
+#
+# Yang lama `"test-secret-key"` — lima belas aksara — dan PyJWT
+# memperingatkannya pada setiap deploy: "The HMAC key is 15 bytes long, which
+# is below the minimum recommended length of 32 bytes for SHA256."
+#
+# Peringatan itu menyangkut KUNCI UJI, bukan `SECRET_KEY` produksi. Tetapi
+# selama ia muncul, ia tidak dapat dibedakan dari peringatan yang menyangkut
+# kunci sungguhan — dan peringatan yang selalu muncul dan selalu boleh
+# diabaikan mengajari pembacanya mengabaikan seluruh keluarannya.
+#
+# Diperbaiki dengan menyamakan panjangnya, bukan dengan membungkam
+# peringatannya: kalau suatu saat kunci produksi yang terbaca di sini —
+# `setdefault` memakai yang sudah ada di lingkungan bila ada — peringatannya
+# akan muncul kembali, dan memang harus.
+os.environ.setdefault(
+    "SECRET_KEY", "uji-terrabot-kunci-32-bita-penuh!"
+)
 os.environ.setdefault("ALGORITHM", "HS256")
 os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
 

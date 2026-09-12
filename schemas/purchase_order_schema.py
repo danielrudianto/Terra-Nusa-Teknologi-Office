@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, Dict, Any, List
 from datetime import date as date_type, datetime
 from enum import Enum
@@ -153,8 +153,7 @@ class PurchaseOrderResponse(BaseModel):
     approvedByName: Optional[str] = None
     approvedByPosition: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CreatePurchaseOrderResponse(BaseModel):

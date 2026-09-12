@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, List
 # `TanggalHari` adalah alias `date`, KHUSUS untuk bidang yang bernama `date`.
 #
@@ -138,8 +138,7 @@ class ContractResponse(ContractBase):
     value: Decimal
     createdAt: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProjectResponse(ProjectBase):
@@ -155,8 +154,7 @@ class ProjectResponse(ProjectBase):
     createdAt: datetime
     updatedAt: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ----------------------------------------------------------------------
@@ -201,5 +199,4 @@ class ProgressResponse(ProgressBase):
     projectID: int
     createdAt: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime as dt, date as d
 from typing import Optional
 
@@ -109,8 +109,7 @@ class PurchaseResponse(PurchaseBase):
     # tersedia", termasuk yang dokumennya benar-benar ada.
     purchase_order_id: Optional[int] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class PurchaseListResponse(BaseModel):
     data: list[PurchaseResponse]
@@ -131,8 +130,7 @@ class PurchaseStatusResponse(PurchaseStatusBase):
     createdAt: dt
     createdBy: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class PurchaseUpdateStatus(BaseModel):
     id: int = Field(..., description="ID of the purchase")

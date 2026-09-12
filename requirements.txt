@@ -42,7 +42,6 @@ numpy==2.5.2
 o365==2.1.9
 packaging==26.3
 pandas==3.0.5
-passlib==1.7.4
 pillow==12.3.0
 pluggy==1.6.0
 protobuf==7.35.1

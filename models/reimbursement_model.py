@@ -29,7 +29,9 @@ reimbursements_table = Table(
     Column("isApprove", Boolean(), nullable=False, default=False),
     Column("approvedBy", Integer, ForeignKey("users.id"), nullable=True),
     Column("approvedAt", DateTime(), nullable=True, default=None),
-    Column("createdAt", DateTime(), nullable=False, default=datetime.now()),
+    # Bawaannya CALLABLE (tanpa tanda kurung); lihat keterangan yang sama
+    # pada model lain. `default=datetime.now()` membeku saat modulnya diimpor.
+    Column("createdAt", DateTime(), nullable=False, default=datetime.now),
     Column("updatedAt", DateTime(), nullable=True, default=None),
     Column("deletedAt", DateTime(), nullable=True, default=None),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),

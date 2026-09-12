@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime as dt
 from typing import Optional, List
 
@@ -41,8 +41,7 @@ class SalarySlipResponse(SalarySlipBase):
     deletedBy: Optional[int] = None
     name: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class SalarySlipCheck(BaseModel):
     userID: int
@@ -61,8 +60,7 @@ class SalarySlipAllowanceResponse(SalarySlipAllowanceBase):
     id: int
     salarySlipID: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class SalarySlipDeductionBase(BaseModel):
     name: str
@@ -76,8 +74,7 @@ class SalarySlipDeductionResponse(SalarySlipDeductionBase):
     id: int
     salarySlipID: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class SalarySlipDetailResponse(SalarySlipResponse):
     otherAllowances: List[SalarySlipAllowanceResponse] = []

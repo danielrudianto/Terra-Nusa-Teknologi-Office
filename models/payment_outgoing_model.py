@@ -71,7 +71,11 @@ payments_outgoing_table = Table(
     Column("salarySlipID", Integer, ForeignKey('salary_slips.id'), nullable=True),
     Column("loanID", Integer, ForeignKey("loans.id"), nullable=True),
     Column("bankAccountID", Integer, ForeignKey("bank_accounts.id"), nullable=True),
-    Column("createdAt", DateTime(), nullable=False, default=dt.now()),
+    # Bawaannya CALLABLE (tanpa tanda kurung), bukan waktu yang sudah
+    # dihitung. `default=dt.now()` dijalankan SEKALI saat modulnya diimpor,
+    # sehingga nilainya membeku pada saat server dinyalakan — bukan saat
+    # barisnya dibuat.
+    Column("createdAt", DateTime(), nullable=False, default=dt.now),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
     Column("updatedAt", DateTime(), nullable=True, default=None),
     Column("updatedBy", Integer, ForeignKey("users.id"), nullable=True, default=None,),

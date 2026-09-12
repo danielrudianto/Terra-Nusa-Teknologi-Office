@@ -8,7 +8,6 @@ from typing import Annotated
 from jwt.exceptions import InvalidTokenError
 
 from pydantic import BaseModel
-from passlib.context import CryptContext
 from models.user_model import users_table
 from utils.database import database
 
@@ -44,32 +43,34 @@ class User(BaseModel):
 class UserInDB(User):
     hashed_password: str
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
-
-def authenticate_user(username: str, password: str):
-    """
-    TIDAK DIPAKAI — jangan dipanggil sebelum diperbaiki.
-
-    Sisa dari kerangka awal: memakai kolom `username` dan `hashed_password`
-    yang tidak ada pada tabel users (kolomnya `email` dan `password`), serta
-    `.first()` yang bukan cara pustaka ini membaca baris.
-
-    Autentikasi yang sebenarnya ada di `routes/auth_routes.py`. Fungsi ini
-    dibiarkan agar tidak menghapus sesuatu yang mungkin dirujuk dari luar,
-    tetapi memanggilnya akan gagal.
-    """
-    user = users_table.select().where(users_table.c.username == username).first()    
-    if not user:
-        return False
-    if not verify_password(password, user.hashed_password):
-        return False
-    return user
+# ----------------------------------------------------------------------
+# Penanganan sandi TIDAK ada di berkas ini.
+# ----------------------------------------------------------------------
+#
+# Di sini dulu ada `pwd_context` (passlib), `verify_password()`,
+# `get_password_hash()`, dan `authenticate_user()` — seluruhnya KODE MATI:
+# tidak satu pun dipanggil dari mana pun, dan `authenticate_user` bahkan
+# memakai kolom `username`/`hashed_password` yang tidak ada pada tabel users
+# (kolomnya `email` dan `password`).
+#
+# Dibuang, bukan dibiarkan, karena tiga hal:
+#
+#   1. Namanya MENYESATKAN. `verify_password()` dan `get_password_hash()`
+#      terbaca persis seperti jalur sandi yang sebenarnya. Yang menambah
+#      fitur dan memanggilnya akan memperoleh hash bcrypt yang sah — lalu
+#      menyimpannya lewat jalur yang tidak pernah diuji siapa pun.
+#
+#   2. `passlib` 1.7.4 mengimpor modul `crypt`, yang SUDAH DIHAPUS pada
+#      Python 3.13. Selama paket ini masih terpasang, menaikkan Python akan
+#      menjatuhkan seluruh aplikasi pada saat impor — bukan pada satu
+#      halaman, melainkan sejak startup. Peringatan usang yang muncul pada
+#      setiap deploy adalah pemberitahuan awal atas hal itu.
+#
+#   3. Ia menarik satu paket utuh hanya untuk kode yang tidak berjalan.
+#
+# Yang sebenarnya dipakai: `bcrypt` langsung, di `controllers/user_controller.py`
+# (`bcrypt.hashpw`, `bcrypt.checkpw`) dan `repository/user_repository.py`.
+# Login-nya sendiri di `routes/auth_routes.py`.
 
 def validate_token(token: str):
     try:

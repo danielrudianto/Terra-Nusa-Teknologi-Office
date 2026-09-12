@@ -277,7 +277,11 @@ purchase_draft_table = Table(
     Column("ppn", Float(), nullable=False),
     Column("pbbkb", Float(), nullable=False),
     Column("isDelete", Boolean(), nullable=False, default=False),
-    Column("createdAt", DateTime(), nullable=False, default=d.now()),
+    # Bawaannya CALLABLE (tanpa tanda kurung), bukan waktu yang sudah
+    # dihitung. `default=dt.now()` dijalankan SEKALI saat modulnya diimpor,
+    # sehingga nilainya membeku pada saat server dinyalakan — bukan saat
+    # barisnya dibuat.
+    Column("createdAt", DateTime(), nullable=False, default=d.now),
     Column("deletedAt", DateTime(), nullable=True, default=None),
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
     Column("deletedBy", Integer, ForeignKey("users.id"), nullable=True),
