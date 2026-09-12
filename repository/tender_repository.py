@@ -8,6 +8,7 @@ from models.supplier_model import suppliers_table
 from models.tender_model import (
     tender_items_table,
     tender_quote_items_table,
+    tender_quote_notes_table,
     tender_quotes_table,
     tenders_table,
 )
@@ -163,8 +164,56 @@ class TenderRepository:
                     )
                 )
             ]
+            q["noteList"] = await TenderRepository._keterangan(q)
             hasil.append(q)
         return hasil
+
+    @staticmethod
+    async def _keterangan(quote: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Keterangan berkategori satu penawaran.
+
+        Dengan JALAN MUNDUR untuk penawaran lama: sebelum kategori ada,
+        seluruh keterangan tersimpan sebagai satu teks bebas di
+        `tender_quotes.notes`. Penawaran yang belum pernah disunting sejak itu
+        tidak punya satu pun baris di `tender_quote_notes` — dan tanpa jalan
+        mundur ini, keterangannya menghilang dari layar seolah tidak pernah
+        ditulis.
+
+        Teks lamanya ditampilkan sebagai satu keterangan berkategori
+        `lainnya`, ditandai `warisan` supaya layar dapat menyebutkan bahwa ia
+        belum dipilah. Begitu penawarannya disunting, `_tulis_keterangan`
+        mengosongkan kolom lamanya, dan jalan mundur ini berhenti dengan
+        sendirinya.
+        """
+        baris = [
+            dict(x)
+            for x in await database.fetch_all(
+                select(tender_quote_notes_table)
+                .where(tender_quote_notes_table.c.quoteID == quote["id"])
+                .order_by(
+                    tender_quote_notes_table.c.sortOrder.asc(),
+                    tender_quote_notes_table.c.id.asc(),
+                )
+            )
+        ]
+        if baris:
+            return baris
+
+        lama = str(quote.get("notes") or "").strip()
+        if not lama:
+            return []
+        return [
+            {
+                "id": None,
+                "quoteID": quote["id"],
+                "category": "lainnya",
+                "content": lama,
+                "sortOrder": 0,
+                # Belum dipilah ke kategori; berasal dari kolom teks bebas.
+                "warisan": True,
+            }
+        ]
 
     #: Kolom yang boleh dipakai mengurutkan, dipetakan dari nama di layar.
     #:
@@ -336,6 +385,51 @@ class TenderRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    async def tutup_tanpa_pemenang(
+        tender_id: int, alasan: str, user_id: int
+    ) -> Dict[str, Any]:
+        """
+        Tutup tender tanpa memilih siapa pun.
+
+        Tersimpan sebagai `status = 'selesai'` dengan `winnerQuoteID` tetap
+        NULL — bukan status baru. Keadaannya sudah dapat diungkapkan oleh
+        kolom yang ada, dan menambah nilai status baru berarti setiap
+        penyaring, chip, dan laporan yang mengenal empat nilai harus ikut
+        diubah; yang terlewat akan diam-diam menyembunyikan tendernya.
+
+        Berbeda dari `batalkan`: yang dibatalkan dihentikan sebelum selesai,
+        yang ditutup ini prosesnya berjalan sampai habis dan tidak ada yang
+        dipilih.
+        """
+        try:
+            await database.execute(
+                update(tenders_table)
+                .where(tenders_table.c.id == tender_id)
+                .values(
+                    winnerQuoteID=None,
+                    winnerReason=alasan,
+                    decidedAt=dt.now(),
+                    decidedBy=user_id,
+                    status="selesai",
+                    updatedAt=dt.now(),
+                    updatedBy=user_id,
+                )
+            )
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="tenders",
+                entityID=int(tender_id),
+                action="close_no_winner",
+                userID=user_id,
+                note=alasan,
+            )
+            return {"id": tender_id, "winnerQuoteID": None}
+        except Exception as e:
+            log_error(f"Error closing tender without winner: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def hapus(tender_id: int, user_id: int) -> Dict[str, Any]:
         """
         Hapus lunak.
@@ -369,7 +463,11 @@ class TenderRepository:
 
     @staticmethod
     async def tambah_penawaran(
-        tender_id: int, nilai: dict, baris: List[dict], user_id: int
+        tender_id: int,
+        nilai: dict,
+        baris: List[dict],
+        user_id: int,
+        keterangan: Optional[List[dict]] = None,
     ) -> Dict[str, Any]:
         try:
             quote_id = await database.execute(
@@ -381,6 +479,8 @@ class TenderRepository:
                 )
             )
             await TenderRepository._tulis_baris_penawaran(quote_id, baris)
+            if keterangan is not None:
+                await TenderRepository._tulis_keterangan(quote_id, keterangan)
             from repository.audit_log_repository import AuditLogRepository
 
             await AuditLogRepository.record(
@@ -393,6 +493,47 @@ class TenderRepository:
         except Exception as e:
             log_error(f"Error adding tender quote: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def _tulis_keterangan(quote_id: int, keterangan: List[dict]) -> None:
+        """
+        Ganti seluruh keterangan berkategori satu penawaran.
+
+        Dihapus dulu lalu ditulis ulang, sama seperti baris harganya: tanpa itu
+        keterangan yang DIHAPUS di layar tetap tertinggal di basis data, dan
+        pada tabel perbandingan ia muncul kembali di sebelah keterangan
+        penggantinya.
+
+        Kolom lama `tender_quotes.notes` DIKOSONGKAN di sini. Selama masih
+        terisi, `penawaran()` menampilkannya sebagai keterangan berkategori
+        `lainnya` demi penawaran lama — dan bila keduanya terisi sekaligus,
+        satu penawaran menampilkan keterangannya dua kali.
+        """
+        await database.execute(
+            tender_quote_notes_table.delete().where(
+                tender_quote_notes_table.c.quoteID == quote_id
+            )
+        )
+        for urut, k in enumerate(keterangan or []):
+            isi = str(k.get("content") or "").strip()
+            # Keterangan kosong tidak disimpan. Barisnya ada di layar hanya
+            # karena isiannya baru ditambahkan lalu ditinggalkan.
+            if not isi:
+                continue
+            await database.execute(
+                insert(tender_quote_notes_table).values(
+                    quoteID=quote_id,
+                    category=k.get("category") or "lainnya",
+                    content=isi,
+                    sortOrder=k.get("sortOrder", urut),
+                )
+            )
+
+        await database.execute(
+            update(tender_quotes_table)
+            .where(tender_quotes_table.c.id == quote_id)
+            .values(notes=None)
+        )
 
     @staticmethod
     async def _tulis_baris_penawaran(quote_id: int, baris: List[dict]) -> None:
@@ -426,6 +567,7 @@ class TenderRepository:
         nilai: dict,
         baris: Optional[List[dict]],
         user_id: int,
+        keterangan: Optional[List[dict]] = None,
     ) -> Dict[str, Any]:
         try:
             if nilai:
@@ -436,6 +578,8 @@ class TenderRepository:
                 )
             if baris is not None:
                 await TenderRepository._tulis_baris_penawaran(quote_id, baris)
+            if keterangan is not None:
+                await TenderRepository._tulis_keterangan(quote_id, keterangan)
             from repository.audit_log_repository import AuditLogRepository
 
             await AuditLogRepository.record(

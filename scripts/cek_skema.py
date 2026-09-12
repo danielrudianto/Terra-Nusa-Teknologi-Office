@@ -111,6 +111,37 @@ async def kolom_basis_data(nama_tabel: str) -> set[str] | None:
     return {r["COLUMN_NAME"] for r in rows}
 
 
+async def kolom_turunan(nama_tabel: str) -> set[str]:
+    """
+    Kolom TURUNAN (`GENERATED ALWAYS AS ... STORED`) pada satu tabel.
+
+    Kolom seperti ini SENGAJA tidak ada di model, dan tidak boleh
+    ditambahkan: nilainya dihitung basis data, dan menyebutnya di
+    `Table(...)` membuat SQLAlchemy ikut menuliskannya pada setiap INSERT —
+    yang ditolak MySQL dengan galat 3105.
+
+    Dua yang ada sekarang, keduanya dipakai menopang indeks:
+
+      purchases.copAktif          menjaga satu CoP hanya ditagihkan sekali
+      purchases.masaPajakEfektif  mempercepat laporan PPN per masa pajak
+
+    Sebelum ini keduanya dilaporkan "BERLEBIH" pada SETIAP deploy — temuan
+    yang selalu muncul dan selalu benar untuk diabaikan. Daftar seperti itu
+    mengajari pembacanya mengabaikan seluruh daftarnya, termasuk temuan
+    berikutnya yang mungkin sungguhan.
+    """
+    try:
+        rows = await database.fetch_all(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t "
+            "AND EXTRA LIKE '%GENERATED%'",
+            {"t": nama_tabel},
+        )
+    except Exception:
+        return set()
+    return {r["COLUMN_NAME"] for r in rows}
+
+
 def unik_model() -> dict[str, set[tuple[str, ...]]]:
     """
     Tabel -> himpunan indeks UNIK yang disebut model.
@@ -147,6 +178,28 @@ def unik_model() -> dict[str, set[tuple[str, ...]]]:
             # sudah memuat satu, sehingga `unique=True` di belakangnya tidak
             # pernah terlihat. Akibatnya seluruh kolom unik dilaporkan
             # sebagai indeks asing.
+            # `Index(..., unique=True)` juga menyatakan indeks unik.
+            #
+            # Kolom TEXT tidak dapat dijadikan `UniqueConstraint` di MySQL —
+            # ia menuntut panjang prefix, dan itu hanya dapat dinyatakan
+            # lewat `Index(..., mysql_length=...)`. `push_subscriptions
+            # (endpoint)` memakai bentuk itu, dan karena bentuk ini tidak
+            # dikenali, indeks yang SUDAH dinyatakan model dilaporkan
+            # sebagai indeks asing pada setiap deploy.
+            for u in re.finditer(r'Index\(([^)]*(?:\([^)]*\)[^)]*)*)\)', blok):
+                isi = u.group(1)
+                if not re.search(r'unique\s*=\s*True', isi):
+                    continue
+                # Buang argumen bernama; yang tersisa nama indeks lalu
+                # kolom-kolomnya.
+                bersih = re.sub(r'\w+\s*=\s*\{[^}]*\}', '', isi)
+                bersih = re.sub(r'\w+\s*=\s*[^,]+', '', bersih)
+                teks = re.findall(r'[\'"](\w+)[\'"]', bersih)
+                # Yang pertama nama indeksnya, bukan kolom.
+                kolom = tuple(sorted(teks[1:]))
+                if kolom:
+                    kunci.add(kolom)
+
             for m2 in re.finditer(r'Column\(\s*[\'"](\w+)[\'"]', blok):
                 i = m2.end()
                 dalam, akhir = 1, len(blok)
@@ -171,6 +224,20 @@ def unik_model() -> dict[str, set[tuple[str, ...]]]:
                 # dibandingkan di sini hanya indeks unik SELAIN kunci utama.
             hasil[nama] = kunci
     return hasil
+
+
+#: Indeks unik yang memang HANYA dapat dinyatakan di basis data.
+#:
+#: Bukan pengecualian demi kerapian — ketiganya tidak punya bentuk padanan di
+#: SQLAlchemy, dan masing-masing menjaga sesuatu yang nyata. Disebut namanya
+#: di sini beserta alasannya, supaya yang membaca laporan ini tahu bedanya
+#: dari indeks yang benar-benar tidak dikehendaki.
+UNIK_HANYA_DI_BASIS_DATA: dict[tuple[str, tuple[str, ...]], str] = {
+    ("purchases", ("copAktif",)): (
+        "kolom TURUNAN, tidak dapat disebut di model; menjaga satu CoP "
+        "hanya ditagihkan oleh satu pembelian aktif (sql/cop-tagihan.sql)"
+    ),
+}
 
 
 async def unik_basis_data(tabel: str) -> set[tuple[str, ...]] | None:
@@ -219,6 +286,7 @@ async def main() -> int:
         tabel_hilang: list[str] = []
         kolom_hilang: list[tuple[str, str]] = []
         kolom_lebih: list[tuple[str, str]] = []
+        kolom_turunan_ada: list[tuple[str, str]] = []
 
         for tabel, kolom in harapan.items():
             ada = await kolom_basis_data(tabel)
@@ -241,8 +309,15 @@ async def main() -> int:
             # Dilaporkan sebagai PERINGATAN, bukan kegagalan: server tetap
             # berjalan benar, dan menghentikan penyebaran karenanya akan
             # membuat pemeriksa ini diabaikan.
+            turunan = await kolom_turunan(tabel)
             for k in ada:
-                if k not in kolom:
+                if k in kolom:
+                    continue
+                # Kolom turunan memang tidak boleh ada di model; dihitung
+                # terpisah, bukan sebagai kelebihan.
+                if k in turunan:
+                    kolom_turunan_ada.append((tabel, k))
+                else:
                     kolom_lebih.append((tabel, k))
 
         # Indeks UNIK yang ada di basis data tetapi tidak di model.
@@ -259,6 +334,7 @@ async def main() -> int:
         unik_harapan = unik_model()
         unik_asing: list[tuple[str, tuple[str, ...]]] = []
         unik_kurang: list[tuple[str, tuple[str, ...]]] = []
+        unik_dijelaskan: list[tuple[str, tuple[str, ...]]] = []
 
         for tabel in harapan:
             ada = await unik_basis_data(tabel)
@@ -266,6 +342,9 @@ async def main() -> int:
                 continue
             diminta = unik_harapan.get(tabel, set())
             for u in sorted(ada - diminta):
+                if (tabel, u) in UNIK_HANYA_DI_BASIS_DATA:
+                    unik_dijelaskan.append((tabel, u))
+                    continue
                 unik_asing.append((tabel, u))
             for u in sorted(diminta - ada):
                 unik_kurang.append((tabel, u))
@@ -276,6 +355,20 @@ async def main() -> int:
         print(f"kolom berlebih  : {len(kolom_lebih)}")
         print(f"unik asing      : {len(unik_asing)}")
         print(f"unik kurang     : {len(unik_kurang)}")
+
+        # Yang SUDAH dijelaskan disebut sekali, sebagai keterangan — bukan
+        # sebagai temuan.
+        #
+        # Sebelumnya keduanya masuk ke daftar temuan dan muncul pada SETIAP
+        # deploy dengan peringatan bercetak tebal, padahal keduanya memang
+        # begitu adanya dan tidak pernah ada yang perlu dikerjakan. Laporan
+        # yang selalu memuat temuan yang selalu boleh diabaikan mengajari
+        # pembacanya mengabaikan seluruh laporannya.
+        if kolom_turunan_ada or unik_dijelaskan:
+            print(
+                f"terjelaskan     : {len(kolom_turunan_ada)} kolom turunan, "
+                f"{len(unik_dijelaskan)} indeks khusus basis data"
+            )
         print()
 
         for t in tabel_hilang:
@@ -304,6 +397,18 @@ async def main() -> int:
         #
         # Yang diperlukan adalah temuannya TERLIHAT, bukan deploy yang
         # berhenti.
+        if kolom_turunan_ada or unik_dijelaskan:
+            print()
+            print("Terjelaskan — tidak ada yang perlu dikerjakan:")
+            for t, k in kolom_turunan_ada:
+                print(
+                    f"  KOLOM TURUNAN {t}.{k} — dihitung basis data; "
+                    "menyebutnya di model justru menggagalkan INSERT"
+                )
+            for t, u in unik_dijelaskan:
+                print(f"  INDEKS KHUSUS {t} ({', '.join(u)})")
+                print(f"                {UNIK_HANYA_DI_BASIS_DATA[(t, u)]}")
+
         if unik_asing or unik_kurang:
             print()
             print("PERINGATAN: indeks unik di basis data tidak sesuai model.")

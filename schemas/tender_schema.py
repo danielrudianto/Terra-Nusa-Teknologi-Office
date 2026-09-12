@@ -23,6 +23,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from models.tender_model import KATEGORI_KETERANGAN
+
 #: Jenis tender yang dikenal.
 #:
 #: Menentukan bentuk barisnya: `barang` diambil dari katalog dengan satuan dan
@@ -118,8 +120,35 @@ class TenderQuoteItemBase(BaseModel):
     notes: Optional[str] = None
 
 
+class TenderQuoteNoteBase(BaseModel):
+    """
+    Satu keterangan pemasok, berkategori.
+
+    Kategorinya TETAP — lihat `KATEGORI_KETERANGAN` di `models/tender_model`.
+    Dengan kategori, "uang muka 70%" milik satu pemasok dan "pelunasan setelah
+    200 jam" milik pemasok lain berada pada BARIS YANG SAMA di tabel
+    perbandingan, dan dapat dibaca berdampingan — sebelumnya keduanya terkubur
+    di dalam satu sel teks bebas sepanjang paragraf.
+    """
+
+    category: str
+    content: str = Field(min_length=1)
+    sortOrder: int = 0
+
+    @field_validator("category")
+    @classmethod
+    def kategori_dikenal(cls, v: str) -> str:
+        if v not in KATEGORI_KETERANGAN:
+            raise ValueError(
+                f"category harus salah satu dari {sorted(KATEGORI_KETERANGAN)}"
+            )
+        return v
+
+
 class TenderQuoteBase(BaseModel):
     supplierID: int
+    # Nomor pada surat penawaran PEMASOK; boleh kosong.
+    quotationNumber: Optional[str] = Field(default=None, max_length=100)
     paymentTerm: Optional[str] = Field(default=None, max_length=20)
     creditTerm: Optional[int] = None
     # Apakah pemasok memungut PPN; menentukan biaya sebenarnya.
@@ -137,7 +166,14 @@ class TenderQuoteBase(BaseModel):
     # Biaya lain yang ditanggung AKN di luar harga barangnya.
     otherCost: Optional[Decimal] = None
     otherCostNote: Optional[str] = None
+    # Keterangan LAMA, satu teks bebas.
+    #
+    # Dipertahankan supaya penawaran yang tersimpan sebelum kategori ada tetap
+    # terbaca; yang baru memakai `noteList`. Repository mengosongkannya begitu
+    # keterangan berkategori disimpan, sehingga tidak pernah ada dua sumber
+    # yang menampilkan hal berbeda pada waktu yang sama.
     notes: Optional[str] = None
+    noteList: List[TenderQuoteNoteBase] = []
     quotedAt: Optional[date] = None
     items: List[TenderQuoteItemBase] = []
 
@@ -160,6 +196,7 @@ class TenderQuoteCreate(TenderQuoteBase):
 class TenderQuoteUpdate(BaseModel):
     # PENTING: tidak mewarisi `TenderQuoteBase`; lihat catatan berkas.
     supplierID: Optional[int] = None
+    quotationNumber: Optional[str] = Field(default=None, max_length=100)
     paymentTerm: Optional[str] = Field(default=None, max_length=20)
     creditTerm: Optional[int] = None
     includePpn: Optional[bool] = None
@@ -168,6 +205,7 @@ class TenderQuoteUpdate(BaseModel):
     otherCost: Optional[Decimal] = None
     otherCostNote: Optional[str] = None
     notes: Optional[str] = None
+    noteList: Optional[List[TenderQuoteNoteBase]] = None
     quotedAt: Optional[date] = None
     items: Optional[List[TenderQuoteItemBase]] = None
 
@@ -195,3 +233,25 @@ class TenderResponse(TenderBase):
     decidedAt: Optional[datetime] = None
     createdAt: datetime
     updatedAt: Optional[datetime] = None
+
+
+class TenderTutup(BaseModel):
+    """
+    Penutupan tender TANPA pemenang.
+
+    Berbeda dari pembatalan: yang dibatalkan dihentikan sebelum selesai, yang
+    ditutup ini prosesnya berjalan sampai habis dan tidak ada yang dipilih —
+    penawarannya terlalu mahal seluruhnya, pekerjaannya jadi dikerjakan
+    sendiri, atau kebutuhannya berubah setelah penawaran masuk.
+
+    Alasannya WAJIB, dengan panjang minimum yang sama seperti penetapan
+    pemenang. Justru keputusan TIDAK MEMBELI-lah yang paling sering
+    dipertanyakan setahun kemudian, dan yang paling sedikit meninggalkan
+    dokumen.
+
+    Minimal tiga penawaran TIDAK berlaku di sini: tender yang ditutup tanpa
+    pemenang kerap justru tender yang penawarannya tidak pernah cukup, dan
+    menuntut tiga akan memaksanya menggantung selamanya.
+    """
+
+    reason: str = Field(min_length=10, max_length=1000)

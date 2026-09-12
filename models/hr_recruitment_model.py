@@ -148,6 +148,23 @@ hr_answers_table = Table(
     Column("checkedBy", Integer, ForeignKey("users.id"), nullable=True),
     Column("checkerNote", String(500), nullable=True),
     Column("updatedAt", DateTime(), nullable=True),
+    # SATU jawaban per pelamar per soal.
+    #
+    # Indeksnya sudah ada di basis data sejak awal tetapi tidak pernah
+    # dinyatakan di sini, sehingga `cek_skema` melaporkannya sebagai indeks
+    # asing pada SETIAP deploy — temuan yang selalu muncul dan selalu benar
+    # untuk diabaikan.
+    #
+    # Dan ia memang diperlukan: `simpan_jawaban` dipanggil BERKALA oleh layar
+    # ujian (koneksi di rumah pelamar kerap putus, dan kehilangan satu jam
+    # pengerjaan tidak dapat diperbaiki sesudahnya). Cara simpannya
+    # baca-lalu-ubah-atau-sisipkan, dan dua penyimpanan yang bertumpang
+    # tindih akan menyisipkan dua baris untuk soal yang sama tanpa penjagaan
+    # di sini. Yang menilai kemudian melihat satu soal terjawab dua kali,
+    # dengan isi yang berbeda, tanpa cara menentukan mana yang terakhir.
+    UniqueConstraint(
+        "candidateID", "questionID", name="uq_hr_answer_candidate_question"
+    ),
 )
 
 

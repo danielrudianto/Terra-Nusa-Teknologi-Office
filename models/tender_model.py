@@ -105,6 +105,16 @@ tender_quotes_table = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("tenderID", Integer, ForeignKey("tenders.id"), nullable=False),
     Column("supplierID", Integer, ForeignKey("suppliers.id"), nullable=False),
+    # Nomor yang dicantumkan PEMASOK pada surat penawarannya sendiri.
+    #
+    # Bukan nomor buatan sistem ini. Dipakai menunjuk dokumen aslinya ketika
+    # keputusannya ditinjau kembali, dan ketika menanyakan ulang kepada
+    # pemasoknya — "penawaran nomor 045/QT/IX/2026" jauh lebih mudah dicari
+    # daripada "penawaran yang bulan September itu".
+    #
+    # Boleh kosong: sebagian penawaran datang lewat WhatsApp tanpa nomor sama
+    # sekali, dan mewajibkannya membuat yang mencatat mengarang nomor.
+    Column("quotationNumber", String(100), nullable=True),
     # Syarat yang DITAWARKAN pemasok; kerap berbeda dari yang diminta.
     Column("paymentTerm", String(20), nullable=True),
     Column("creditTerm", Integer, nullable=True),
@@ -168,4 +178,27 @@ tender_quote_items_table = Table(
     Column("price", DECIMAL(15, 2), nullable=True),
     # Catatan per baris: merek yang ditawarkan, spesifikasi pengganti.
     Column("notes", Text, nullable=True),
+)
+
+
+#: Kategori keterangan pemasok yang dikenal.
+#:
+#: TETAP, bukan bebas. Kategori yang diketik sendiri menghasilkan "Pembayaran"
+#: dan "pembayaran" sebagai dua baris terpisah pada tabel yang seluruh gunanya
+#: justru menyejajarkan hal yang sama.
+KATEGORI_KETERANGAN = ("pembayaran", "teknis", "nonteknis", "lainnya")
+
+tender_quote_notes_table = Table(
+    "tender_quote_notes",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "quoteID", Integer, ForeignKey("tender_quotes.id"), nullable=False
+    ),
+    # `pembayaran` | `teknis` | `nonteknis` | `lainnya`
+    Column("category", String(20), nullable=False),
+    Column("content", Text, nullable=False),
+    # Urutan tampil DI DALAM satu kategori; satu kategori boleh berisi lebih
+    # dari satu keterangan.
+    Column("sortOrder", Integer, nullable=False, server_default="0"),
 )

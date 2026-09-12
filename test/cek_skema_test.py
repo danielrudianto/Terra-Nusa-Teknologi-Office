@@ -82,3 +82,79 @@ def test_model_kutip_tunggal_ikut_terbaca():
     """
     peta = _peta_model()
     assert len(peta.get("expense_opponents", [])) >= 13
+
+
+# ----------------------------------------------------------------------
+# Indeks unik: kedua bentuk penulisannya harus terbaca
+# ----------------------------------------------------------------------
+
+
+def _unik_model():
+    """Jalankan `unik_model()` dari skrip apa adanya."""
+    src = open(os.path.join(AKAR, "scripts", "cek_skema.py")).read()
+    i = src.index("def unik_model()")
+    j = src.index("#: Indeks unik yang memang HANYA")
+    ns = {"os": os, "re": re, "glob": glob, "AKAR": AKAR}
+    exec(compile(src[i:j], "cek_skema", "exec"), ns)
+    return ns["unik_model"]()
+
+
+def test_index_unique_true_ikut_terbaca():
+    """
+    `Index(..., unique=True)` menyatakan indeks unik, sama seperti
+    `UniqueConstraint`.
+
+    Kolom TEXT tidak dapat dijadikan `UniqueConstraint` di MySQL — ia
+    menuntut panjang prefix, dan itu hanya dapat dinyatakan lewat
+    `Index(..., mysql_length=...)`. `push_subscriptions (endpoint)` memakai
+    bentuk itu.
+
+    Selama bentuk ini tidak dikenali, indeks yang SUDAH dinyatakan model
+    dilaporkan sebagai indeks asing pada setiap deploy — dan laporan yang
+    selalu memuat temuan yang selalu boleh diabaikan mengajari pembacanya
+    mengabaikan seluruh laporannya.
+    """
+    u = _unik_model()
+    assert ("endpoint",) in u.get("push_subscriptions", set()), (
+        "`Index(..., unique=True)` tidak terbaca; indeks yang sudah "
+        "dinyatakan model akan dilaporkan sebagai indeks asing"
+    )
+
+
+def test_nama_indeks_tidak_dihitung_sebagai_kolom():
+    """
+    Argumen pertama `Index(...)` adalah NAMA indeksnya, bukan kolom.
+
+    Menghitungnya sebagai kolom membuat setiap indeks bernama dilaporkan
+    tidak cocok dengan basis data — kegagalan yang sama persis dengan yang
+    dulu terjadi pada `UniqueConstraint(..., name=...)`.
+    """
+    u = _unik_model()
+    assert ("endpoint", "uq_push_endpoint") not in u.get(
+        "push_subscriptions", set()
+    )
+    assert ("uq_push_endpoint",) not in u.get("push_subscriptions", set())
+
+
+def test_indeks_non_unik_tidak_ikut():
+    """`Index(...)` tanpa `unique=True` bukan indeks unik."""
+    u = _unik_model()
+    # `purchases` punya beberapa indeks biasa (masa pajak, CoP) dan TIDAK
+    # punya satu pun indeks unik yang dinyatakan model.
+    assert not u.get("purchases"), (
+        f"indeks biasa ikut terbaca sebagai unik: {u.get('purchases')}"
+    )
+
+
+def test_jawaban_ujian_satu_per_soal():
+    """
+    Satu pelamar, satu soal, satu jawaban.
+
+    `simpan_jawaban` dipanggil BERKALA oleh layar ujian dan menyimpannya
+    dengan pola baca-lalu-ubah-atau-sisipkan. Dua penyimpanan yang bertumpang
+    tindih menyisipkan dua baris untuk soal yang sama, dan yang menilai
+    kemudian melihat satu soal terjawab dua kali dengan isi berbeda — tanpa
+    cara menentukan mana yang terakhir.
+    """
+    u = _unik_model()
+    assert ("candidateID", "questionID") in u.get("hr_answers", set())

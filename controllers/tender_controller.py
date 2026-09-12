@@ -166,8 +166,14 @@ class TenderController:
         sah = {x["id"] for x in tender.get("items", [])}
         baris = [b for b in body.pop("items", []) if b.get("tenderItemID") in sah]
 
+        # Keterangan berkategori disimpan di tabelnya sendiri, jadi
+        # dikeluarkan dari muatan sebelum baris penawarannya ditulis —
+        # `noteList` bukan kolom `tender_quotes`, dan meneruskannya ke INSERT
+        # melempar "Unconsumed column names" yang lalu ditelan menjadi 500.
+        keterangan = body.pop("noteList", None)
+
         return await TenderRepository.tambah_penawaran(
-            tender_id, body, baris, user_id
+            tender_id, body, baris, user_id, keterangan
         )
 
     @staticmethod
@@ -197,9 +203,58 @@ class TenderController:
         if baris is not None:
             baris = [b for b in baris if b.get("tenderItemID") in sah]
 
+        # Lihat keterangan pada `tambah_penawaran`.
+        keterangan = body.pop("noteList", None)
+
         return await TenderRepository.ubah_penawaran(
-            quote_id, body, baris, user_id
+            quote_id, body, baris, user_id, keterangan
         )
+
+    @staticmethod
+    async def tutup_tanpa_pemenang(
+        tender_id: int, alasan: str, user_id: int
+    ) -> Dict[str, Any]:
+        """
+        Tutup tender tanpa memilih pemasok.
+
+        Penawarannya terlalu mahal seluruhnya, pekerjaannya jadi dikerjakan
+        sendiri, atau kebutuhannya berubah setelah penawaran masuk. Prosesnya
+        berjalan sampai habis — berbeda dari `batalkan`, yang menghentikannya
+        di tengah.
+
+        `MINIMAL_PENAWARAN` SENGAJA TIDAK berlaku di sini. Tender yang ditutup
+        tanpa pemenang justru kerap tender yang penawarannya tidak pernah
+        cukup, dan menuntut tiga akan memaksanya menggantung selamanya —
+        tampil sebagai pekerjaan yang belum selesai padahal keputusannya sudah
+        diambil berbulan-bulan lalu.
+
+        Yang tetap dituntut: alasan tertulis. Keputusan TIDAK MEMBELI-lah yang
+        paling sering dipertanyakan setahun kemudian, dan yang paling sedikit
+        meninggalkan dokumen.
+        """
+        tender = await TenderRepository.ambil(tender_id)
+        if tender is None:
+            return {"error": "Tender tidak ditemukan.", "status": 404}
+        if "error" in tender:
+            return tender
+
+        if tender["status"] == "selesai":
+            return {
+                "error": "Tender ini sudah ditutup.",
+                "status": 409,
+            }
+        if tender["status"] == "batal":
+            return {
+                "error": "Tender yang sudah dibatalkan tidak perlu ditutup.",
+                "status": 409,
+            }
+
+        hasil = await TenderRepository.tutup_tanpa_pemenang(
+            tender_id, alasan, user_id
+        )
+        if "error" not in hasil:
+            log_info(f"Tender {tender_id} ditutup tanpa pemenang")
+        return hasil
 
     @staticmethod
     async def hapus_penawaran(

@@ -8,6 +8,7 @@ from schemas.tender_schema import (
     TenderPemenang,
     TenderQuoteCreate,
     TenderQuoteUpdate,
+    TenderTutup,
     TenderUpdate,
 )
 from utils.errors import error_detail
@@ -160,6 +161,27 @@ async def hapus_penawaran(
     return _bereskan(
         await TenderController.hapus_penawaran(
             tender_id, quote_id, current_user["id"]
+        )
+    )
+
+
+@router.post("/{tender_id}/tutup")
+async def tutup_tender(
+    tender_id: int,
+    body: TenderTutup,
+    current_user: Annotated[dict, Depends(require("tender", "approve"))],
+):
+    """
+    Tutup tender TANPA pemenang.
+
+    Dijaga izin yang sama dengan penetapan pemenang (`tender:approve`), bukan
+    `update`: memutuskan tidak membeli adalah keputusan pengadaan yang sama
+    beratnya dengan memilih pemasok, dan sama-sama terikat pada alasan
+    tertulis.
+    """
+    return _bereskan(
+        await TenderController.tutup_tanpa_pemenang(
+            tender_id, body.reason, current_user["id"]
         )
     )
 
