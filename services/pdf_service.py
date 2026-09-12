@@ -116,8 +116,25 @@ class PDFService:
                 </tr>
                 """
 
-        total_deduction = data['taxAmount']
-        gross_salary = total_income - sum(item["amount"] for item in data["other_deductions"])
+        # PPh 21 adalah SALAH SATU pengurangan, bukan seluruhnya.
+        #
+        # Sebelumnya `total_deduction` berisi `taxAmount` saja, sementara
+        # baris-baris di atasnya merinci potongan lain satu per satu. Lembar
+        # yang diterima karyawan karena itu memperlihatkan "Jumlah
+        # Pengurangan" yang LEBIH KECIL daripada satu baris di atasnya —
+        # potongan BPJS Rp 200.000 dengan jumlah pengurangan Rp 50.000.
+        #
+        # Angka gaji bersihnya sendiri tidak pernah salah (ia dihitung lewat
+        # `gross_salary`, yang sudah memotong keduanya); yang salah hanya
+        # baris jumlah ini — dan justru baris itulah yang dipakai karyawan
+        # mencocokkan slipnya. Cetakan dari peramban menampilkannya dengan
+        # benar, sehingga satu dokumen menyebut dua angka.
+        potongan_lain = sum(
+            (item["amount"] or 0) for item in data["other_deductions"]
+        )
+        pajak = data['taxAmount'] or 0
+        total_deduction = potongan_lain + pajak
+        gross_salary = total_income - potongan_lain
         included_salary =  (
             data['basicSalary']
             + transport_total
@@ -126,7 +143,10 @@ class PDFService:
             + sum(item["amount"] for item in data["other_allowances"] if item['isIncluded'] == True)
             - sum(item["amount"] for item in data["other_deductions"] if item['isIncluded'] == True)
         )
-        net_salary = gross_salary - total_deduction
+        # Bersih = pendapatan − potongan lain − pajak. Sama seperti
+        # sebelumnya; `total_deduction` kini sudah memuat keduanya, sehingga
+        # dikurangkan dari pendapatan penuh, bukan dari yang sudah dipotong.
+        net_salary = total_income - total_deduction
         
         html_content = f"""
             <html>
@@ -256,8 +276,16 @@ class PDFService:
             <table class="horiz-border">
             {other_deduction_rows}
             <tr>
+            <td colspan="2">
+                <p style="margin-bottom:0; margin-top:0;">PPh 21</p>
+            </td>
+            <td>{PDFService.format_rupiah(pajak)}</td>
+            <td align="right">{PDFService.format_rupiah(pajak)}</td>
+            </tr>
+            <tr>
             <td colspan="3"><strong>Jumlah Pengurangan</strong></td>
             <td align="right" class="total">{PDFService.format_rupiah(total_deduction)}</td>
+            </tr>
             </table>
 
             <h2 style="text-align:left; margin-top:20px; margin-bottom:20px;">Rekapitulasi Data</h2>

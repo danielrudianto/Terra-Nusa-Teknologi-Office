@@ -6,8 +6,12 @@ from sqlalchemy import select, func, and_
 from utils.database import database
 from utils.logger_utils import log_error
 from models.balance_model import balance_view
-from models.purchase_model import purchases_table
-from models.sales_invoice_model import sales_invoice_tables
+from models.purchase_model import purchases_table, nilai_pembelian_sql
+from models.sales_invoice_model import (
+    sales_invoice_tables,
+    nilai_faktur_sql,
+    terbayar_faktur_sql,
+)
 from models.payment_outgoing_model import payments_outgoing_table
 from models.payment_incoming_model import payment_incoming_table
 from models.loans_model import loans_table
@@ -60,22 +64,23 @@ class FinanceStatusRepository:
         layar supaya tidak dikira tenggat yang disepakati dengan klien.
         """
         try:
-            bayar = (
-                select(
-                    payment_incoming_table.c.salesInvoiceID.label("invoice_id"),
-                    func.coalesce(
-                        func.sum(payment_incoming_table.c.amount), 0
-                    ).label("total_paid"),
-                )
-                .group_by(payment_incoming_table.c.salesInvoiceID)
-                .subquery()
-            )
+            bayar = terbayar_faktur_sql()
 
-            # Nilai tagihan = DPP + PPN. PPh tidak mengurangi tagihan; ia
-            # memotong saat pembayaran, bukan saat penagihan.
-            nilai = sales_invoice_tables.c.dpp + (
-                sales_invoice_tables.c.dpp * sales_invoice_tables.c.ppn / 100
-            )
+            # Nilai tagihan DINILAI SAMA dengan yang menentukan lunas.
+            #
+            # Sebelumnya di sini `DPP + PPN` saja, dengan alasan PPh memotong
+            # saat pembayaran dan bukan saat penagihan. Sebagai pernyataan
+            # akuntansi itu dapat dipertahankan — tetapi hanya bila
+            # pembayarannya juga dicatat bruto, dan ia tidak: yang dicatat
+            # adalah jumlah yang masuk ke rekening, sesudah klien memotong
+            # PPh dan BPJS.
+            #
+            # Akibatnya faktur yang sudah lunas menyisakan piutang abadi
+            # sebesar PPh + BPJS: daftar faktur menyebutnya LUNAS, umur
+            # piutang di layar ini masih menagihnya, dan tidak ada pembayaran
+            # apa pun yang akan pernah menutupnya. Angkanya ikut ke quick
+            # ratio dan modal kerja bersih.
+            nilai = nilai_faktur_sql()
             sisa = nilai - func.coalesce(bayar.c.total_paid, 0)
 
             rows = await database.fetch_all(
@@ -94,6 +99,14 @@ class FinanceStatusRepository:
                 .where(
                     and_(
                         sales_invoice_tables.c.isDelete == False,  # noqa: E712
+                        # Faktur yang BELUM disetujui bukan piutang.
+                        #
+                        # `get_monthly_ar` sudah menuntutnya sejak awal;
+                        # tanpa syarat ini, draf faktur yang belum
+                        # ditandatangani siapa pun ikut tampil sebagai
+                        # tagihan di layar ini dan tidak di rekap bulanan —
+                        # dua jawaban atas dokumen yang sama.
+                        sales_invoice_tables.c.isApprove == True,  # noqa: E712
                         sisa > TOLERANSI_LUNAS,
                     )
                 )
@@ -138,17 +151,38 @@ class FinanceStatusRepository:
                         func.sum(payments_outgoing_table.c.amount), 0
                     ).label("total_paid"),
                 )
-                .where(payments_outgoing_table.c.isDelete == False)  # noqa: E712
+                .where(
+                    payments_outgoing_table.c.isDelete == False,  # noqa: E712
+                    # HANYA yang sudah disetujui.
+                    #
+                    # Sebelumnya saringannya cuma `isDelete`, sehingga slip
+                    # yang masih menunggu persetujuan sudah dianggap
+                    # mengurangi utang — padahal uangnya belum keluar. Utang
+                    # usahanya karena itu tampak lebih kecil daripada yang
+                    # sebenarnya, dan quick ratio serta modal kerja bersih
+                    # yang dihitung darinya ikut tampak lebih sehat.
+                    #
+                    # `belum_dibayar` dan `pinjaman` menyaring keduanya sejak
+                    # awal; hanya di sini yang tertinggal.
+                    payments_outgoing_table.c.isApprove == True,  # noqa: E712
+                )
                 .group_by(payments_outgoing_table.c.purchaseID)
                 .subquery()
             )
 
-            nilai = (
-                purchases_table.c.dpp
-                + (purchases_table.c.dpp * purchases_table.c.ppn / 100)
-                + func.coalesce(purchases_table.c.pbbkb, 0)
-                + func.coalesce(purchases_table.c.otherValue, 0)
-            )
+            # PPh DIPOTONG dari nilai utangnya.
+            #
+            # Yang tersisa di sini adalah yang masih harus dibayarkan KEPADA
+            # PEMASOK, dan PPh tidak pernah sampai ke pemasok — ia dipotong
+            # lalu disetorkan ke kas negara. Tanpa memotongnya, pembelian yang
+            # sudah dibayar penuh tetap menyisakan "utang" sebesar PPh-nya,
+            # selamanya, dan ikut menua di ember 90+ hari.
+            #
+            # Suku-sukunya kini sama persis dengan `PurchaseRepository.
+            # belum_dibayar` dan dengan `nilai_pembelian` yang menentukan
+            # status lunas. Sebelumnya ketiganya berselisih, dan dua layar
+            # menjawab berbeda atas dokumen yang sama.
+            nilai = nilai_pembelian_sql()
             sisa = nilai - func.coalesce(bayar.c.total_paid, 0)
 
             rows = await database.fetch_all(

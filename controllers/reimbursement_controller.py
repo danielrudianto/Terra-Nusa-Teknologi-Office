@@ -5,7 +5,7 @@ from schemas.reimbursement_schema import ReimbursementCreate, ReimbursementRespo
 from utils.logger_utils import log_error, log_info
 from datetime import datetime
 from fastapi import HTTPException
-from utils.errors import internal_error
+from utils.errors import internal_error, app_error, ErrorCode
 
 class ReimbursementController:
 
@@ -52,6 +52,13 @@ class ReimbursementController:
                 reimbursementID=reimbursement_id,
                 name=reimbursement_name
             )
+        except HTTPException:
+            # Penolakan yang DISENGAJA diteruskan apa adanya.
+            # Tanpa baris ini, `except Exception` di bawah menangkap kembali
+            # HTTPException yang baru saja dilempar di dalam `try` yang sama dan
+            # mengubahnya menjadi 500 — dan alasan penolakannya hilang sebelum
+            # rutenya sempat melihatnya.
+            raise
         except Exception as e:
             log_error(f"Error creating reimbursement: {str(e)}")
             return internal_error()
@@ -101,11 +108,27 @@ class ReimbursementController:
                 log_error(f"Error getting reimbursement for approval: {reimbursement['error']}")
                 return reimbursement
             
+            # Penolakan harus MEMUAT `error`.
+            #
+            # Rutenya menyaring dengan `if "error" in result`; bentuk lama di
+            # sini hanya membawa `message` dan `status`, sehingga penolakannya
+            # dikirim apa adanya sebagai **200 OK**. Layar menampilkan
+            # "berhasil" untuk tindakan yang tidak mengerjakan apa pun, dan
+            # `status: 400` yang menempel di badan jawaban tidak dibaca siapa
+            # pun.
             if reimbursement["isApprove"]:
-                return {"message": "Reimbursement already approved", "status": 400}
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "Reimbursement already approved",
+                    400,
+                )
 
             if reimbursement["isDelete"]:
-                return {"message": "Reimbursement is deleted and cannot be approved", "status": 400}
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "Reimbursement is deleted and cannot be approved",
+                    400,
+                )
         
             result = await ReimbursementRepository.approve_reimbursement_by_id(reimbursementID, userID, user_level)
             if "error" in result:
@@ -127,8 +150,12 @@ class ReimbursementController:
                 log_error(f"Error getting reimbursement for rejection: {reimbursement['error']}")
                 return reimbursement
             
+            # Lihat keterangan pada `approve_reimbursement`: tanpa `error`,
+            # penolakan ini terkirim sebagai 200.
             if reimbursement["isDelete"]:
-                return {"message": "Reimbursement already deleted", "status": 400}
+                return app_error(
+                    ErrorCode.VALIDATION, "Reimbursement already deleted", 400
+                )
         
             result = await ReimbursementRepository.reject_reimbursement_by_id(reimbursementID, userID)
             if "error" in result:

@@ -1580,7 +1580,17 @@ class PaymentOutgoingRepository:
                     previous_amount_subquery.label("previous_amount")
                 )
                 .join(expenses_table, payments_outgoing_table.c.expenseID == expenses_table.c.id)
-                .join(expense_opponents_table, expenses_table.c.opponentID == expense_opponents_table.c.id)
+                # OUTER join: `expenses.opponentID` boleh kosong.
+                #
+                # Dengan join biasa, beban yang lawan transaksinya belum
+                # dicatat TERBUANG dari kueri — beserta PPh terutangnya.
+                # Yang hilang bukan namanya saja melainkan seluruh barisnya,
+                # sehingga posisi PPh dan rekapnya melaporkan kurang bayar
+                # tanpa ada yang menghitung selisihnya.
+                #
+                # `ExpenseRepository.get_ppn_report` memakai outerjoin persis
+                # karena alasan ini; laporan PPh tertinggal.
+                .outerjoin(expense_opponents_table, expenses_table.c.opponentID == expense_opponents_table.c.id)
                 .where(*conditions)
                 .order_by(order_by)
             )

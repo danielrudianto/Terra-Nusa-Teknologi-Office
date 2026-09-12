@@ -20,7 +20,9 @@ async def create_employee(employee: Employee, user: Annotated[dict, Depends(requ
     
     if "error" in result:
         log_error(f"Error creating payment: {result['error']}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(
+            status_code=result.get("status", 500), detail=error_detail(result)
+        )
     
     return result
 
@@ -99,12 +101,25 @@ async def get_employees(
         raise e
     
 @router.put("/")
-async def update_employee(employee: Employee, user: Annotated[dict, Depends(require("employees", "update"))]):
+async def update_employee(employee: dict, user: Annotated[dict, Depends(require("employees", "update"))]):
     """
     Update an existing employee. Requires a valid token.
+
+    Muatannya SENGAJA tidak diikat ke `Employee`.
+
+    Empat bidang — email, telepon, alamat, kategori pajak — sudah dipindahkan
+    ke formulir pembaruan data, dan layar ini memang tidak lagi mengirimnya.
+    Diikat ke `Employee`, yang menuntut keempatnya, permintaan itu ditolak
+    422 SEBELUM controller sempat memulihkannya dari baris yang tersimpan —
+    sehingga tidak satu pun nama, NIK, jabatan, atau departemen karyawan
+    dapat dibetulkan lewat aplikasi.
+
+    Penguncian keempat bidang itu tetap berlaku dan tetap di server: lihat
+    `DIKUNCI` pada `EmployeeController.update_employee`, yang menimpanya dari
+    data tersimpan apa pun yang dikirim pemanggil.
     """
     userID = user["id"]
-    result = await EmployeeController.update_employee(employee.model_dump(), userID)
+    result = await EmployeeController.update_employee(dict(employee), userID)
     
     if "error" in result:
         log_error(f"Error updating employee: {result['error']}")

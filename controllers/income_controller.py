@@ -75,10 +75,28 @@ class IncomeController:
         """
         log_info(f"Updating income {income_id} with data: {income_data}")
         
-        # Add updated timestamp
-        income_data["updatedAt"] = dt.now()
-        income_data["updatedBy"] = user_id
-        
+        # `income` TIDAK PUNYA kolom updatedAt/updatedBy.
+        #
+        # Menambahkannya di sini membuat SQLAlchemy melempar
+        # "Unconsumed column names: updatedAt, updatedBy" saat menyusun
+        # pernyataannya — ditelan `except Exception` di repository dan keluar
+        # sebagai 500. Artinya SETIAP pembaruan pemasukan gagal, selalu, dan
+        # pesannya tidak pernah menyebut sebabnya.
+        #
+        # Yang boleh diubah dibatasi ke kolom yang benar-benar ada, sekalian
+        # menutup mass-assignment: tanpa saringan ini, pemanggil dapat
+        # menulis `isDelete`, `createdBy`, atau `createdAt` lewat rute
+        # pembaruan — menghapus dokumen tanpa izin hapus dan tanpa jejak
+        # siapa menghapusnya.
+        BOLEH_DIUBAH = {
+            "description",
+            "date",
+            "incomeType",
+            "amount",
+            "opponentID",
+        }
+        income_data = {k: v for k, v in income_data.items() if k in BOLEH_DIUBAH}
+
         result = await IncomeRepository.update(income_id, income_data)
         if "error" in result:
             log_error(f"Error updating income: {result['error']}")

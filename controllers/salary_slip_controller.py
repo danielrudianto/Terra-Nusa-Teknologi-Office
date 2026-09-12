@@ -22,6 +22,13 @@ class SalarySlipController:
                 raise HTTPException(status_code=result["status"], detail=result["error"])
             
             return result
+        except HTTPException:
+            # Penolakan yang DISENGAJA diteruskan apa adanya.
+            # Tanpa baris ini, `except Exception` di bawah menangkap kembali
+            # HTTPException yang baru saja dilempar di dalam `try` yang sama dan
+            # mengubahnya menjadi 500 — dan alasan penolakannya hilang sebelum
+            # rutenya sempat melihatnya.
+            raise
         except Exception as e:
             log_error(f"Unexpected error during fetch: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error.")
@@ -51,6 +58,13 @@ class SalarySlipController:
                 "deductions": deductions,
                 "payments": payments
             }
+        except HTTPException:
+            # Penolakan yang DISENGAJA diteruskan apa adanya.
+            # Tanpa baris ini, `except Exception` di bawah menangkap kembali
+            # HTTPException yang baru saja dilempar di dalam `try` yang sama dan
+            # mengubahnya menjadi 500 — dan alasan penolakannya hilang sebelum
+            # rutenya sempat melihatnya.
+            raise
         except Exception as e:
             log_error(f"Unexpected error during fetching by ID {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error.")
@@ -59,6 +73,20 @@ class SalarySlipController:
     async def send(salary_slip_id: int):
         try:
             salarySlip = await SalarySlipRepository.get_by_id(salary_slip_id)
+            # Slip yang tidak ada menjawab 404, bukan 500.
+            #
+            # `get_by_id` mengembalikan {"error": ..., "status": 404}; dict itu
+            # menerima dua kunci baru di bawah tanpa mengeluh, lalu PDF-nya
+            # gagal pada `data['month']` — dan kegagalan itulah yang keluar,
+            # sebagai "Failed to print salary slip". Membuka slip yang sudah
+            # dihapus karena itu terbaca seperti servernya rusak.
+            if isinstance(salarySlip, dict) and "error" in salarySlip:
+                raise HTTPException(
+                    status_code=salarySlip.get("status", 404),
+                    detail=salarySlip["error"],
+                )
+            if salarySlip is None:
+                raise HTTPException(status_code=404, detail="Salary slip not found")
             salarySlipAllowances = await SalarySlipAllowanceRepository.get_by_salary_slip_id(salary_slip_id)
             salarySlipDeductions = await SalarySlipDeductionRepository.get_by_salary_slip_id(salary_slip_id)
 
@@ -107,6 +135,11 @@ class SalarySlipController:
 
             return {"status": "sent"}
 
+        except HTTPException:
+            # Penolakan yang DISENGAJA diteruskan apa adanya; tanpa baris ini
+            # `except Exception` di bawah menangkapnya kembali dan mengubahnya
+            # menjadi 500.
+            raise
         except Exception as e:
             log_error(str(e))
             raise HTTPException(status_code=500, detail="Failed to send salary slip")
@@ -149,6 +182,20 @@ class SalarySlipController:
     async def print(salary_slip_id: int):
         try:
             salarySlip = await SalarySlipRepository.get_by_id(salary_slip_id)
+            # Slip yang tidak ada menjawab 404, bukan 500.
+            #
+            # `get_by_id` mengembalikan {"error": ..., "status": 404}; dict itu
+            # menerima dua kunci baru di bawah tanpa mengeluh, lalu PDF-nya
+            # gagal pada `data['month']` — dan kegagalan itulah yang keluar,
+            # sebagai "Failed to print salary slip". Membuka slip yang sudah
+            # dihapus karena itu terbaca seperti servernya rusak.
+            if isinstance(salarySlip, dict) and "error" in salarySlip:
+                raise HTTPException(
+                    status_code=salarySlip.get("status", 404),
+                    detail=salarySlip["error"],
+                )
+            if salarySlip is None:
+                raise HTTPException(status_code=404, detail="Salary slip not found")
             salarySlipAllowances = await SalarySlipAllowanceRepository.get_by_salary_slip_id(salary_slip_id)
             salarySlipDeductions = await SalarySlipDeductionRepository.get_by_salary_slip_id(salary_slip_id)
 
@@ -171,6 +218,11 @@ class SalarySlipController:
             # Kembalikan sebagai objek biner; route yang membungkus jadi Response PDF.
             return {"pdf_bytes": file_data, "filename": filename}
 
+        except HTTPException:
+            # Penolakan yang DISENGAJA diteruskan apa adanya; tanpa baris ini
+            # `except Exception` di bawah menangkapnya kembali dan mengubahnya
+            # menjadi 500.
+            raise
         except Exception as e:
             log_error(str(e))
             raise HTTPException(status_code=500, detail="Failed to print salary slip")

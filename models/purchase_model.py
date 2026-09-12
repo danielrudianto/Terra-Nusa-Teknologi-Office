@@ -1,5 +1,16 @@
 from utils.database import metadata
-from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, ForeignKey
+from sqlalchemy import (
+    Table,
+    Column,
+    Integer,
+    String,
+    Boolean,
+    DateTime,
+    Date,
+    Float,
+    ForeignKey,
+    func,
+)
 
 purchases_table = Table(
     "purchases",
@@ -84,6 +95,46 @@ purchases_table = Table(
     Column("lastStatusDescription", String(100), nullable=True, default=None),
     Column("isInternal", Boolean(), nullable=False, default=False)
 )
+
+def nilai_pembelian_sql():
+    """
+    Nilai satu pembelian, sebagai ungkapan SQL.
+
+    Pasangan dari `nilai_pembelian()` di `payment_outgoing_controller` — yang
+    itu menghitung dari satu baris yang sudah dibaca, yang ini menghitung di
+    dalam kueri. Suku-sukunya HARUS sama, dan sampai sekarang tidak: rumus
+    yang sama ditulis ulang di empat kueri, dan dua di antaranya menyebut
+    `otherValue` tanpa `COALESCE`.
+
+    Itu bukan soal kerapian. `otherValue` boleh NULL — dan kebanyakan
+    pembelian memang menyimpannya NULL, karena ongkos angkut dan bongkar muat
+    hanya ada pada sebagian dokumen. Di SQL, apa pun yang ditambahkan pada
+    NULL menjadi NULL; `NULL > 5` bukan benar dan bukan salah melainkan
+    UNKNOWN, dan baris yang syaratnya UNKNOWN **tidak ikut terpilih**.
+
+    Akibatnya: pembelian yang belum dibayar sepeser pun HILANG dari daftar
+    "belum dibayar" dan dari rekap utang bulanan — bukan tampil dengan angka
+    keliru, melainkan tidak tampil sama sekali. Tidak ada galat, tidak ada
+    baris kosong, tidak ada yang menghitung selisih. Yang menagihnya hanya
+    tidak pernah melihatnya lagi.
+
+    Sementara itu penentu status lunas (`nilai_pembelian`) memakai
+    `float(x or 0)` dan tetap menghitungnya utuh — sehingga dokumen yang sama
+    dianggap MASIH BERUTANG oleh satu bagian sistem dan TIDAK ADA oleh bagian
+    yang lain.
+
+    PPh dipotong: yang tersisa di sini adalah yang masih harus dibayarkan
+    kepada PEMASOK, dan PPh tidak pernah sampai ke pemasok.
+    """
+    nol = lambda kolom: func.coalesce(kolom, 0)  # noqa: E731
+    return (
+        purchases_table.c.dpp
+        + (purchases_table.c.dpp * nol(purchases_table.c.ppn) / 100)
+        + nol(purchases_table.c.pbbkb)
+        + nol(purchases_table.c.otherValue)
+        - (nol(purchases_table.c.pphPercentage) * purchases_table.c.dpp / 100)
+    )
+
 
 purchase_status_table = Table(
     "purchase_status",

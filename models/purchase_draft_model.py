@@ -91,7 +91,20 @@ class PurchaseDraft(BaseModel):
         elif sortBy == "purchaseOrderName":
             order_by = purchase_draft_table.c.purchaseOrderName.desc() if sortByDirection == "desc" else purchase_draft_table.c.purchaseOrderName
         elif sortBy == "total":
-            order_by = (purchase_draft_table.c.ppn + purchase_draft_table.c.dpp).desc() if sortByDirection == "desc" else (purchase_draft_table.c.ppn + purchase_draft_table.c.dpp)
+            # `ppn` PERSEN, bukan rupiah — lihat keterangan yang sama pada
+            # `PurchaseRepository.fetch`. `ppn + dpp` menjumlahkan 11 dengan
+            # lima juta, sehingga kolomnya terurut menurut DPP saja dan
+            # terlihat kacau terhadap angka yang tertulis di kolom itu.
+            nilai_draf = (
+                purchase_draft_table.c.dpp
+                + (
+                    purchase_draft_table.c.dpp
+                    * func.coalesce(purchase_draft_table.c.ppn, 0)
+                    / 100
+                )
+                + func.coalesce(purchase_draft_table.c.pbbkb, 0)
+            )
+            order_by = nilai_draf.desc() if sortByDirection == "desc" else nilai_draf.asc()
         elif sortBy == "supplier":
             order_by = suppliers_table.c.name.desc() if sortByDirection == "desc" else suppliers_table.c.name.asc()
         elif sortBy == "project":

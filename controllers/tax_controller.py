@@ -441,6 +441,31 @@ class TaxController:
             return internal_error()
 
     @staticmethod
+    def _satu_baris_per_dokumen(rows) -> list:
+        """
+        Satu DOKUMEN satu baris, walaupun dibayar beberapa kali.
+
+        Kueri sumbernya menghasilkan satu baris per PEMBAYARAN, dan tiap
+        baris membawa DPP dokumennya secara UTUH — bukan sebagian yang
+        dicicil. Dijumlahkan apa adanya, tagihan yang dibayar tiga kali dalam
+        satu masa muncul tiga kali dengan DPP penuh, dan rekapnya melaporkan
+        PPh tiga kali lipat.
+
+        `get_pph_position` sudah menyaringnya sejak awal; unduhan rekap
+        membaca lewat `get_pph_report`, yang tidak. Dua tombol pada kartu
+        yang sama, atas masa yang sama, menjawab angka yang berbeda — dan
+        yang dipakai mengisi kode billing justru yang dari unduhan.
+        """
+        hasil, terlihat = [], set()
+        for r in rows or []:
+            kunci = r.get("id")
+            if kunci in terlihat:
+                continue
+            terlihat.add(kunci)
+            hasil.append(dict(r))
+        return hasil
+
+    @staticmethod
     async def get_pph_report(month: int, year: int):
         log_info(f"Fetching PPh report for month {month} and year {year}")
         try:
@@ -455,9 +480,16 @@ class TaxController:
                 raise HTTPException(status_code=expenses.get("status", 500), detail=expenses["error"])
             
             return {
-                "purchase": purchases,
-                "expense": expenses
+                "purchase": TaxController._satu_baris_per_dokumen(purchases),
+                "expense": TaxController._satu_baris_per_dokumen(expenses),
             }
+        except HTTPException:
+            # Penolakan yang DISENGAJA diteruskan apa adanya.
+            # Tanpa baris ini, `except Exception` di bawah menangkap kembali
+            # HTTPException yang baru saja dilempar di dalam `try` yang sama dan
+            # mengubahnya menjadi 500 — dan alasan penolakannya hilang sebelum
+            # rutenya sempat melihatnya.
+            raise
         except IntegrityError as e:
             log_error(f"Integrity error: {str(e)}")
             raise HTTPException(status_code=400, detail="Asset already exists.")
@@ -502,6 +534,13 @@ class TaxController:
                     "year": tahun_slip,
                 }
             return salary_slip
+        except HTTPException:
+            # Penolakan yang DISENGAJA diteruskan apa adanya.
+            # Tanpa baris ini, `except Exception` di bawah menangkap kembali
+            # HTTPException yang baru saja dilempar di dalam `try` yang sama dan
+            # mengubahnya menjadi 500 — dan alasan penolakannya hilang sebelum
+            # rutenya sempat melihatnya.
+            raise
         except IntegrityError as e:
             log_error(f"Integrity error: {str(e)}")
             raise HTTPException(status_code=400, detail="Asset already exists.")
@@ -598,6 +637,13 @@ class TaxController:
                 response["loans"] = loansData
 
             return response
+        except HTTPException:
+            # Penolakan yang DISENGAJA diteruskan apa adanya.
+            # Tanpa baris ini, `except Exception` di bawah menangkap kembali
+            # HTTPException yang baru saja dilempar di dalam `try` yang sama dan
+            # mengubahnya menjadi 500 — dan alasan penolakannya hilang sebelum
+            # rutenya sempat melihatnya.
+            raise
         except Exception as e:
             log_error(f"Unexpected error: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error.")

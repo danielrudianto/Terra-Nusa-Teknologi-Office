@@ -1,7 +1,11 @@
 from sqlalchemy import select, func, or_, and_, insert, update
 from utils.database import database
 from utils.logger_utils import log_error
-from models.purchase_model import purchases_table, purchase_status_table
+from models.purchase_model import (
+    purchases_table,
+    purchase_status_table,
+    nilai_pembelian_sql,
+)
 from models.purchase_order_model import purchase_orders_table
 from models.supplier_model import suppliers_table
 from models.payment_outgoing_model import payments_outgoing_table
@@ -102,7 +106,16 @@ class PurchaseRepository:
             elif sortBy == "dueDate":
                 order_by = purchases_table.c.dueDate.desc() if sortByDirection == "desc" else purchases_table.c.dueDate.asc()
             elif sortBy == "total":
-                order_by = (purchases_table.c.ppn + purchases_table.c.dpp).desc() if sortByDirection == "desc" else (purchases_table.c.ppn + purchases_table.c.dpp).asc()
+                # `ppn` adalah PERSEN, bukan rupiah.
+                #
+                # Sebelumnya kolom ini diurutkan dengan `ppn + dpp` — yaitu
+                # persen ditambah rupiah, mis. 11 + 5.000.000. Hasilnya
+                # mengurutkan menurut DPP saja dan mengabaikan PPN, PBBKB,
+                # serta biaya lain; pada pembelian BBM (berPBBKB) dan
+                # asuransi (berbiaya lain) urutannya terlihat kacau terhadap
+                # angka yang tertulis di kolom yang sedang diurutkan.
+                nilai = nilai_pembelian_sql()
+                order_by = nilai.desc() if sortByDirection == "desc" else nilai.asc()
             elif sortBy == "supplier":
                 order_by = suppliers_table.c.name.desc() if sortByDirection == "desc" else suppliers_table.c.name.asc()
             elif sortBy == "invoiceName":
@@ -615,11 +628,8 @@ class PurchaseRepository:
                     purchases_table.c.otherValueNote,
                     func.coalesce(payment_subquery.c.total_paid, 0).label("total_paid"),
                     (
-                        (purchases_table.c.ppn * purchases_table.c.dpp / 100 + 
-                         purchases_table.c.dpp + purchases_table.c.pbbkb + 
-                         purchases_table.c.otherValue - 
-                         purchases_table.c.pphPercentage * purchases_table.c.dpp / 100) -
-                        func.coalesce(payment_subquery.c.total_paid, 0)
+                        nilai_pembelian_sql()
+                        - func.coalesce(payment_subquery.c.total_paid, 0)
                     ).label("remaining"),
                     *supplier_columns
                 )
@@ -632,12 +642,13 @@ class PurchaseRepository:
                     purchases_table.c.date < end_date,
                     purchases_table.c.isDelete == False,
                     purchases_table.c.isInternal == False,
-                    #Where the difference is less than 5 Rupiah
-                    (purchases_table.c.ppn * purchases_table.c.dpp / 100 + 
-                     purchases_table.c.dpp + purchases_table.c.pbbkb + 
-                     purchases_table.c.otherValue - 
-                     purchases_table.c.pphPercentage * purchases_table.c.dpp / 100) -
-                    func.coalesce(payment_subquery.c.total_paid, 0) >= 5
+                    # Sisa lebih dari lima rupiah. Rumusnya sama dengan
+                    # kolom `remaining` di atas — satu sumber, supaya baris
+                    # yang lolos saringan tidak mungkin berbeda dari baris
+                    # yang nilainya ditampilkan.
+                    nilai_pembelian_sql()
+                    - func.coalesce(payment_subquery.c.total_paid, 0)
+                    >= 5
                 )
             )
 
@@ -863,13 +874,13 @@ class PurchaseRepository:
                 .subquery()
             )
 
-            nilai = (
-                purchases_table.c.ppn * purchases_table.c.dpp / 100
-                + purchases_table.c.dpp
-                + purchases_table.c.pbbkb
-                + purchases_table.c.otherValue
-                - purchases_table.c.pphPercentage * purchases_table.c.dpp / 100
-            )
+            # Rumusnya TIDAK ditulis ulang di sini.
+            #
+            # Salinan sebelumnya menyebut `otherValue` tanpa COALESCE, dan
+            # kolom itu boleh NULL — sehingga seluruh nilainya menjadi NULL,
+            # `sisa > 5` menjadi UNKNOWN, dan pembelian yang belum dibayar
+            # sepeser pun tidak pernah muncul di daftar ini sama sekali.
+            nilai = nilai_pembelian_sql()
             sisa = nilai - func.coalesce(bayar.c.total_paid, 0)
 
             syarat = [

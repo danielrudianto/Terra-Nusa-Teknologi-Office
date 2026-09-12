@@ -5,7 +5,11 @@ from sqlalchemy import select, func, or_, and_, desc, asc, extract
 from utils.database import database
 from utils.logger_utils import log_error
 from datetime import datetime as dt
-from models.sales_invoice_model import sales_invoice_tables
+from models.sales_invoice_model import (
+    sales_invoice_tables,
+    nilai_faktur_sql,
+    terbayar_faktur_sql,
+)
 from models.client_model import clients_table
 from utils.pajak import MASA_PAJAK_AWAL
 from models.payment_incoming_model import payment_incoming_table
@@ -91,16 +95,7 @@ class SalesInvoiceRepository:
             ]
 
             # Subquery: total pembayaran yang sudah diterima per invoice (uang masuk)
-            payment_subquery = (
-                select(
-                    payment_incoming_table.c.salesInvoiceID.label("invoice_id"),
-                    func.coalesce(
-                        func.sum(payment_incoming_table.c.amount), 0
-                    ).label("total_paid"),
-                )
-                .group_by(payment_incoming_table.c.salesInvoiceID)
-                .subquery()
-            )
+            payment_subquery = terbayar_faktur_sql()
 
             query = (
                 select(
@@ -155,7 +150,17 @@ class SalesInvoiceRepository:
                     select(
                         func.coalesce(func.sum(payment_incoming_table.c.amount), 0)
                     )
-                    .where(payment_incoming_table.c.salesInvoiceID == sales_invoice_tables.c.id)
+                    .where(
+                        payment_incoming_table.c.salesInvoiceID
+                        == sales_invoice_tables.c.id,
+                        # Pembayaran yang dibatalkan TIDAK ikut.
+                        #
+                        # Daftar pembayaran pada layar detail sudah
+                        # menyaringnya sejak awal, sementara jumlah ini
+                        # tidak — sehingga satu dokumen menyebut dua jumlah
+                        # "sudah dibayar" dalam satu jawaban.
+                        payment_incoming_table.c.isDelete == False,  # noqa: E712
+                    )
                     .scalar_subquery(),
                     0,
                 ).label("total_paid"),
@@ -228,25 +233,11 @@ class SalesInvoiceRepository:
             ]
 
             # Subquery: total pembayaran diterima per invoice (untuk isPaid & taxing status)
-            payment_subquery = (
-                select(
-                    payment_incoming_table.c.salesInvoiceID.label("invoice_id"),
-                    func.coalesce(
-                        func.sum(payment_incoming_table.c.amount), 0
-                    ).label("total_paid"),
-                )
-                .group_by(payment_incoming_table.c.salesInvoiceID)
-                .subquery()
-            )
+            payment_subquery = terbayar_faktur_sql()
 
             # Expression nilai tagihan & total dibayar (untuk filter)
             si = sales_invoice_tables.c
-            invoice_value_expr = (
-                si.dpp
-                + (si.ppn * si.dpp) / 100
-                - (si.pphPercentage * si.dpp) / 100
-                - si.bpjs
-            )
+            invoice_value_expr = nilai_faktur_sql()
             total_paid_expr = func.coalesce(payment_subquery.c.total_paid, 0)
             is_paid_expr = total_paid_expr >= (invoice_value_expr - 5)
             has_ppn_expr = si.ppn > 0
@@ -539,14 +530,7 @@ class SalesInvoiceRepository:
                 end_date = dt(year, month + 1, 1)
 
             # Subquery total payment per invoice
-            payment_subquery = (
-                select(
-                    payment_incoming_table.c.salesInvoiceID.label("invoice_id"),
-                    func.coalesce(func.sum(payment_incoming_table.c.amount), 0).label("total_paid")
-                )
-                .group_by(payment_incoming_table.c.salesInvoiceID)
-                .subquery()
-            )
+            payment_subquery = terbayar_faktur_sql()
 
             # Main query
             query = (
@@ -568,8 +552,8 @@ class SalesInvoiceRepository:
                     func.coalesce(payment_subquery.c.total_paid, 0).label("total_paid"),
 
                     (
-                        sales_invoice_tables.c.dpp + sales_invoice_tables.c.ppn * sales_invoice_tables.c.dpp / 100 - sales_invoice_tables.c.pphPercentage * sales_invoice_tables.c.dpp / 100 - sales_invoice_tables.c.bpjs -
-                        func.coalesce(payment_subquery.c.total_paid, 0)
+                        nilai_faktur_sql()
+                        - func.coalesce(payment_subquery.c.total_paid, 0)
                     ).label("remaining")
                 )
                 .outerjoin(

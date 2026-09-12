@@ -299,6 +299,43 @@ class PaymentOutgoingController:
                 nilai = nilai_beban(d)
                 bayar = await PaymentOutgoingRepository.get_payments_by_expense_id(eid)
 
+            elif payment_data.get("salarySlipID"):
+                sid = int(payment_data["salarySlipID"])
+                # Slip gaji SELAMA INI TIDAK PUNYA CABANG DI SINI.
+                #
+                # Akibatnya `_sisa_tagihan` menjawab None untuk setiap
+                # pembayaran gaji, dan seluruh blok penjaga di `create_payment`
+                # dilewati — baik penolakan "dokumen ini sudah lunas" maupun
+                # "nominal melebihi sisa tagihan". Pembelian, beban,
+                # reimbursement dan pinjaman semuanya dijaga; gaji tidak.
+                #
+                # Yang terjadi bila slip yang sama dibayar dua kali: keduanya
+                # masuk, keduanya disetujui, uangnya keluar dua kali — lalu
+                # penyelarasan status lunas menghitung selisihnya sebesar satu
+                # kali gaji dan menyimpulkan slipnya BELUM LUNAS. Daftar slip
+                # menampilkan chip "belum dibayar", dan orang berikutnya
+                # membayarnya untuk ketiga kalinya.
+                #
+                # Satu-satunya penjaga sebelum ini ada di layar (validator
+                # `amountValidator`), dan layar bukan pengamanan.
+                d = await SalarySlipRepository.get_by_id(sid)
+                if not terbaca(d):
+                    return None
+                tunjangan = await SalarySlipAllowanceRepository.get_by_salary_slip_id(
+                    sid
+                )
+                potongan = await SalarySlipDeductionRepository.get_by_salary_slip_id(
+                    sid
+                )
+                nilai = nilai_slip(
+                    d,
+                    [] if isinstance(tunjangan, dict) else tunjangan,
+                    [] if isinstance(potongan, dict) else potongan,
+                )
+                bayar = await PaymentOutgoingRepository.get_payments_by_salary_slip_id(
+                    sid
+                )
+
             elif payment_data.get("loanID"):
                 lid = int(payment_data["loanID"])
                 d = await LoanRepository.get_loan_by_id(lid)
@@ -741,14 +778,15 @@ class PaymentOutgoingController:
                     salarySlipDeductions = await SalarySlipDeductionRepository.get_by_salary_slip_id(payment.salarySlipID)
                     
                     
-                    salary_value = (
-                        salarySlip["basicSalary"] + 
-                        salarySlip["transportationAllowanceRate"] * salarySlip["transportationAllowanceQuantity"] + 
-                        salarySlip["mealAllowanceRate"] * salarySlip["mealAllowanceQuantity"] + 
-                        salarySlip["overtimeRate"] * salarySlip["overtimeQuantity"] + 
-                        reduce(lambda x, y: x + y["amount"], salarySlipAllowances, 0) -
-                        reduce(lambda x, y: x + y["amount"], salarySlipDeductions, 0) - 
-                        salarySlip["taxAmount"]
+                    # `nilai_slip`, bukan rumusnya disalin ulang.
+                    #
+                    # Salinan yang tadinya di sini menjumlahkan kolomnya
+                    # LANGSUNG, tanpa `or 0`: satu kolom NULL — tunjangan
+                    # yang belum diisi, `taxAmount` pada slip lama — membuat
+                    # penjumlahannya melempar TypeError, dan persetujuan
+                    # pembayarannya gagal tanpa menyebut sebabnya.
+                    salary_value = nilai_slip(
+                        salarySlip, salarySlipAllowances, salarySlipDeductions
                     )
 
                     current_payments = await PaymentOutgoingRepository.get_payments_by_salary_slip_id(payment.salarySlipID)
@@ -796,6 +834,13 @@ class PaymentOutgoingController:
 
             log_info(f"Payment with ID: {id} updated successfully")
             return {"message": "Payment updated successfully"}
+        except HTTPException:
+            # Penolakan yang DISENGAJA diteruskan apa adanya.
+            # Tanpa baris ini, `except Exception` di bawah menangkap kembali
+            # HTTPException yang baru saja dilempar di dalam `try` yang sama dan
+            # mengubahnya menjadi 500 — dan alasan penolakannya hilang sebelum
+            # rutenya sempat melihatnya.
+            raise
         except Exception as e:
             log_error(f"Error updating payment: {e}")
             return {"error": "Internal Server Error", "status": 500}
@@ -913,14 +958,10 @@ class PaymentOutgoingController:
                         salarySlipDeductions = await SalarySlipDeductionRepository.get_by_salary_slip_id(payment.salarySlipID)
                         
                         
-                        salary_value = (
-                            salarySlip["basicSalary"] + 
-                            salarySlip["transportationAllowanceRate"] * salarySlip["transportationAllowanceQuantity"] + 
-                            salarySlip["mealAllowanceRate"] * salarySlip["mealAllowanceQuantity"] + 
-                            salarySlip["overtimeRate"] * salarySlip["overtimeQuantity"] + 
-                            reduce(lambda x, y: x + y["amount"], salarySlipAllowances, 0) -
-                            reduce(lambda x, y: x + y["amount"], salarySlipDeductions, 0) - 
-                            salarySlip["taxAmount"]
+                        # `nilai_slip` — lihat catatan pada persetujuan
+                        # tunggal; salinan mentahnya jatuh pada kolom NULL.
+                        salary_value = nilai_slip(
+                            salarySlip, salarySlipAllowances, salarySlipDeductions
                         )
 
                         current_payments = await PaymentOutgoingRepository.get_payments_by_salary_slip_id(payment.salarySlipID)

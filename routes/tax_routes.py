@@ -1,12 +1,12 @@
 from fastapi import APIRouter, HTTPException, Depends
-from utils.errors import error_detail
+from utils.errors import error_detail, ErrorCode
 from controllers.tax_controller import TaxController
 from repository.audit_log_repository import AuditLogRepository
 from utils.logger_utils import log_error
 from repository.user_repository import UserRepository
 from typing import Annotated
 from utils.auth_utils import get_current_user
-from utils.permission import require
+from utils.permission import require, is_allowed
 from utils.auth_utils import User
 
 router = APIRouter()
@@ -57,6 +57,38 @@ async def fetch_pph_report(month: int, year: int, current_user: Annotated[User, 
 
 @router.get("/pph-salary")
 async def fetch_pph_report(month: int, year: int, current_user: Annotated[User, Depends(require("tax", "read"))]):
+    """
+    Rekap PPh 21 per karyawan.
+
+    Menuntut izin GAJI, bukan hanya izin pajak.
+
+    Yang dikirimnya bukan ringkasan pajak melainkan **daftar gaji seluruh
+    karyawan**: gaji pokok, tunjangan transport, uang makan, lembur, tiap
+    baris tunjangan dan potongan, beserta PPh-nya. `salary_slip` termasuk
+    `MODUL_WILAYAH_MUTLAK` justru supaya angka itu tidak terbuka menurut
+    tangga level — sementara `tax` tidak, dan matriksnya membukanya sejak
+    level 3.
+
+    Akibatnya seorang general manager (level 4, dan menurut rancangannya
+    tidak bermendepartemen) ditolak di `GET /salary-slips` lalu memperoleh
+    seluruh angka yang sama dari alamat ini. Daftar aktivitas sudah lebih
+    dulu ditutup bagi level 4 persis supaya tidak menjadi pintu belakang ke
+    data ini; alamat ini adalah pintu depannya.
+
+    Kedua divisi yang memang memakai layar ini — FAT dan konsultan — sudah
+    memegang `salary_slip` di `department_modules`, sehingga penjagaan ini
+    tidak menutup siapa pun yang selama ini berhak.
+    """
+    if not await is_allowed(current_user, "salary_slip", "read"):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": ErrorCode.FORBIDDEN,
+                "message": (
+                    "Laporan ini memuat rincian gaji; diperlukan izin slip gaji."
+                ),
+            },
+        )
     await AuditLogRepository.catat_akses_laporan("pph_gaji", f"Laporan PPh gaji {month}/{year}")
     result = await TaxController.get_pph_salary_report(month, year)
     if "error" in result:

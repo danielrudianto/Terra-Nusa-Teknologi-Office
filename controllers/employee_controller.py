@@ -40,6 +40,13 @@ class EmployeeController:
             )
 
             return result
+        except HTTPException:
+            # Status yang disengaja (mis. NIK sudah dipakai) diteruskan apa
+            # adanya. Tanpa baris ini, `except Exception` di bawah menangkap
+            # kembali HTTPException yang dilempar di dalam `try` dan
+            # mengubahnya menjadi 500 — dan alasan penolakannya hilang
+            # sebelum rutenya sempat melihatnya.
+            raise
         except Exception as e:
             log_error(f"Unexpected error: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error.")
@@ -88,10 +95,25 @@ class EmployeeController:
         log_info(f"Fetching employee with ID: {employee_id}")
         try:
             employee = await Employee.get_employee_by_id(employee_id)
-            if "error" in employee:
+            # `get_employee_by_id` menjawab None bila barisnya tidak ada.
+            #
+            # `"error" in None` melempar TypeError — yang bukan HTTPException,
+            # sehingga jatuh ke penangkap di bawah dan keluar sebagai 500.
+            # Membuka karyawan yang tidak ada karena itu terbaca seperti
+            # servernya rusak.
+            if employee is None:
+                raise HTTPException(status_code=404, detail="Employee not found.")
+            if isinstance(employee, dict) and "error" in employee:
                 log_error(f"Error fetching employee: {employee['error']}")
                 raise HTTPException(status_code=employee["status"], detail=employee["error"])
             return employee
+        except HTTPException:
+            # Penolakan yang DISENGAJA diteruskan apa adanya.
+            # Tanpa baris ini, `except Exception` di bawah menangkap kembali
+            # HTTPException yang baru saja dilempar di dalam `try` yang sama dan
+            # mengubahnya menjadi 500 — dan alasan penolakannya hilang sebelum
+            # rutenya sempat melihatnya.
+            raise
         except Exception as e:
             log_error(f"Error fetching employee: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error.")
