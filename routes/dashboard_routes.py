@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from utils.auth_utils import get_current_user, User
 from utils.permission import require
 from controllers.dashboard_controller import DashboardController
+from controllers.lencana_controller import LencanaController
 
 router = APIRouter()
 
@@ -40,3 +41,22 @@ async def get_cash_position(
         return result
     except HTTPException:
         raise
+
+@router.get("/lencana")
+async def lencana(
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """
+    Hitungan "menunggu SAYA" untuk lencana menu samping.
+
+    TANPA `require(...)`, dan itu disengaja. Rute ini tidak membuka modul mana
+    pun — tiap hitungan di dalamnya sudah memeriksa wewenangnya sendiri dan
+    mengembalikan nol bagi yang tidak berhak. Memagarinya dengan satu modul
+    justru keliru: tidak ada satu modul pun yang mewakili keempatnya, dan
+    memilih salah satunya akan menutup lencana modul lain bagi orang yang
+    berhak atasnya.
+
+    `get_current_user` tetap wajib: tanpa pengguna, tidak ada yang dapat
+    disebut "menunggu saya".
+    """
+    return await LencanaController.semua(current_user)
