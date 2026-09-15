@@ -40,6 +40,17 @@ tenders_table = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     # Nomor urut tender; dipakai menyusun sebutannya pada dokumen dan pesan.
     Column("number", Integer, nullable=True, index=True),
+    # Nomor dokumen jadi: `T-AKN-001-IX-2026`.
+    #
+    # DISIMPAN, bukan dihitung saat ditampilkan. Nomor dokumen adalah
+    # IDENTITAS: begitu terbit, ia dirujuk di percakapan, di berkas cetak, di
+    # surat ke pemasok. Kalau dihitung dari `date`, menyunting tanggal tender
+    # diam-diam mengubah nomornya — dan rujukan yang sudah beredar menunjuk
+    # sesuatu yang tidak ada lagi.
+    #
+    # `number` tetap ada sebagai URUTAN DALAM TAHUN itu; `documentNumber`
+    # bentuk tampilnya.
+    Column("documentNumber", String(32), nullable=True, index=True),
     Column("name", String(255), nullable=False),
     Column("date", Date, nullable=False),
     # `barang` atau `jasa`.

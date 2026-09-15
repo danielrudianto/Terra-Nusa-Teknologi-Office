@@ -1,131 +1,70 @@
-# Arus kas proyek — BACKEND
+# Nomor dokumen tender — BACKEND
 
-**Tidak ada perubahan skema.** Tidak ada `.sql` baru, tidak ada kolom baru.
-Ekstrak di atas repo backend, commit, deploy.
+**ADA PERUBAHAN SKEMA.** `sql/tender-nomor-dokumen.sql` harus dijalankan.
 
-> Dikirim sebagai **dua zip** (backend & frontend) alih-alih satu, supaya
-> masing-masing tetap bisa diekstrak langsung di atas reponya tanpa
-> memindahkan folder. Jalankan yang ini dulu — frontend memanggil rutenya.
+Urutan: SQL → `cek_skema.py` → restart. Frontend-nya di zip terpisah.
 
 ---
 
-## Yang ditambahkan
+## Bentuknya
 
-| Berkas | Isi |
-|---|---|
-| `repository/project_cashflow_repository.py` | kueri kas keluar & kas masuk |
-| `controllers/project_cashflow_controller.py` | perakitan + aturan "kosong bukan galat" |
-| `routes/project_routes.py` | `GET /projects/{project_name}/cashflow` |
-| `test/arus_kas_proyek_test.py` | 11 uji |
-
----
-
-## Kenapa ini bukan pengulangan "arus per minggu" yang sudah ada
-
-Laporan proyek yang sekarang menghitung dari **tanggal dokumen** — tanggal
-pembelian, tanggal faktur. Itu menjawab *"sudah berkomitmen berapa"*. Ia tidak
-menjawab *"kapan uangnya keluar dari rekening"*, dan pada pekerjaan konstruksi
-jarak keduanya berminggu-minggu sampai berbulan-bulan.
-
-Dua proyek dengan biaya dan tagihan yang **sama persis** bisa sangat berbeda
-kasnya: yang satu menagih di muka, yang lain menalangi enam bulan. Perbedaan
-itu tidak terlihat sama sekali pada tanggal dokumen.
-
-Jadi modul ini membaca tabel **pembayaran**, bukan tabel dokumen.
-
----
-
-## Penjaga izinnya sengaja LEBIH TINGGI dari rute di sebelahnya
-
-Rute laporan proyek yang sudah ada dijaga `purchase:read` — **level 1**.
-Rute arus kas ini dijaga `payment_outgoing:read` — **level 3**.
-
-Kalau ia menumpang `purchase:read`, tanggal dan nominal uang keluar dari
-rekening terbuka bagi lapangan dan pengadaan — yang oleh matriks izin justru
-**sengaja dijauhkan** dari data kas. Rute yang mengembalikan hal yang sama
-lewat pintu yang lebih rendah membatalkan keputusan itu tanpa mengubah satu
-baris pun di matriksnya.
-
-`payment_incoming` juga level 3, jadi satu penjaga ini tidak melonggarkan sisi
-mana pun.
-
-**Akibat yang disengaja:** departemen yang tidak memegang `payment_outgoing`
-(engineering, misalnya) mendapat 403 — dan layarnya **menyembunyikan tabnya**,
-bukan menampilkan galat. Pola yang sama sudah dipakai bagian kemajuan bagi
-konsultan pajak.
-
----
-
-## Tiga keputusan yang menentukan angkanya
-
-**1. Disaring `isDelete` saja, BUKAN `isApprove`.**
-Mengikuti kalender kas dan saldo bank, yang keduanya menghitung pembayaran
-begitu tercatat. Penolakan dan pembatalan sudah mencabut `isApprove`
-**sekaligus** menyetel `isDelete`, jadi `isDelete = 0` sudah berarti
-pembayarannya berlaku. Menambahkan `isApprove` di sini akan membuat laporan
-proyek melaporkan kas yang berbeda dari kalender untuk uang yang sama.
-
-**2. Dokumen induknya ikut disaring `isDelete`.**
-Tanpa ini, **menghapus** sebuah pembelian justru **menaikkan** kas keluar
-proyeknya — arah yang berlawanan dengan dugaan siapa pun, dan tanpa galat.
-
-**3. Join-nya menyebut kolomnya sendiri (`onclause` eksplisit).**
-Lihat temuan di bawah.
-
----
-
-## Temuan yang perlu Anda tahu: FK salah tabel
-
-```python
-# models/payment_incoming_model.py
-Column("salesInvoiceID", Integer, ForeignKey("purchases.id"), nullable=True),
+```
+T-AKN-001-IX-2026
+  |    |   |   `- tahun
+  |    |   `----- bulan, angka Romawi
+  |    `--------- urutan dalam TAHUN itu
+  `-------------- tetap
 ```
 
-Kolomnya bernama `salesInvoiceID` tetapi FK-nya menunjuk **`purchases.id`**.
+Urutannya **mengulang tiap tahun** (pilihan Anda). Karena itulah tahun ikut di
+nomornya — tanpa pengulangan, bagian tahun cuma hiasan.
 
-Akibatnya SQLAlchemy tidak mengenal satu pun hubungan antara
-`payment_incoming` dan `sales_invoices`, sehingga `join(sales_invoice_tables)`
-tanpa `onclause` **gagal** dengan `NoForeignKeysError`.
+## Tiga keputusan
 
-> Saya sempat menulis di komentar bahwa ia akan "menyambung diam-diam ke tabel
-> yang salah". **Keliru** — saya rusak sengaja untuk mengeceknya, dan ia
-> melempar. Komentarnya sudah dibetulkan.
+**1. Bulan & tahun dari TANGGAL TENDERNYA, bukan hari ini.**
+Tender yang dicatat 2 Oktober untuk dokumen bertanggal 28 September bernomor
+`...-IX-...`. Nomor dokumen menyebut kapan dokumennya berlaku; memakai tanggal
+pencatatan membuat nomornya bercerita tentang kapan seseorang sempat membukanya.
 
-Yang tetap perlu diingat adalah **sebabnya**: pesan galatnya menunjuk ke "tidak
-ada FK", bukan ke "FK-nya salah tabel" — dan yang membacanya akan mencari FK
-yang hilang, bukan FK yang keliru arah.
+**2. Nomornya DISIMPAN, bukan dihitung saat ditampilkan.**
+Nomor dokumen adalah identitas: begitu terbit, ia dirujuk di percakapan, di
+berkas cetak, di surat ke pemasok. Kalau dihitung dari `date`, menyunting
+tanggal tender diam-diam mengubah nomornya — dan rujukan yang sudah beredar
+menunjuk sesuatu yang tidak ada lagi.
 
-**Tidak saya ubah dari sini**: itu perubahan skema, dan memperbaikinya
-menyentuh seluruh pembaca `payment_incoming`. Bilang kalau mau dibereskan
-terpisah.
+**3. Tender yang DIHAPUS tetap terhitung.**
+Aturan ini sudah ada sebelum format barunya dan tetap berlaku. Kalau yang
+terhapus dilewati, tender berikutnya mewarisi nomor milik tender yang pernah
+ada — dan rujukan lama ke nomor itu diam-diam menunjuk dokumen yang berbeda.
 
----
+## SQL-nya
 
-## Yang TIDAK tercakup — dan disebutkan di jawabannya
+Berkasnya bertahap dan ada pemeriksaannya:
 
-Kas keluar proyek hanya dapat dirunut lewat **pembelian** dan **reimbursement**.
-`expenses` dan `salary_slips` **tidak punya kolom proyek sama sekali**, jadi
-biaya operasional dan gaji yang sebenarnya terpakai di proyek ini tidak ikut.
+- **Bagian 0** aman diulang — cek dulu. `tanpa_tanggal` **harus 0**; kalau
+  bukan, BERHENTI dan beri tahu saya.
+- **Bagian 1** `ADD COLUMN` (tidak idempoten; galat 1060 = sudah pernah jalan,
+  lanjut saja).
+- **Bagian 2** isi ulang urutan per tahun + nomor dokumennya. Butuh window
+  function — MySQL 8.0+ / MariaDB 10.2+.
+- **Bagian 3** indeks unik, dipasang SESUDAH pengisian: kalau ada yang kembar,
+  galatnya muncul dengan datanya sudah terisi dan dapat diperiksa.
+- **Bagian 4** verifikasi: tidak ada yang kosong, tidak ada yang kembar, dan
+  urutan tiap tahun rapat 1..N.
 
-Garis kas keluarnya karena itu **batas bawah, bukan angka utuh**. Jawaban
-rutenya menyertakan `cakupanKeluar: ["pembelian", "reimbursement"]`, dan
-layarnya mencetak keterangan itu di sebelah angkanya — supaya pemakai
-berikutnya (unduhan, layar lain, integrasi) tidak mewarisi angkanya tanpa
-mewarisi batasannya.
-
----
+> Tender lama ikut dapat nomor baru. Kalau ada yang pernah menyebut "tender 3",
+> sekarang ia `T-AKN-003-VIII-2026` — masih terlacak, tidak lagi sama persis.
 
 ## Uji
 
-**937 lolos** (dari 926). `test/arus_kas_proyek_test.py`, 11 uji — diperiksa
-lewat **SQL yang dihasilkan**, bukan lewat hasil tiruan, karena ketiga
-kekeliruan yang paling mungkin di sini tidak menghasilkan galat apa pun,
-melainkan angka lain.
+**946 lolos** (dari 937). `test/nomor_tender_test.py`, 9 uji: bentuknya persis,
+dua belas bulan Romawi, nol di depan adalah minimum (tender ke-1000 tidak
+terpotong jadi `000`), urutan per tahun, yang terhapus tetap terhitung,
+tanggalnya dari tendernya, dan SQL-nya tidak menyaring `isDelete`.
 
-Dibuktikan menggigit:
-
-```
-join kas masuk disederhanakan  → test_kas_masuk_menyambung_ke_faktur... GAGAL
-tambah saringan isApprove      → test_tidak_menyaring_isApprove GAGAL
-induk tak disaring isDelete    → test_dokumen_induk_yang_terhapus... GAGAL
-```
+> Satu uji saya sempat merah karena **membaca docstring, bukan kode**:
+> penjelasan "kenapa `isDelete` tidak disaring" membuat pencarian kata
+> `isDelete` di badan fungsi menemukan prosanya. Pemindainya sekarang membuang
+> docstring juga. Kelas kesalahan yang sama pernah membuat uji migrasi
+> mobilisasi HIJAU padahal saringannya sudah dicabut — di sini arahnya
+> kebetulan terbalik, sebabnya persis sama.

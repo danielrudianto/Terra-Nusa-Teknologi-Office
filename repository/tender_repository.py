@@ -23,33 +23,90 @@ from utils.logger_utils import log_error
 MINIMAL_PENAWARAN = 3
 
 
+#: Bulan dalam angka Romawi, indeks 1-12.
+#:
+#: Ditulis sebagai tabel, bukan dihitung: dua belas nilai tetap yang tidak
+#: akan pernah bertambah, dan algoritma Romawi yang umum ikut menangani 3999
+#: angka lain yang tidak akan pernah dipakai di sini.
+BULAN_ROMAWI = (
+    None,
+    "I", "II", "III", "IV", "V", "VI",
+    "VII", "VIII", "IX", "X", "XI", "XII",
+)
+
+#: Bagian tetap di depan nomor dokumen tender.
+AWALAN_TENDER = "T-AKN"
+
+
+def format_nomor_tender(urut: int, tanggal) -> str:
+    """
+    `T-AKN-001-IX-2026`.
+
+    `urut` adalah urutan DALAM TAHUN tanggal itu, bukan urutan sepanjang masa.
+
+    Dipisahkan dari repository supaya dapat diuji tanpa basis data, dan supaya
+    bentuknya punya SATU tempat: nomor yang disusun di dua tempat akan berbeda
+    pada perkara kecil — nol di depan, pemisah — dan perbedaannya baru
+    ketahuan setelah beredar.
+    """
+    return (
+        f"{AWALAN_TENDER}-{int(urut):03d}"
+        f"-{BULAN_ROMAWI[tanggal.month]}-{tanggal.year}"
+    )
+
+
 class TenderRepository:
     @staticmethod
-    async def nomor_berikutnya() -> int:
+    async def nomor_berikutnya(tahun: int) -> int:
         """
-        Nomor urut berikutnya.
+        Urutan berikutnya DALAM SATU TAHUN.
 
-        `MAX(number) + 1`, bukan `COUNT`: tender yang dihapus tetap terhitung
-        supaya nomornya tidak pernah dipakai ulang — dua tender bernomor sama
-        membuat rujukan pada percakapan WhatsApp menjadi taksa.
+        `MAX(number) + 1` atas tahun itu saja, bukan atas seluruh tabel:
+        urutannya mengulang tiap tahun, dan itulah sebabnya tahun ikut di
+        nomor dokumennya.
+
+        TENDER YANG DIHAPUS TETAP TERHITUNG — aturan ini sudah ada sebelum
+        format barunya, dan tetap berlaku. Kalau yang terhapus dilewati,
+        tender berikutnya mewarisi nomor milik tender yang pernah ada, dan
+        rujukan lama ke nomor itu diam-diam menunjuk dokumen yang berbeda.
+        Karena itu TIDAK ada saringan `isDelete` di sini.
         """
         try:
             tertinggi = await database.fetch_val(
-                select(func.max(tenders_table.c.number))
+                select(func.max(tenders_table.c.number)).where(
+                    func.year(tenders_table.c.date) == int(tahun)
+                )
             )
             return (tertinggi or 0) + 1
         except Exception as e:
             log_error(f"Error reading next tender number: {str(e)}")
+            # 1 adalah tebakan yang BERBAHAYA di sini — ia dapat bertabrakan
+            # dengan tender pertama tahun itu. Tetapi menolak membuat tender
+            # karena satu kueri gagal lebih buruk, dan indeks unik pada
+            # `documentNumber` akan menolak tabrakannya dengan galat yang
+            # jelas alih-alih membiarkan dua dokumen bernomor sama.
             return 1
 
     @staticmethod
     async def buat(nilai: dict, baris: List[dict], user_id: int) -> Dict[str, Any]:
         try:
-            nomor = await TenderRepository.nomor_berikutnya()
+            """
+            Nomornya diambil dari TANGGAL TENDERNYA, bukan dari hari ini.
+
+            Tender yang dicatat 2 Oktober untuk tanggal dokumen 28 September
+            bernomor `...-IX-...`, bukan `...-X-...`. Nomor dokumen menyebut
+            kapan dokumennya BERLAKU; memakai tanggal pencatatan membuat
+            nomornya bercerita tentang kapan seseorang sempat membukanya.
+            """
+            tanggal = nilai.get("date") or dt.now().date()
+            nomor = await TenderRepository.nomor_berikutnya(tanggal.year)
+            nomor_dokumen = format_nomor_tender(nomor, tanggal)
+
             tender_id = await database.execute(
                 insert(tenders_table).values(
                     **nilai,
                     number=nomor,
+                    documentNumber=nomor_dokumen,
                     status="draft",
                     createdAt=dt.now(),
                     createdBy=user_id,
@@ -64,7 +121,11 @@ class TenderRepository:
                 action="create",
                 userID=user_id,
             )
-            return {"id": tender_id, "number": nomor}
+            return {
+                "id": tender_id,
+                "number": nomor,
+                "documentNumber": nomor_dokumen,
+            }
         except Exception as e:
             log_error(f"Error creating tender: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
