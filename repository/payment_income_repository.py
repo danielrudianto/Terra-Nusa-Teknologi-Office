@@ -9,7 +9,7 @@ from models.income_model import income_table
 from models.loans_model import loans_table
 from models.bank_model import bank_accounts_table
 from utils.logger_utils import log_error, log_info
-from datetime import datetime
+from datetime import datetime, date as _d
 from utils.errors import internal_error
 
 class PaymentIncomingRepository:
@@ -77,21 +77,41 @@ class PaymentIncomingRepository:
 
     @staticmethod
     async def get_calendar_data(month: int, year: int, bank_accounts: Optional[List[int]] = None):
-        """Get calendar data for payments incoming."""
+        """
+        Pembayaran masuk satu BULAN — pembungkus tipis atas versi rentang.
+        """
+        # Validate input
+        if month < 1 or month > 12:
+            return {"error": "Invalid month. Month must be between 1 and 12.", "status": 400}
+        if year < 2020:
+            return {"error": "Invalid year. Year must be 2020 or later.", "status": 400}
+
+        mulai = _d(year, month, 1)
+        akhir = _d(year + 1, 1, 1) if month == 12 else _d(year, month + 1, 1)
+        return await PaymentIncomingRepository.get_calendar_rentang(
+            mulai, akhir, bank_accounts
+        )
+
+    @staticmethod
+    async def get_calendar_rentang(
+        mulai: _d, akhir_eks: _d, bank_accounts: Optional[List[int]] = None
+    ):
+        """
+        Pembayaran masuk antara `mulai` (termasuk) dan `akhir_eks` (TIDAK
+        termasuk).
+
+        Perbandingan tanggal menggantikan `EXTRACT` — selain tidak dapat
+        menyatakan rentang lintas bulan, `EXTRACT` atas kolom membuat indeks
+        pada `date` tidak terpakai.
+        """
         try:
-            # Validate input
-            if month < 1 or month > 12:
-                return {"error": "Invalid month. Month must be between 1 and 12.", "status": 400}
-            if year < 2020:
-                return {"error": "Invalid year. Year must be 2020 or later.", "status": 400}
-            
             # Build query conditions
             conditions = [
-                func.extract('month', payment_incoming_table.c.date) == month,
-                func.extract('year', payment_incoming_table.c.date) == year,
+                payment_incoming_table.c.date >= mulai,
+                payment_incoming_table.c.date < akhir_eks,
                 payment_incoming_table.c.isDelete == False
             ]
-            
+
             if bank_accounts and len(bank_accounts) > 0:
                 conditions.append(payment_incoming_table.c.bankAccountID.in_(bank_accounts))
             

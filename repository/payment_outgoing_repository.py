@@ -1064,21 +1064,33 @@ class PaymentOutgoingRepository:
     @staticmethod
     async def download_calendar_data(month: int, year: int, bankAccounts: List[int]):
         """
-        Get all payments with pagination, filtering, and sorting.
-        
-        Args:
-            page (int): The page number for pagination.
-            pageSize (int): The number of items per page.
-            filterObject (dict): The filter criteria for the payments.
-            sortBy (str): The field to sort by.
-            sortByDirection (str): The direction of sorting ('asc' or 'desc').
-            keyword (str | None): A keyword to search in the payments.
-        
-        Returns:
-            dict: A dictionary containing the payments and pagination info.
+        Pembayaran keluar satu BULAN — pembungkus tipis atas versi rentang.
+
+        Batas atasnya EKSKLUSIF (tanggal 1 bulan berikutnya), sama seperti
+        sebelumnya. Dijadikan pembungkus supaya unduhan per bulan dan per
+        rentang menjalankan kueri yang sama persis; dua kueri kembar adalah
+        cara tercepat membuat keduanya diam-diam melaporkan angka berbeda.
         """
-        # Placeholder for actual implementation
-        # SELECT payments.*, COALESCE(purchases.invoiceName, reimbursements.name) AS documetName
+        return await PaymentOutgoingRepository.download_calendar_rentang(
+            _month_start(month, year), _month_end(month, year), bankAccounts
+        )
+
+    @staticmethod
+    async def download_calendar_rentang(mulai: d, akhir_eks: d, bankAccounts: List[int]):
+        """
+        Pembayaran keluar antara `mulai` (termasuk) dan `akhir_eks` (TIDAK
+        termasuk).
+
+        Batas atas yang eksklusif dipakai dengan sengaja: `date` bertipe
+        DATE, tetapi kalau suatu saat ia menjadi DATETIME, `<= akhir`
+        membuang seluruh transaksi hari terakhir kecuali yang tepat pukul
+        00:00 — dan yang hilang hanya satu hari, di ujung, tempat orang
+        paling tidak mencarinya.
+
+        Yang IKUT: sudah disetujui, atau belum disetujui tetapi belum
+        dihapus. Sama seperti layar kalendernya — rencana yang masih
+        menunggu tetap terlihat, yang dibatalkan tidak.
+        """
 
         or_conditions = []
         or_conditions.append(payments_outgoing_table.c.isApprove == True)
@@ -1151,8 +1163,8 @@ class PaymentOutgoingRepository:
         # ===== WHERE CONDITIONS =====
         conditions = [
             or_(*or_conditions),
-            payments_outgoing_table.c.date >= _month_start(month, year),
-            payments_outgoing_table.c.date < _month_end(month, year),
+            payments_outgoing_table.c.date >= mulai,
+            payments_outgoing_table.c.date < akhir_eks,
         ]
 
         # Tambahkan filter bankAccount hanya kalau ada isinya

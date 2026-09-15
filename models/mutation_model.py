@@ -41,7 +41,19 @@ class Mutation(BaseModel):
         month: int, year: int, bank_account_ids: list[int] | None
     ):
         """
-        Baris TERAKHIR sebelum tanggal 1 bulan itu, per rekening.
+        Saldo awal BULAN — pembungkus tipis atas `_saldo_awal_sebelum`.
+
+        Dipertahankan karena dipanggil dari banyak tempat; yang menyusun
+        kuerinya tetap satu, di bawah.
+        """
+        return await Mutation._saldo_awal_sebelum(d(year, month, 1), bank_account_ids)
+
+    @staticmethod
+    async def _saldo_awal_sebelum(
+        sebelum: d, bank_account_ids: list[int] | None
+    ):
+        """
+        Baris TERAKHIR sebelum tanggal `sebelum`, per rekening.
 
         SATU tempat yang menyusun kueri saldo awal. Layar kalender dan
         unduhannya menyebut angka yang sama, dan sebelumnya masing-masing
@@ -61,10 +73,7 @@ class Mutation(BaseModel):
         pun, dan rekening yang dipilih kehilangan saldo awalnya diam-diam —
         yang tampak sebagai saldo awal yang "belum terpotong".
         """
-        from datetime import date
-
-        start_of_month = date(year, month, 1)
-        params: dict = {"start_date": start_of_month}
+        params: dict = {"start_date": sebelum}
 
         saring = ""
         if bank_account_ids:
@@ -126,6 +135,24 @@ class Mutation(BaseModel):
         """
         try:
             return await Mutation._saldo_awal(month, year, bank_account_ids)
+        except Exception as e:
+            log_error(f"Error fetching bank account balances: {str(e)}")
+            return internal_error()
+
+    @staticmethod
+    async def download_calendar_rentang(mulai: d, bank_account_ids: list[int] = None):
+        """
+        Saldo awal RENTANG per rekening — baris terakhir sebelum `mulai`.
+
+        Untuk unduhan per rentang tanggal, titik nolnya bukan tanggal 1
+        bulan melainkan hari pertama rentangnya. Memakai saldo awal bulan
+        untuk rentang yang mulai di tengah bulan membuat SELURUH garis
+        saldonya bergeser sebanyak mutasi yang terjadi sebelum rentang itu —
+        dan bentuknya tetap tampak masuk akal, sehingga tidak ada yang
+        curiga.
+        """
+        try:
+            return await Mutation._saldo_awal_sebelum(mulai, bank_account_ids)
         except Exception as e:
             log_error(f"Error fetching bank account balances: {str(e)}")
             return internal_error()

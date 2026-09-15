@@ -21,7 +21,7 @@ from controllers.bank_controller import BankController
 from controllers.payment_incoming_controller import PaymentIncomingController
 from utils.auth_utils import get_current_user
 from utils.permission import require
-from datetime import datetime
+from datetime import datetime, date
 from utils.auth_utils import User
 from controllers.calendar_controller import CalendarController
 
@@ -78,13 +78,44 @@ async def pembayaran_tertunda(
 
 
 @router.get("/download")
-async def download_calendar(month: int, year: int, current_user: Annotated[User, Depends(require("payment_outgoing", "read"))], bankAccounts: List[int] =  Query(None)):
+async def download_calendar(
+    current_user: Annotated[User, Depends(require("payment_outgoing", "read"))],
+    month: int | None = None,
+    year: int | None = None,
+    start: date | None = None,
+    end: date | None = None,
+    bankAccounts: List[int] = Query(None),
+):
     """
-    Download calendar data for a specific month and year.
+    Data kalender untuk diunduh — satu BULAN, atau satu RENTANG TANGGAL.
+
+    `start` + `end` (keduanya `YYYY-MM-DD`, `end` termasuk) mengalahkan
+    `month` + `year`. Rentangnya dibatasi `CalendarController.MAKS_HARI_RENTANG`
+    hari, DI SINI — bukan hanya di dialognya. Dialog yang membatasi pilihan
+    tidak menghalangi siapa pun memanggil `?start=...&end=...` sendiri, dan
+    rentang setahun membuat peramban yang merakit berkasnya diam bermenit-menit
+    tanpa pesan apa pun.
+
+    `month` + `year` dipertahankan supaya tab lama yang belum dimuat ulang
+    tetap dapat mengunduh.
     """
     try:
-        userID = current_user["id"]
-        result = await CalendarController.download_calendar_data(month, year, bankAccounts)
+        if start is not None or end is not None:
+            if start is None or end is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Rentang harus menyebut `start` dan `end` sekaligus.",
+                )
+            result = await CalendarController.download_calendar_rentang(
+                start, end, bankAccounts
+            )
+        else:
+            if month is None or year is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Sebutkan `month` + `year`, atau `start` + `end`.",
+                )
+            result = await CalendarController.download_calendar_data(month, year, bankAccounts)
         if "error" in result:
             raise HTTPException(
             status_code=result["status"], detail=error_detail(result)

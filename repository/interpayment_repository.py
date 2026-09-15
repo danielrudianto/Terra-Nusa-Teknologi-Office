@@ -4,7 +4,15 @@ from models.interpayment_model import interpayment_table
 from models.bank_model import bank_accounts_table
 from models.user_model import users_table
 from utils.logger_utils import log_error, log_info
-from datetime import datetime
+from datetime import datetime, date as _d, timedelta as _td
+
+
+def _batas_bulan(month: int, year: int) -> tuple[_d, _d]:
+    """Awal bulan (termasuk) dan awal bulan berikutnya (TIDAK termasuk)."""
+    mulai = _d(year, month, 1)
+    akhir = _d(year + 1, 1, 1) if month == 12 else _d(year, month + 1, 1)
+    return mulai, akhir
+
 
 class InterpaymentRepository:
     @staticmethod
@@ -185,8 +193,32 @@ class InterpaymentRepository:
 
     @staticmethod
     async def get_calendar_data(month: int, year: int, bankAccountID: list[int] | None):
-        """Retrieve interpayments for calendar view."""
-        log_info("Retrieving interpayments for month: {}, year: {}".format(month, year))
+        """
+        Transfer antar rekening satu BULAN — pembungkus tipis atas versi
+        rentang, supaya kalender dan unduhannya memakai kueri yang sama.
+        """
+        mulai, akhir = _batas_bulan(month, year)
+        return await InterpaymentRepository.get_calendar_rentang(
+            mulai, akhir, bankAccountID
+        )
+
+    @staticmethod
+    async def get_calendar_rentang(
+        mulai: _d, akhir_eks: _d, bankAccountID: list[int] | None
+    ):
+        """
+        Transfer antar rekening antara `mulai` (termasuk) dan `akhir_eks`
+        (TIDAK termasuk).
+
+        Perbandingan tanggal menggantikan `EXTRACT(month)`/`EXTRACT(year)`
+        yang dipakai sebelumnya. Selain tidak dapat menyatakan rentang yang
+        melintasi bulan, `EXTRACT` atas kolom membuat indeks pada `date`
+        tidak terpakai — seluruh tabel dipindai, dan itu tidak terlihat
+        sampai tabelnya besar.
+        """
+        log_info(
+            "Retrieving interpayments between {} and {}".format(mulai, akhir_eks)
+        )
 
         origin_bank_alias = bank_accounts_table.alias("origin_bank")
         destination_bank_alias = bank_accounts_table.alias("destination_bank")
@@ -203,8 +235,8 @@ class InterpaymentRepository:
 
         conditions = [
             interpayment_table.c.isDelete == False,
-            func.extract('month', interpayment_table.c.date) == month,
-            func.extract('year', interpayment_table.c.date) == year,
+            interpayment_table.c.date >= mulai,
+            interpayment_table.c.date < akhir_eks,
         ]
 
         # 🔥 FILTER REKENING (PENTING)
