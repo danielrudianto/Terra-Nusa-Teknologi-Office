@@ -3,6 +3,7 @@ from utils.errors import error_detail
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from controllers.project_cashflow_controller import ProjectCashflowController
 from controllers.project_controller import ProjectController
 from controllers.project_progress_controller import ProjectProgressController
 from schemas.project_schema import (
@@ -202,6 +203,40 @@ async def delete_contract(
 ):
     return _bereskan(
         await ProjectController.delete_contract(contract_id, current_user["id"])
+    )
+
+
+# ----------------------------------------------------------------------
+# Arus kas proyek
+# ----------------------------------------------------------------------
+#
+# DIJAGA `payment_outgoing`, BUKAN `purchase`.
+#
+# Rute laporan proyek yang sudah ada (`purchases/report/project/{kode}`)
+# dijaga `purchase:read`, yang minimumnya LEVEL 1. Menumpanginya di sini akan
+# membuka data pembayaran — tanggal dan nominal uang keluar dari rekening —
+# kepada pengguna yang di seluruh sistem lain tidak boleh melihat pembayaran
+# sama sekali (`payment_outgoing` minimum LEVEL 3).
+#
+# Itu bukan sekadar kurang rapi: laporan proyek dibuka lapangan dan pengadaan,
+# dan justru merekalah yang oleh matriks izin sengaja dijauhkan dari data kas.
+# Rute yang mengembalikan hal yang sama lewat pintu yang lebih rendah membatalkan
+# keputusan itu tanpa mengubah satu baris pun di matriksnya.
+#
+# `payment_incoming` juga level 3, jadi satu penjaga ini tidak melonggarkan
+# sisi manapun. Akibat yang disengaja: departemen yang tidak memegang
+# `payment_outgoing` (mis. engineering) mendapat 403 — dan LAYARNYA
+# menyembunyikan tabnya, tidak menampilkan galat. Pola yang sama sudah dipakai
+# bagian kemajuan pekerjaan bagi konsultan pajak.
+
+
+@router.get("/{project_name}/cashflow")
+async def arus_kas_proyek(
+    project_name: str,
+    current_user: Annotated[dict, Depends(require("payment_outgoing", "read"))],
+):
+    return _bereskan(
+        await ProjectCashflowController.arus_kas(project_name)
     )
 
 
