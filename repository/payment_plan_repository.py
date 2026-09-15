@@ -1,7 +1,7 @@
 from datetime import date, datetime as dt
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import and_, func, insert, select, update
+from sqlalchemy import and_, func, insert, or_, select, update
 
 from models.bank_model import bank_accounts_table
 from models.payment_plan_model import payment_plans_table
@@ -54,6 +54,7 @@ class PaymentPlanRepository:
         akhir: date,
         project_name: str = "",
         sertakan_batal: bool = False,
+        bank_account_ids: List[int] | None = None,
     ) -> List[Dict[str, Any]]:
         """
         Rencana dalam satu rentang tanggal.
@@ -64,6 +65,24 @@ class PaymentPlanRepository:
         Yang BATAL dikecualikan secara bawaan: ia tetap tersimpan sebagai
         riwayat, tetapi memasukkannya ke perhitungan kas membuat angka yang
         ditampilkan lebih besar daripada yang benar-benar akan keluar.
+
+        PENYARINGAN REKENING — dan kenapa yang TANPA rekening tetap ikut
+        ---------------------------------------------------------------
+
+        Sebelumnya tidak ada penyaring rekening di sini sama sekali. Akibatnya
+        proyeksi kas di kalender memakai SALDO rekening yang dicentang tetapi
+        RENCANA dari seluruh rekening — termasuk rekening yang sengaja
+        dikecualikan dari kalender (deposito, escrow, penampung uang muka).
+        Dua sisi perhitungan yang sama memakai kumpulan rekening yang berbeda,
+        dan hasilnya tetap berupa angka yang masuk akal: tidak ada galat,
+        tidak ada yang tampak ganjil, hanya garis yang salah.
+
+        Rencana yang rekeningnya BELUM DITENTUKAN (`bankAccountID IS NULL`)
+        tetap ikut. Itu disengaja: rencana kerap dibuat sebelum diputuskan
+        dibayar dari rekening mana, dan membuangnya berarti kewajiban yang
+        sungguhan menghilang dari proyeksi — yang membuatnya terbaca lebih
+        sehat daripada keadaannya, persis pada bagian yang paling perlu
+        diwaspadai.
         """
         try:
             syarat = [
@@ -75,6 +94,15 @@ class PaymentPlanRepository:
                 syarat.append(payment_plans_table.c.status != "batal")
             if project_name:
                 syarat.append(payment_plans_table.c.projectName == project_name)
+            if bank_account_ids:
+                syarat.append(
+                    or_(
+                        payment_plans_table.c.bankAccountID.in_(
+                            [int(x) for x in bank_account_ids]
+                        ),
+                        payment_plans_table.c.bankAccountID.is_(None),
+                    )
+                )
 
             rows = await database.fetch_all(
                 select(

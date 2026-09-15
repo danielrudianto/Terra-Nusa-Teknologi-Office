@@ -15,10 +15,14 @@ class PaymentPlanController:
 
     @staticmethod
     async def rentang(
-        awal: date, akhir: date, project_name: str, sertakan_batal: bool
+        awal: date,
+        akhir: date,
+        project_name: str,
+        sertakan_batal: bool,
+        bank_account_ids: list[int] | None = None,
     ) -> Dict[str, Any]:
         data = await PaymentPlanRepository.rentang(
-            awal, akhir, project_name, sertakan_batal
+            awal, akhir, project_name, sertakan_batal, bank_account_ids
         )
         return {"data": data, "count": len(data)}
 

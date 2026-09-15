@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Annotated
+from typing import Annotated, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -26,6 +26,7 @@ async def daftar_rencana(
     akhir: date = Query(...),
     projectName: str = Query(""),
     sertakanBatal: bool = Query(False),
+    bankAccounts: List[int] = Query(None),
 ):
     """
     Rencana pengeluaran dalam satu rentang tanggal.
@@ -33,10 +34,16 @@ async def daftar_rencana(
     Rentangnya WAJIB. Tanpa batas, kalender yang membuka bulan mana pun akan
     menarik seluruh riwayat perencanaan — dan itu tumbuh terus tanpa pernah
     menyusut.
+
+    `bankAccounts` menyaring menurut rekening, dan rencana yang rekeningnya
+    BELUM DITENTUKAN tetap ikut — lihat alasannya di
+    `PaymentPlanRepository.rentang`. Tanpa penyaring ini, proyeksi kas memakai
+    saldo rekening yang dicentang tetapi rencana dari SELURUH rekening,
+    termasuk yang sengaja dikecualikan dari kalender.
     """
     return _bereskan(
         await PaymentPlanController.rentang(
-            awal, akhir, projectName, sertakanBatal
+            awal, akhir, projectName, sertakanBatal, bankAccounts
         )
     )
 
