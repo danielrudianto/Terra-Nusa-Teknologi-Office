@@ -326,7 +326,22 @@ class TenderRepository:
         try:
             syarat = [tenders_table.c.isDelete == False]  # noqa: E712
             if status:
-                syarat.append(tenders_table.c.status == status)
+                """
+                `status` boleh berisi BEBERAPA keadaan, dipisah koma.
+
+                Halaman daftar membukanya pada "Aktif" — `draft,berjalan` —
+                karena keduanya sama-sama menuntut tindakan: yang draft
+                menunggu disetujui, yang berjalan menunggu penawaran. Dengan
+                satu keadaan saja, salah satunya selalu tidak terlihat pada
+                halaman yang justru dibuka untuk mengerjakannya.
+
+                Nilai tunggal tetap bekerja seperti sebelumnya — `.in_()`
+                dengan satu anggota sama saja dengan `==`, jadi tautan lama
+                yang menyimpan `?status=berjalan` tidak berubah artinya.
+                """
+                keadaan = [b.strip() for b in status.split(",") if b.strip()]
+                if keadaan:
+                    syarat.append(tenders_table.c.status.in_(keadaan))
             if cari:
                 syarat.append(tenders_table.c.name.ilike(f"%{cari}%"))
 

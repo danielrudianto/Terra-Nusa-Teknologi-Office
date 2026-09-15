@@ -115,3 +115,92 @@ def test_tender_masuk_wilayah_procurement():
     s = open(os.path.join(AKAR, 'constants', 'department_modules.py')).read()
     m = re.search(r'"procurement": UMUM[\s\S]*?\n    \}', s)
     assert '"tender"' in m.group(0)
+
+
+# ----------------------------------------------------------------------
+# Draf yang BERARTI
+# ----------------------------------------------------------------------
+#
+# Sebelumnya `draft` dan `berjalan` diperlakukan IDENTIK untuk penawaran —
+# keduanya ada di `STATUS_DAPAT_DISUNTING`, dan syarat yang sama dipakai untuk
+# "boleh menyunting tender" maupun "boleh mencatat penawaran". Tombol
+# "sebarkan" karena itu praktis cuma mengganti label: tidak ada satu pun aturan
+# yang berubah karenanya.
+#
+# Statusnya ada, tetapi tidak membedakan apa pun.
+
+
+def test_penawaran_ditolak_selama_draf():
+    """
+    Draf adalah permintaan yang ISINYA MASIH BERUBAH.
+
+    Meminta pemasok memberi harga atas daftar yang belum selesai berarti harga
+    yang masuk menjawab pertanyaan yang sudah tidak berlaku — dan tidak ada
+    yang tahu penawaran mana yang menilai versi yang mana.
+    """
+    s = open(os.path.join(AKAR, 'controllers', 'tender_controller.py')).read()
+    m = re.search(r'STATUS_MENERIMA_PENAWARAN\s*=\s*\(([^)]*)\)', s)
+    assert m, '`STATUS_MENERIMA_PENAWARAN` tidak ada'
+    assert 'draft' not in m.group(1), (
+        'draf masih boleh menerima penawaran — statusnya kembali tidak '
+        'membedakan apa pun'
+    )
+    assert 'berjalan' in m.group(1)
+
+
+def test_penawaran_TIDAK_memakai_syarat_menyunting():
+    """
+    Dua pertanyaan yang berbeda tidak boleh memakai satu konstanta.
+
+    "Boleh disunting" dan "boleh menerima penawaran" kebetulan sama isinya
+    dulu; menyatukannya membuat perubahan pada yang satu diam-diam mengubah
+    yang lain.
+    """
+    s = open(os.path.join(AKAR, 'controllers', 'tender_controller.py')).read()
+    for nama in ('tambah_penawaran', 'ubah_penawaran'):
+        i = s.index(f'async def {nama}(')
+        j = s.find('async def ', i + 10)
+        blok = s[i:] if j == -1 else s[i:j]
+        assert 'STATUS_MENERIMA_PENAWARAN' in blok, (
+            f'`{nama}` masih memakai syarat menyunting'
+        )
+
+
+def test_menyebarkan_perlu_approve_bukan_update():
+    """
+    Sejak penawaran ditolak selama draf, tombol inilah yang membuka pintunya.
+
+    Dibiarkan di `update` (level 1), siapa pun yang boleh menyunting tender
+    juga dapat menyatakan tendernya siap — dan pemisahan yang baru saja dibuat
+    tidak menahan apa pun.
+    """
+    s = open(os.path.join(AKAR, 'routes', 'tender_routes.py')).read()
+    # Tanpa batas panjang: docstring rutenya panjang, dan `{0,700}` membuat
+    # lookahead-nya tidak pernah sampai ke dekorator berikutnya — regexnya
+    # gagal mencocokkan sama sekali, lalu ujinya merah padahal kodenya benar.
+    m = re.search(
+        r'@router\.post\("/\{tender_id\}/sebarkan"\)([\s\S]*?)(?=@router\.|\Z)', s
+    )
+    assert m, 'rute sebarkan tidak ditemukan'
+    assert '"tender", "approve"' in m.group(1), (
+        'menyebarkan masih dijaga `update`'
+    )
+
+
+def test_daftar_menerima_beberapa_status():
+    """
+    Halaman daftar membuka "Aktif" = `draft,berjalan`.
+
+    Keduanya sama-sama menuntut tindakan: yang draf menunggu disetujui, yang
+    berjalan menunggu penawaran. Dengan satu keadaan saja, salah satunya
+    selalu tidak terlihat pada halaman yang justru dibuka untuk mengerjakannya.
+    """
+    s = open(os.path.join(AKAR, 'repository', 'tender_repository.py')).read()
+    i = s.index('async def daftar(')
+    j = s.find('async def ', i + 10)
+    blok = s[i:] if j == -1 else s[i:j]
+    blok = re.sub(r'"""[\s\S]*?"""', '', blok)
+    assert '.in_(' in blok, (
+        'saringan status masih satu nilai — "Aktif" tidak dapat menggabungkan '
+        'draf dan berjalan'
+    )

@@ -164,13 +164,21 @@ async def test_gagal_menghitung_mengembalikan_none_bukan_nol():
     with patch.object(LencanaRepository, "purchase_order", meledak), \
          patch.object(LencanaRepository, "reimbursement", meledak), \
          patch.object(LencanaRepository, "certificate_of_payment", meledak), \
+         patch.object(LencanaRepository, "tender", meledak), \
          patch.object(LencanaRepository, "pembayaran", meledak):
         hasil = await LencanaRepository.semua({"id": 1}, 5, set())
 
+    # Daftar kunci sengaja ditulis lengkap, bukan dicocokkan sebagian.
+    #
+    # Modul yang ditambahkan tanpa memperbarui uji ini akan lolos diam-diam —
+    # dan kalau modul itu melempar, layar menerima jawaban yang kekurangan
+    # satu kolom tanpa ada yang menandainya. Uji ini memang harus ikut
+    # berubah setiap ada modul baru; itu fiturnya, bukan bebannya.
     assert set(hasil) == {
         "purchase_order",
         "reimbursement",
         "certificate_of_payment",
+        "tender",
         "payment_plan",
     }
     for kunci, nilai in hasil.items():
@@ -194,6 +202,7 @@ async def test_satu_modul_gagal_tidak_menjatuhkan_yang_lain():
     with patch.object(LencanaRepository, "purchase_order", meledak), \
          patch.object(LencanaRepository, "reimbursement", nol), \
          patch.object(LencanaRepository, "certificate_of_payment", nol), \
+         patch.object(LencanaRepository, "tender", nol), \
          patch.object(LencanaRepository, "pembayaran", nol):
         hasil = await LencanaRepository.semua({"id": 1}, 5, set())
 

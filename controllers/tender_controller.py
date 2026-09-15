@@ -13,6 +13,23 @@ class TenderController:
     #: berbeda dari yang dinilai.
     STATUS_DAPAT_DISUNTING = ("draft", "berjalan")
 
+    #: Keadaan yang boleh MENERIMA PENAWARAN.
+    #:
+    #: `draft` SENGAJA tidak termasuk, dan ini yang berubah.
+    #:
+    #: Sebelumnya penawaran memakai `STATUS_DAPAT_DISUNTING` yang sama persis
+    #: dengan syarat menyunting tendernya — sehingga `draft` dan `berjalan`
+    #: diperlakukan identik, dan tombol "sebarkan" praktis cuma mengganti
+    #: label tanpa satu pun aturan yang berubah karenanya. Statusnya ada,
+    #: tetapi tidak membedakan apa pun.
+    #:
+    #: Itu bukan sekadar tidak rapi. Draf adalah permintaan yang ISINYA MASIH
+    #: BERUBAH: baris barang masih disusun, volumenya masih dibetulkan.
+    #: Meminta pemasok memberi harga atas daftar yang belum selesai berarti
+    #: harga yang masuk menjawab pertanyaan yang sudah tidak berlaku — dan
+    #: tidak ada yang tahu penawaran mana yang menilai versi yang mana.
+    STATUS_MENERIMA_PENAWARAN = ("berjalan",)
+
     @staticmethod
     async def buat(body: dict, user_id: int) -> Dict[str, Any]:
         baris = body.pop("items", [])
@@ -138,11 +155,13 @@ class TenderController:
         if "error" in tender:
             return tender
 
-        if tender["status"] not in TenderController.STATUS_DAPAT_DISUNTING:
+        if tender["status"] not in TenderController.STATUS_MENERIMA_PENAWARAN:
             return {
                 "error": (
-                    "Penawaran hanya dapat dicatat selama tendernya masih "
-                    "berjalan."
+                    "Tender ini masih draf. Setujui dan sebarkan dulu sebelum "
+                    "penawaran dicatat — daftar permintaannya masih dapat "
+                    "berubah, dan harga atas daftar yang belum selesai "
+                    "menjawab pertanyaan yang sudah tidak berlaku."
                 ),
                 "status": 409,
             }
@@ -185,11 +204,11 @@ class TenderController:
             return {"error": "Tender tidak ditemukan.", "status": 404}
         if "error" in tender:
             return tender
-        if tender["status"] not in TenderController.STATUS_DAPAT_DISUNTING:
+        if tender["status"] not in TenderController.STATUS_MENERIMA_PENAWARAN:
             return {
                 "error": (
-                    "Penawaran hanya dapat diubah selama tendernya masih "
-                    "berjalan."
+                    "Tender ini masih draf. Setujui dan sebarkan dulu sebelum "
+                    "penawaran diubah."
                 ),
                 "status": 409,
             }

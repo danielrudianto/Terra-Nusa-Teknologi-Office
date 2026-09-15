@@ -139,6 +139,36 @@ class LencanaRepository:
         )
 
     @staticmethod
+    async def tender(user: dict, level: int) -> int:
+        """
+        Tender yang masih DRAF — menunggu disetujui dan disebarkan.
+
+        Dihitung sejak penawaran ditolak selama tendernya draf: sebelum itu
+        draf tidak menahan apa pun, jadi tidak ada yang menunggu. Sekarang
+        draf yang terlupakan berarti pemasok tidak pernah diminta harga, dan
+        tidak ada satu pun galat yang memberi tahu — yang menunggu bukan
+        sistemnya, melainkan pekerjaannya.
+
+        `tender:approve` (level 3) — penjaga yang sama dengan tombolnya.
+        Lencana yang menghitung dokumen yang tombolnya akan ditolak server
+        adalah lencana yang mengajari pembacanya berhenti percaya.
+
+        Pembuatnya TIDAK dikecualikan, berbeda dari modul lain di berkas ini.
+        Menyetujui tender bukan memeriksa pekerjaan orang lain; ia keputusan
+        bahwa daftar permintaannya sudah selesai — dan yang paling tahu itu
+        justru yang menyusunnya. Aturan pembuat ≠ penyetuju ada untuk
+        menghadirkan mata kedua atas UANG; di sini belum ada angka sama sekali.
+        """
+        if not await is_allowed(user, "tender", "approve"):
+            return 0
+
+        return await _hitung(
+            "SELECT COUNT(*) AS jumlah FROM tenders "
+            "WHERE isDelete = 0 AND status = 'draft'",
+            {},
+        )
+
+    @staticmethod
     async def certificate_of_payment(user: dict, level: int) -> int:
         """
         CoP yang menunggu pengguna ini — gerbang 1 (BAP) atau gerbang 3 (CoP).
@@ -231,6 +261,7 @@ class LencanaRepository:
             "certificate_of_payment",
             LencanaRepository.certificate_of_payment(user, level),
         )
+        await coba("tender", LencanaRepository.tender(user, level))
         await coba("payment_plan", LencanaRepository.pembayaran(user))
 
         return hasil

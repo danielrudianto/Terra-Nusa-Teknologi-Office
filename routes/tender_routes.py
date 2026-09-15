@@ -78,13 +78,22 @@ async def ubah_tender(
 @router.post("/{tender_id}/sebarkan")
 async def sebarkan_tender(
     tender_id: int,
-    current_user: Annotated[dict, Depends(require("tender", "update"))],
+    current_user: Annotated[dict, Depends(require("tender", "approve"))],
 ):
     """
-    Tandai permintaan penawaran sudah disebarkan.
+    Setujui permintaan penawaran, dan tandai sudah disebarkan.
 
     Penyebarannya lewat WhatsApp dan dikerjakan orang; yang dicatat di sini
-    hanya bahwa tender ini sedang menunggu balasan, bukan masih disusun.
+    bahwa tender ini sudah SIAP diminta harganya — bukan masih disusun.
+
+    DIJAGA `approve` (level 3), bukan `update` (level 1). Sejak penawaran
+    ditolak selama tendernya draf, tombol inilah yang membuka pintunya —
+    ia bukan lagi penanda, melainkan keputusan bahwa daftar permintaannya
+    sudah selesai dan boleh dikirim ke pemasok.
+
+    Membiarkannya di `update` berarti siapa pun yang boleh menyunting tender
+    juga dapat menyatakan tendernya siap, dan pemisahan yang baru saja dibuat
+    tidak menahan apa pun.
     """
     return _bereskan(
         await TenderController.sebarkan(tender_id, current_user["id"])
