@@ -224,3 +224,46 @@ async def test_pembayaran_menghitung_yang_sudah_lewat_juga():
     assert "date <= :hari_ini" in sql, "hanya menghitung hari ini, bukan yang lewat"
     assert "planType = 'keluar'" in sql
     assert "status = 'rencana'" in sql
+
+
+# ----------------------------------------------------------------------
+# `current_user` adalah Record, bukan dict
+# ----------------------------------------------------------------------
+
+
+class _Record(dict):
+    """
+    `databases.Record` secukupnya: boleh diindeks, TIDAK punya `.get()`.
+
+    Bentuk inilah yang sebenarnya diterima controller. Menguji dengan dict
+    biasa membuat seluruh berkas ini hijau sementara rutenya melempar 500 di
+    produksi — dan galatnya sampai ke peramban sebagai keluhan CORS, bukan
+    sebagai 500, sehingga menunjuk ke arah yang sama sekali salah.
+    """
+
+    get = None  # type: ignore[assignment]
+
+
+async def test_controller_menerima_record_bukan_dict(monkeypatch):
+    """
+    Controller tidak boleh memanggil `.get()` pada `current_user`.
+
+    Sudah tercatat di CLAUDE.md sebagai gotcha; uji ini yang menegakkannya.
+    """
+    from controllers.lencana_controller import LencanaController
+
+    async def dept_palsu(uid):
+        return set()
+
+    async def semua_palsu(user, level, departemen):
+        return {"purchase_order": level}
+
+    monkeypatch.setattr(
+        "controllers.lencana_controller._departments", dept_palsu
+    )
+    monkeypatch.setattr(LencanaRepository, "semua", semua_palsu)
+
+    hasil = await LencanaController.semua(
+        _Record({"id": 3, "authenticationLevel": 4})
+    )
+    assert hasil == {"purchase_order": 4}
