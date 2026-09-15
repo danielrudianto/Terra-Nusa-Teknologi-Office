@@ -181,6 +181,52 @@ class Employee(BaseModel):
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    async def set_tanggal_berhenti(id: int, tanggal):
+        """
+        Tetapkan tanggal terakhir karyawan bekerja.
+
+        Mengembalikan tanggal SEBELUMNYA agar pemanggil dapat mencatat
+        perubahannya di jejak audit. Tanpa itu, yang membaca audit setahun
+        kemudian hanya melihat "diubah" tanpa tahu dari apa.
+
+        HANYA MENETAPKAN, tidak pernah mengosongkan. `tanggal=None` dianggap
+        "tidak ada yang perlu dikerjakan", bukan "aktifkan kembali":
+        mengaktifkan kembali karyawan adalah keputusan tersendiri, dan
+        membiarkannya terjadi sebagai efek samping dari slip gaji yang
+        disunting berarti orang yang sudah berhenti bisa hidup lagi tanpa ada
+        yang memutuskannya.
+
+        Mengembalikan `{"tidak_berubah": True}` bila tanggalnya memang sudah
+        sama — supaya pemanggil tidak menuliskan baris audit kembar setiap
+        kali slip yang sama disimpan ulang.
+        """
+        if tanggal is None:
+            return {"tidak_berubah": True, "sebelumnya": None}
+
+        try:
+            baris = await database.fetch_one(
+                select(employees_table.c.endDate).where(
+                    employees_table.c.id == id
+                )
+            )
+            if baris is None:
+                return {"error": "Employee not found.", "status": 404}
+
+            sebelumnya = baris["endDate"]
+            if sebelumnya == tanggal:
+                return {"tidak_berubah": True, "sebelumnya": sebelumnya}
+
+            await database.execute(
+                update(employees_table)
+                .where(employees_table.c.id == id)
+                .values(endDate=tanggal)
+            )
+            return {"tidak_berubah": False, "sebelumnya": sebelumnya}
+        except Exception as e:
+            log_error(f"Gagal menetapkan tanggal berhenti karyawan {id}: {e}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def pilihan_pic(keyword: str = None):
         """
         Nama dan telepon karyawan AKTIF, untuk pemilih penanggung jawab.

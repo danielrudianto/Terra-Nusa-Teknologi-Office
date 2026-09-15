@@ -5,6 +5,7 @@ from schemas.salary_slip_schema import SalarySlipCreate
 from repository.salary_slip_repository import SalarySlipRepository, SalarySlipAllowanceRepository, SalarySlipDeductionRepository
 from datetime import datetime as dt
 from models.employee_model import Employee
+from repository.audit_log_repository import AuditLogRepository
 from models.payment_outgoing_model import PaymentOutgoing
 from repository.payment_outgoing_repository import PaymentOutgoingRepository
 from services.mail_service import MailService
@@ -353,10 +354,95 @@ class SalarySlipController:
                 return {"error": updated_employee["error"], "status": updated_employee["status"]}
             
             log_info(f"Successfully updated employee {userID} taxCategory, position, and department")
-            return {"message": "Salary slip created successfully.", "salarySlipID": created_slip_id}
+
+            peringatan = await SalarySlipController._terapkan_tanggal_berhenti(
+                employeeID, salarySlip.get("lastDate"), created_slip_id, month, year
+            )
+
+            hasil = {
+                "message": "Salary slip created successfully.",
+                "salarySlipID": created_slip_id,
+            }
+            # Kegagalan menonaktifkan TIDAK menggagalkan slipnya — slipnya sudah
+            # tersimpan, dan membatalkannya meninggalkan keadaan separuh jadi.
+            # Tetapi juga tidak ditelan diam-diam: layar wajib menyebutkannya,
+            # sebab yang mengira karyawannya sudah nonaktif akan berhenti
+            # memeriksanya.
+            if peringatan:
+                hasil["peringatan"] = peringatan
+            return hasil
         except HTTPException as e:
             log_error(f"HTTPException during creation: {str(e.detail)}")
             raise e
+
+    @staticmethod
+    async def _terapkan_tanggal_berhenti(
+        employee_id: int, last_date, slip_id: int, month: int, year: int
+    ) -> str | None:
+        """
+        Tanggal terakhir pada slip gaji menonaktifkan karyawannya.
+
+        MENGAPA DI SINI, BUKAN KOLOM BARU DI SLIP
+
+        Tanggal berhenti adalah fakta tentang KARYAWAN, bukan tentang selembar
+        slip. Menyimpannya juga di slip berarti dua tempat yang harus tetap
+        sepakat — dan yang tertinggal saat salah satunya diperbaiki tidak
+        menimbulkan galat, hanya dua jawaban berbeda atas satu pertanyaan.
+
+        Sebelum ini, `lastDate` memang sampai ke server (rutenya menerima
+        `dict` mentah, jadi tidak ada skema yang membuangnya) tetapi TIDAK
+        PERNAH DIBACA. Yang mengisinya melihat formulirnya menerima, slipnya
+        tersimpan, dan karyawannya tetap aktif — tanpa satu pun galat.
+
+        ALASANNYA IKUT TERCATAT
+
+        Jejak auditnya menyebut slip mana yang menyebabkannya. Tanpa itu, yang
+        membaca setahun kemudian hanya menemukan tanggal berhenti yang muncul
+        entah dari mana — dan satu-satunya cara memastikannya adalah bertanya
+        kepada orang yang mungkin sudah tidak di sini juga.
+
+        Mengembalikan pesan peringatan bila GAGAL; `None` bila berhasil atau
+        memang tidak ada yang perlu dikerjakan.
+        """
+        if not last_date:
+            return None
+
+        hasil = await Employee.set_tanggal_berhenti(employee_id, last_date)
+
+        if isinstance(hasil, dict) and "error" in hasil:
+            log_error(
+                f"Slip {slip_id} menyebut tanggal terakhir {last_date} tetapi "
+                f"karyawan {employee_id} gagal dinonaktifkan: {hasil['error']}"
+            )
+            return (
+                "Slip gaji tersimpan, tetapi tanggal berhenti karyawan GAGAL "
+                "disimpan. Tetapkan manual di layar karyawan."
+            )
+
+        if hasil.get("tidak_berubah"):
+            return None
+
+        bulan = SalarySlipController.get_indonesian_month(month)
+        await AuditLogRepository.record(
+            entity="employees",
+            entityID=employee_id,
+            action="set_end_date",
+            changes={
+                "endDate": {
+                    "dari": str(hasil.get("sebelumnya") or ""),
+                    "menjadi": str(last_date),
+                }
+            },
+            note=(
+                f"Dinonaktifkan otomatis: slip gaji {bulan} {year} "
+                f"(#{slip_id}) menyebutkan tanggal terakhir {last_date}."
+            ),
+        )
+        log_info(
+            f"Karyawan {employee_id} dinonaktifkan per {last_date} "
+            f"oleh slip gaji {slip_id}"
+        )
+        return None
 
     @staticmethod
     def get_indonesian_month(month_number: int) -> str:
