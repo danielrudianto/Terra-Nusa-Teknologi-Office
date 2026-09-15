@@ -9,6 +9,7 @@ from sqlalchemy import insert, select, func, update, or_
 from sqlalchemy.exc import IntegrityError
 from utils.database import database
 from models.purchase_order_model import purchase_orders_table
+from models.purchase_order_item_model import urut_baris
 from models.supplier_model import suppliers_table
 from models.user_model import users_table
 from utils.logger_utils import log_error
@@ -668,18 +669,20 @@ class PurchaseOrderRepository:
             ids = [d["id"] for d in dokumen]
             tanda = ",".join(f":id{i}" for i in range(len(ids)))
             nilai = {f"id{i}": v for i, v in enumerate(ids)}
+            # Anak menyusul induknya; lihat `URUT_BARIS`.
+            urut = urut_baris("i")
 
             baris = await database.fetch_all(
                 f"""
-                SELECT i.purchaseOrderID, i.task, i.quantity, i.price, i.unit,
-                       i.remarks_1, i.remarks_4, i.remarks_5,
+                SELECT i.id, i.purchaseOrderID, i.task, i.quantity, i.price,
+                       i.unit, i.remarks_1, i.itemKind, i.parentItemID,
                        mi.description AS itemDescription, mi.sku,
                        me.name AS equipmentName
                 FROM purchase_order_items i
                 LEFT JOIN master_item mi ON mi.id = i.item_id
                 LEFT JOIN master_equipment me ON me.id = i.equipment_id
                 WHERE i.purchaseOrderID IN ({tanda})
-                ORDER BY i.id ASC
+                ORDER BY {urut}
                 """,
                 nilai,
             )

@@ -1,16 +1,26 @@
 from typing import List
-from sqlalchemy import insert, select, delete
+from sqlalchemy import insert, select, delete, text
 from utils.database import database
 from utils.logger_utils import log_error
-from models.purchase_order_item_model import purchase_order_items_table
+from models.purchase_order_item_model import (
+    purchase_order_items_table,
+    urut_baris,
+)
 from models.master_item_model import master_item_table
 from models.master_equipment_model import master_equipment_table
 
 _COLUMNS = [
     "item_id", "equipment_id", "fleet_id", "task", "quantity", "price", "amount",
     "remarks_1", "remarks_2", "remarks_3", "remarks_4",
-    "remarks_5", "remarks_6", "unit",
+    "remarks_5", "remarks_6", "unit", "itemKind",
 ]
+
+#: Jenis baris yang menempel pada baris di atasnya.
+#:
+#: Harus sama persis dengan `JENIS_BARIS_ANAK` di layar; nilai di luar daftar
+#: ini DIBUANG, bukan disimpan apa adanya — satu salah ketik akan melahirkan
+#: baris yang tidak dikenali penyusun dokumen mana pun dan tampil tanpa nama.
+JENIS_ANAK = ("mobilisasi", "demobilisasi")
 
 
 #: Selisih terbesar yang masih dianggap pembulatan, dalam rupiah.
@@ -126,19 +136,59 @@ def _clean_item(item: dict, po_id: int) -> dict:
     elif row.get("task"):
         row["task"] = str(row["task"])[:100]
 
+    # Jenis baris di luar daftar dibuang.
+    #
+    # Kolom ini menentukan apakah sebuah baris digabungkan kembali ke
+    # formulir induknya saat disunting. Nilai asing membuat barisnya
+    # menggantung: bukan baris biasa (karena `itemKind` terisi), bukan pula
+    # anak yang dikenali — dan ia hilang dari formulir tanpa hilang dari
+    # dokumen.
+    jenis = str(row.get("itemKind") or "").strip().lower()
+    row["itemKind"] = jenis if jenis in JENIS_ANAK else None
+
     return row
 
 
 class PurchaseOrderItemRepository:
     @staticmethod
     async def insert_many(po_id: int, items: List[dict]) -> int:
-        """Insert all items for a purchase order. Returns number inserted."""
+        """
+        Simpan seluruh baris sebuah purchase order. Mengembalikan jumlahnya.
+
+        BARIS ANAK — mobilisasi dan demobilisasi — menunjuk induknya lewat
+        `parentIndex`, bukan lewat `parentItemID`.
+
+        Layar tidak dapat mengirim `parentItemID`: pada dokumen baru, induknya
+        belum punya `id` sampai ia tersimpan. Yang layar tahu hanya posisi
+        induknya di dalam daftar yang sedang dikirim, dan itulah yang
+        diterjemahkan di sini menjadi `id` sungguhan.
+
+        Karena itu barisnya disimpan BERURUTAN, satu per satu — induk selalu
+        mendahului anaknya di dalam daftar. Menyimpannya sekaligus akan
+        mengembalikan satu `id` saja, dan tidak ada yang dapat ditunjuk.
+        """
         count = 0
-        for item in items or []:
+        # Posisi di dalam daftar -> `id` baris yang tersimpan.
+        id_per_posisi: dict = {}
+
+        for posisi, item in enumerate(items or []):
             try:
-                await database.execute(
-                    insert(purchase_order_items_table).values(**_clean_item(item, po_id))
+                nilai = _clean_item(item, po_id)
+
+                # Induk dirujuk lewat POSISI, dan hanya bila barisnya memang
+                # baris anak. `parentIndex` pada baris biasa diabaikan:
+                # baris yang menunjuk induk tanpa menyatakan jenisnya tidak
+                # akan pernah digabungkan kembali ke formulir, dan tautannya
+                # hanya menambah baris yang ikut terhapus diam-diam saat
+                # induknya dihapus.
+                induk = item.get("parentIndex")
+                if nilai.get("itemKind") is not None and induk is not None:
+                    nilai["parentItemID"] = id_per_posisi.get(int(induk))
+
+                baris_id = await database.execute(
+                    insert(purchase_order_items_table).values(**nilai)
                 )
+                id_per_posisi[posisi] = baris_id
                 count += 1
             except Exception as e:
                 log_error(f"Error inserting purchase order item: {str(e)}")
@@ -180,6 +230,12 @@ class PurchaseOrderItemRepository:
                 )
                 .select_from(joined)
                 .where(purchase_order_items_table.c.purchaseOrderID == po_id)
+                # Tanpa ORDER BY, urutannya bergantung pada cara MySQL
+                # membacanya — kebetulan menurut `id`, sampai suatu saat
+                # tidak. Sejak mobilisasi menjadi baris tersendiri, urutan
+                # itu bukan lagi soal kerapian: ia menentukan susunan SPK
+                # yang ditandatangani. Lihat `URUT_BARIS`.
+                .order_by(text(urut_baris("purchase_order_items")))
             )
             rows = await database.fetch_all(query)
 
