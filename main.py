@@ -13,6 +13,7 @@ from utils.meilisearch_equipment import (
 )
 from utils.redis import sync_redis
 from utils.database import database
+from utils.db_ukur import mulai_ukur
 from utils.redis import sync_redis
 import sqlalchemy
 import os
@@ -94,6 +95,12 @@ async def slow_request_middleware(request: Request, call_next):
     terbaca langsung dari panel jaringan peramban tanpa membuka log server.
     """
     mulai = time.perf_counter()
+
+    # Wadah hitungan dipasang SEBELUM permintaan diproses, dan dibaca lagi
+    # sesudahnya. Objeknya sama — yang di dalamnya diubah, bukan diganti —
+    # jadi penambahan yang terjadi di lapisan repository terlihat dari sini.
+    ukuran = mulai_ukur()
+
     try:
         response = await call_next(request)
     except Exception:
@@ -103,19 +110,32 @@ async def slow_request_middleware(request: Request, call_next):
         lama_ms = (time.perf_counter() - mulai) * 1000
         log_error(
             f"[lambat] {request.method} {request.url.path} "
-            f"{lama_ms:.0f}ms GAGAL"
+            f"{lama_ms:.0f}ms GAGAL "
+            f"kueri={ukuran['n']} db={ukuran['ms']:.0f}ms"
         )
         raise
 
     lama_ms = (time.perf_counter() - mulai) * 1000
     response.headers["X-Response-Time-ms"] = f"{lama_ms:.0f}"
 
+    """
+    Jumlah kueri dan waktu basis data ikut dikirim.
+
+    Dari waktu total saja, satu kueri lambat dan ratusan kueri cepat (N+1)
+    terlihat sama persis — padahal penanganannya berlawanan: yang satu perlu
+    indeks, yang lain perlu bentuk pengambilan yang berbeda. Dua angka ini
+    membedakannya tanpa perlu membuka log server sama sekali.
+    """
+    response.headers["X-Db-Queries"] = str(ukuran["n"])
+    response.headers["X-Db-Time-ms"] = f"{ukuran['ms']:.0f}"
+
     if lama_ms >= AMBANG_LAMBAT_MS:
         kueri = str(request.url.query)[:120]
         log_info(
             f"[lambat] {request.method} {request.url.path}"
             f"{('?' + kueri) if kueri else ''} "
-            f"{lama_ms:.0f}ms status={response.status_code}"
+            f"{lama_ms:.0f}ms status={response.status_code} "
+            f"kueri={ukuran['n']} db={ukuran['ms']:.0f}ms"
         )
     return response
 
@@ -206,6 +226,14 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],  # Allow all HTTP methods
     allow_headers=["*"],  # Allow all headers
+    # Header pengukuran harus DISEBUT agar terbaca kode di peramban.
+    #
+    # `allow_headers` mengatur header PERMINTAAN; yang menentukan header
+    # JAWABAN mana yang boleh dibaca JavaScript adalah `expose_headers`, dan
+    # tanpa ini ketiganya ada di panel jaringan tetapi tidak dapat disentuh
+    # kode sama sekali — persis jenis hal yang terlihat seperti header yang
+    # hilang padahal ia terkirim.
+    expose_headers=["X-Response-Time-ms", "X-Db-Queries", "X-Db-Time-ms"],
 )
 
 # Include the router
