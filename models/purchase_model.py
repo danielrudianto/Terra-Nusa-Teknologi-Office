@@ -93,7 +93,13 @@ purchases_table = Table(
     Column("deletedBy", Integer, ForeignKey("users.id"), nullable=True),
     Column("lastStatus", String(100), nullable=False, default="draft"),
     Column("lastStatusDescription", String(100), nullable=True, default=None),
-    Column("isInternal", Boolean(), nullable=False, default=False)
+    Column("isInternal", Boolean(), nullable=False, default=False),
+    # Penguncian optimistik — lihat `utils/kunci_optimistik.py`.
+    #
+    # Bertambah pada SETIAP penyimpanan. Dua orang yang membuka dokumen
+    # yang sama membaca versi yang sama; yang menyimpan belakangan
+    # ditolak alih-alih diam-diam menimpa pekerjaan yang pertama.
+    Column("rowVersion", Integer, nullable=False, server_default="0"),
 )
 
 def nilai_pembelian_sql():

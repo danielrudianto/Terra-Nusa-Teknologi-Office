@@ -144,6 +144,16 @@ echo "==> Memeriksa keutuhan transaksi"
 "$PY" scripts/atomikcek.py || gagal "ada operasi multi-tulis tanpa transaksi"
 
 # ---------------------------------------------------------------------
+# Penguncian optimistik.
+#
+# Menampilkan dokumen mana yang sudah terlindungi dari penyimpanan yang
+# saling menimpa, dan mana yang baru punya kolomnya. Tabel yang belum
+# tersambung TIDAK menggagalkan deploy — penyambungannya memang bertahap —
+# tetapi kemunduran iya: dokumen yang pernah terkunci lalu tidak lagi.
+echo "==> Memeriksa penguncian optimistik"
+"$PY" scripts/kuncicek.py || gagal "ada dokumen yang kehilangan penguncian optimistiknya"
+
+# ---------------------------------------------------------------------
 # 4. Uji
 # ---------------------------------------------------------------------
 if [[ -d test ]]; then

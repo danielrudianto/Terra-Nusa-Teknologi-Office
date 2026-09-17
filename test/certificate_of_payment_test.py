@@ -154,6 +154,23 @@ def repo(monkeypatch):
     monkeypatch.setattr(modul.CertificateOfPaymentRepository, "bap_approve", staticmethod(_bap_approve))
     monkeypatch.setattr(modul.CertificateOfPaymentRepository, "ganti_items", staticmethod(_ganti))
     monkeypatch.setattr(modul.CertificateOfPaymentRepository, "update_meta", staticmethod(_update_meta))
+
+    # Penguncian optimistik.
+    #
+    # `update` memegang dokumennya lebih dulu lewat `klaim_versi` sebelum satu
+    # pun bagian ditulis. Tanpa tiruan ini, method itu menembak basis data
+    # sungguhan — dan yang merah adalah "DatabaseBackend is not running",
+    # bukan aturan yang sedang diuji.
+    #
+    # Nilainya dapat diubah per-pengujian lewat `keadaan["klaim"]`; lihat
+    # `TestKunciOptimistik` di bawah.
+    keadaan["klaim"] = "tersimpan"
+
+    async def _klaim(cop_id, versi):
+        keadaan["versi_diminta"] = versi
+        return keadaan["klaim"]
+
+    monkeypatch.setattr(modul.CertificateOfPaymentRepository, "klaim_versi", staticmethod(_klaim))
     monkeypatch.setattr(modul.PurchaseOrderRepository, "get_by_id", staticmethod(_spk))
     return keadaan
 
@@ -2520,3 +2537,115 @@ class TestPeriodeBertindih:
             "bertindih": []
         }
         assert dipanggil["n"] == 0
+
+
+class TestKunciOptimistik:
+    """
+    Dua orang menyunting CoP yang sama.
+
+    CoP adalah alasan utama penguncian ini ada: alurnya empat tahap dengan dua
+    penyetuju, jadi dokumen ini memang DIRANCANG untuk disentuh lebih dari satu
+    orang. Tanpa penjagaan versi, yang menyimpan belakangan menimpa pekerjaan
+    yang pertama — tanpa galat, tanpa peringatan, dan tanpa cara bagi yang
+    kehilangan untuk mengetahuinya.
+    """
+
+    @pytest.mark.asyncio
+    async def test_konflik_dijawab_409_bukan_diam_diam_menimpa(self, repo):
+        repo["cop"] = {
+            "id": 9, "createdBy": 1, "purchaseOrderID": 5,
+            "isChecked": False, "items": [],
+        }
+        repo["klaim"] = "konflik"          # ada yang menyimpan lebih dulu
+
+        hasil = await CoP.update(
+            9, {"note": "catatan saya", "rowVersion": 0},
+            user_id=1, user_level=1, departments={"engineering"},
+        )
+
+        assert hasil["status"] == 409, (
+            "penyimpanan yang didahului orang lain tidak dijawab 409 — "
+            "frontend tidak punya cara membedakannya dari galat biasa"
+        )
+        assert "Muat ulang" in hasil["error"], (
+            "pesannya tidak menyebutkan langkah berikutnya"
+        )
+
+    @pytest.mark.asyncio
+    async def test_konflik_menghentikan_penulisan_SEBELUM_apa_pun_tersimpan(self, repo):
+        """
+        Yang menentukan bukan kode jawabannya, melainkan apa yang tertulis.
+
+        Klaimnya sengaja ditaruh sebelum penulisan pertama; bila suatu saat ia
+        bergeser ke bawah, jawabannya tetap 409 sementara keterangan dan
+        item-itemnya sudah terlanjur berubah — kerusakan yang terlihat seperti
+        perlindungan.
+        """
+        repo["cop"] = {
+            "id": 9, "createdBy": 1, "purchaseOrderID": 5,
+            "isChecked": False, "items": [],
+        }
+        repo["klaim"] = "konflik"
+        repo["items_disimpan"] = None
+        repo["meta"] = None
+
+        await CoP.update(
+            9,
+            {
+                "note": "catatan saya",
+                "items": [{"purchaseOrderItemID": BARIS_INDUK, "quantity": 1}],
+                "rowVersion": 0,
+            },
+            user_id=1, user_level=1, departments={"engineering"},
+        )
+
+        assert repo["meta"] is None, (
+            "keterangannya tetap ditulis meskipun penyimpanannya ditolak — "
+            "klaimnya berada DI BAWAH penulisan pertama, bukan di atasnya"
+        )
+        assert repo["items_disimpan"] is None, (
+            "item-itemnya tetap ditulis meskipun penyimpanannya ditolak"
+        )
+
+    @pytest.mark.asyncio
+    async def test_dokumen_yang_hilang_dijawab_404(self, repo):
+        """
+        404 dan 409 harus berbeda.
+
+        "Sudah diubah orang lain" untuk dokumen yang sebenarnya sudah terhapus
+        mengirim orang memuat ulang halaman yang tidak akan pernah memuat
+        apa pun.
+        """
+        repo["cop"] = {
+            "id": 9, "createdBy": 1, "purchaseOrderID": 5,
+            "isChecked": False, "items": [],
+        }
+        repo["klaim"] = "hilang"
+
+        hasil = await CoP.update(
+            9, {"note": "x", "rowVersion": 0},
+            user_id=1, user_level=1, departments={"engineering"},
+        )
+        assert hasil["status"] == 404
+
+    @pytest.mark.asyncio
+    async def test_versi_dari_muatan_benar_benar_diteruskan(self, repo):
+        """
+        Penjaga yang tidak pernah menerima versinya adalah penjaga yang selalu
+        menjawab "aman".
+        """
+        repo["cop"] = {
+            "id": 9, "createdBy": 1, "purchaseOrderID": 5,
+            "isChecked": False, "items": [],
+        }
+        repo["klaim"] = "tersimpan"
+
+        await CoP.update(
+            9, {"note": "x", "rowVersion": 12},
+            user_id=1, user_level=1, departments={"engineering"},
+        )
+
+        assert repo["versi_diminta"] == 12, (
+            f"versi yang sampai ke repository {repo['versi_diminta']!r}, "
+            "bukan yang dikirim layar penyuntingnya"
+        )

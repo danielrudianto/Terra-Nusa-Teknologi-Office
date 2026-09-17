@@ -90,6 +90,12 @@ tenders_table = Table(
     Column("isDelete", Boolean, nullable=False, server_default="0"),
     Column("deletedAt", DateTime, nullable=True),
     Column("deletedBy", Integer, ForeignKey("users.id"), nullable=True),
+    # Penguncian optimistik — lihat `utils/kunci_optimistik.py`.
+    #
+    # Bertambah pada SETIAP penyimpanan. Dua orang yang membuka dokumen
+    # yang sama membaca versi yang sama; yang menyimpan belakangan
+    # ditolak alih-alih diam-diam menimpa pekerjaan yang pertama.
+    Column("rowVersion", Integer, nullable=False, server_default="0"),
 )
 
 tender_items_table = Table(

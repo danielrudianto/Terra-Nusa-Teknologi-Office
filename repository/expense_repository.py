@@ -7,6 +7,7 @@ from models.expense_model import expenses_table
 from models.expense_opponent_model import expense_opponents_table
 from datetime import datetime as dt
 from utils.pajak import MASA_PAJAK_AWAL
+from utils.kunci_optimistik import jawaban_konflik, perbarui_terkunci
 
 class ExpenseRepository:
     @staticmethod
@@ -515,14 +516,29 @@ class ExpenseRepository:
             _sebelum = await database.fetch_one(
                 select(expenses_table).where(expenses_table.c.id == expense_id)
             )
-            query = (
-                expenses_table.update()
-                .where(expenses_table.c.id == expense_id)
-                .values(expense_data)
+            """
+            Penyimpanan dijaga VERSI barisnya.
+
+            `rowVersion` diambil dari muatan yang sudah dikirim layar
+            penyuntingnya — tidak ada parameter baru yang harus dirambatkan
+            lewat route dan controller, jadi jalur yang sudah bekerja tidak
+            disentuh sama sekali.
+
+            Ini juga memperbaiki cacat yang sudah ada di baris `result == 0`
+            di bawahnya: secara bawaan MySQL menghitung baris yang BERUBAH,
+            sehingga menyimpan formulir TANPA mengubah apa pun menghasilkan
+            nol — dan dijawab "Expense not found" untuk data yang jelas ada di
+            layar orang yang menekan Simpan. Karena `rowVersion` selalu
+            bertambah, nol kembali hanya berarti satu hal.
+            """
+            versi = expense_data.pop("rowVersion", None)
+            hasil = await perbarui_terkunci(
+                expenses_table, expense_id, expense_data, versi
             )
-            result = await database.execute(query)
-            if result == 0:
+            if hasil == "hilang":
                 return {"error": "Expense not found", "status": 404}
+            if hasil == "konflik":
+                return jawaban_konflik("Beban")
             from repository.audit_log_repository import AuditLogRepository
 
             await AuditLogRepository.record(

@@ -32,6 +32,7 @@ from models.purchase_order_item_model import (
     purchase_order_items_table,
     urut_baris,
 )
+from utils.kunci_optimistik import jawaban_konflik, perbarui_terkunci
 
 
 def _custom(nilai: Any) -> Dict[str, Any]:
@@ -544,6 +545,28 @@ class CertificateOfPaymentRepository:
         except Exception as e:
             log_error(f"Gagal mengganti baris CoP: {str(e)}")
             return internal_error()
+
+    @staticmethod
+    async def klaim_versi(cop_id: int, versi: int | None):
+        """
+        Pegang dokumen ini untuk penyuntingan yang sedang berjalan.
+
+        Dipanggil SEKALI di awal, sebelum satu pun bagian dokumennya ditulis.
+        Menaruh penjagaan di dalam salah satu penulisan saja tidak cukup:
+        menyunting CoP dapat mengubah keterangannya, item-itemnya, atau
+        keduanya, dan penjaga yang hanya menutupi satu jalur membuat dua orang
+        yang sama-sama mengubah ITEM tetap saling menimpa — sambil terlihat
+        terlindungi.
+
+        Ia juga bekerja sebagai KUNCI selama penyuntingannya, dan itu bukan
+        kebetulan. Karena pemanggilnya berjalan di dalam satu transaksi,
+        `UPDATE` ini mengunci barisnya sampai transaksinya selesai. Permintaan
+        kedua yang datang bersamaan akan menunggu, lalu membaca versi yang
+        sudah bertambah, lalu ditolak — bukan berjalan berdampingan.
+        """
+        return await perbarui_terkunci(
+            certificate_of_payments_table, cop_id, {}, versi
+        )
 
     @staticmethod
     async def update_meta(cop_id: int, nilai: Dict[str, Any], user_id: int):

@@ -32,6 +32,12 @@ class ExpenseCreate(ExpenseBase):
     pass
 
 class ExpenseUpdate(BaseModel):
+    # Versi baris yang DIBACA layar penyuntingnya.
+    #
+    # Opsional dengan sengaja: backend dan frontend tidak dapat dinyalakan pada
+    # detik yang sama, dan menolak permintaan tanpa versi berarti seluruh
+    # penyuntingan berhenti pada jeda di antara kedua deploy.
+    rowVersion: Optional[int] = None
     invoiceName: Optional[str] = None
     receiptName: Optional[str] = None
     taxInvoiceName: Optional[str] = None

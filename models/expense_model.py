@@ -60,4 +60,10 @@ expenses_table = Table(
     Column("createdBy", Integer, ForeignKey("users.id"), nullable=False),
     Column("updatedBy", Integer, ForeignKey("users.id"), nullable=True, default=None),
     Column("deletedBy", Integer, ForeignKey("users.id"), nullable=True, default=None),
+    # Penguncian optimistik — lihat `utils/kunci_optimistik.py`.
+    #
+    # Bertambah pada SETIAP penyimpanan. Dua orang yang membuka dokumen
+    # yang sama membaca versi yang sama; yang menyimpan belakangan
+    # ditolak alih-alih diam-diam menimpa pekerjaan yang pertama.
+    Column("rowVersion", Integer, nullable=False, server_default="0"),
 )

@@ -41,6 +41,8 @@ from utils.permission import (
     boleh_menyetujui_cop,
     boleh_menyetujui_sendiri,
 )
+from utils.kunci_optimistik import jawaban_konflik
+from utils.transaksi import atomik
 
 
 def _d(nilai: Any) -> Decimal:
@@ -603,6 +605,7 @@ class CertificateOfPaymentController:
     # ------------------------------------------------------------------
 
     @staticmethod
+    @atomik
     async def update(
         cop_id: int,
         data: Dict[str, Any],
@@ -658,6 +661,32 @@ class CertificateOfPaymentController:
                 galat_periode = CertificateOfPaymentController._periksa_periode(gabung)
                 if galat_periode:
                     return galat_periode
+
+            """
+            Dokumennya DIPEGANG lebih dulu, sebelum satu pun bagian ditulis.
+
+            Menyunting CoP dapat mengubah keterangannya, item-itemnya, atau
+            keduanya. Penjaga yang hanya menutupi salah satu jalur membuat dua
+            orang yang sama-sama mengubah ITEM tetap saling menimpa — sambil
+            terlihat terlindungi, yang lebih buruk daripada tidak ada penjaga
+            sama sekali.
+
+            Karena method ini `@atomik`, klaim ini juga mengunci barisnya
+            selama penyuntingan berlangsung: permintaan kedua yang datang
+            bersamaan menunggu, lalu membaca versi yang sudah bertambah, lalu
+            ditolak.
+            """
+            keadaan = await CertificateOfPaymentRepository.klaim_versi(
+                cop_id, data.get("rowVersion")
+            )
+            if keadaan == "hilang":
+                return app_error(
+                    ErrorCode.NOT_FOUND,
+                    "Certificate of payment tidak ditemukan.",
+                    404,
+                )
+            if keadaan == "konflik":
+                return jawaban_konflik("Certificate of payment")
 
             meta = {
                 k: data[k]

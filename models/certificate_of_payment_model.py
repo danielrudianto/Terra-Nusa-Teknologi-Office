@@ -219,6 +219,12 @@ certificate_of_payments_table = Table(
     UniqueConstraint("name", name="uq_cop_name"),
     Index("ix_cop_po", "purchaseOrderID"),
     Index("ix_cop_status", "status", "isDelete"),
+    # Penguncian optimistik — lihat `utils/kunci_optimistik.py`.
+    #
+    # Bertambah pada SETIAP penyimpanan. Dua orang yang membuka dokumen
+    # yang sama membaca versi yang sama; yang menyimpan belakangan
+    # ditolak alih-alih diam-diam menimpa pekerjaan yang pertama.
+    Column("rowVersion", Integer, nullable=False, server_default="0"),
 )
 
 
