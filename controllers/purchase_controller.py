@@ -10,6 +10,7 @@ from models.purchase_draft_model import PurchaseDraft
 from utils.logger_utils import log_error, log_info
 from fastapi import HTTPException
 from datetime import datetime
+from utils.transaksi import atomik
 
 
 def _daftar_atau_kosong(hasil, sebutan: str):
@@ -67,6 +68,7 @@ class PurchaseController:
             ),
         }
     @staticmethod
+    @atomik
     async def create_purchase(purchase_data: dict, userID: int):
         """
         Create a new purchase.
@@ -188,6 +190,13 @@ class PurchaseController:
                 "purchase": result,
                 "payments": payments
             }
+        except HTTPException:
+            # Penolakan yang DISENGAJA diteruskan apa adanya.
+            # Tanpa baris ini, `except Exception` di bawah menangkap kembali
+            # HTTPException yang baru saja dilempar di dalam `try` yang sama dan
+            # mengubahnya menjadi 500 — dan alasan penolakannya hilang sebelum
+            # rutenya sempat melihatnya.
+            raise
         except Exception as e:
             log_error(f"Error fetching purchase: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error")
@@ -357,6 +366,7 @@ class PurchaseController:
             raise HTTPException(status_code=500, detail="Internal server error")
 
     @staticmethod
+    @atomik
     async def update_status(purchaseStatus: dict, userID: int):
         """
         Update purchase status.
@@ -620,6 +630,7 @@ class PurchaseController:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    @atomik
     async def delete_purchase(purchaseID: int, userID: int, userLevel: int = 0):
         """
         Hapus pembelian.

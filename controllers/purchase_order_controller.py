@@ -7,6 +7,7 @@ from repository.purchase_order_item_repository import PurchaseOrderItemRepositor
 from repository.supplier_repository import SupplierRepository
 from utils.errors import internal_error
 from utils.permission import boleh_mengubah_purchase_order
+from utils.transaksi import atomik
 
 
 class PurchaseOrderController:
@@ -277,6 +278,7 @@ class PurchaseOrderController:
     LEVEL_PAKSA_NOMOR = 5
 
     @staticmethod
+    @atomik
     async def create_purchase_order(
         purchase_order_data: Dict, user_id: int, user_level: int = 0
     ):

@@ -8,6 +8,7 @@ from utils.logger_utils import log_error, log_info
 from datetime import datetime
 from repository.purchase_repository import PurchaseRepository
 from utils.errors import internal_error
+from utils.transaksi import atomik
 
 class PurchaseDraftController:
     @staticmethod
@@ -117,6 +118,7 @@ class PurchaseDraftController:
         }
     
     @staticmethod
+    @atomik
     async def convert_purchase_draft(purchase_data: dict, userID: int):
         try:
             print(purchase_data)

@@ -6,9 +6,11 @@ from datetime import datetime as dt
 from repository.loan_repository import LoanRepository
 from repository.payment_income_repository import PaymentIncomingRepository
 from schemas.loan_schema import TOLERANSI_RUPIAH
+from utils.transaksi import atomik
 
 class LoanController:
     @staticmethod 
+    @atomik
     async def create_loan(loan_data: Dict, user_id: int) -> Dict:
         """Create a new loan."""
         log_info(f"Creating loan with data: {loan_data}")
@@ -50,6 +52,13 @@ class LoanController:
                 )
 
             return {"message": "Loan created successfully", "loan_id": loan_id}
+        except HTTPException:
+            # Penolakan yang DISENGAJA diteruskan apa adanya.
+            # Tanpa baris ini, `except Exception` di bawah menangkap kembali
+            # HTTPException yang baru saja dilempar di dalam `try` yang sama dan
+            # mengubahnya menjadi 500 — dan alasan penolakannya hilang sebelum
+            # rutenya sempat melihatnya.
+            raise
         except IntegrityError as e:
             log_error(f"Integrity error: {str(e)}")
             raise HTTPException(status_code=400, detail="Loan already exists.")
@@ -227,6 +236,7 @@ class LoanController:
             raise HTTPException(status_code=500, detail="Internal server error")
 
     @staticmethod
+    @atomik
     async def _selaraskan_penerimaan(loan_id: int, user_id: int) -> None:
         """
         Samakan baris `payment_incoming` pinjaman dengan nilai terbarunya.

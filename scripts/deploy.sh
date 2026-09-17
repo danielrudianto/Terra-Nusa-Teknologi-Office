@@ -130,6 +130,20 @@ echo "==> Memeriksa skema"
 "$PY" scripts/cek_skema.py || gagal "skema basis data tidak sesuai"
 
 # ---------------------------------------------------------------------
+# Keutuhan transaksi.
+#
+# Fungsi controller yang menulis ke lebih dari satu tempat harus atomik.
+# Tanpa itu, kegagalan di tengah meninggalkan separuh pekerjaan tersimpan —
+# mis. pembayaran yang tercatat disetujui di atas pembelian yang tidak lunas.
+#
+# Diperiksa DI SINI, bukan lewat uji: yang perlu dijaga bukan keempat belas
+# fungsi yang sudah dibungkus, melainkan fungsi berikutnya yang belum ada
+# ujinya. Kelas kegagalannya adalah "kode baru yang lupa", dan hanya sesuatu
+# yang membaca seluruh berkas tiap kali yang dapat menangkapnya.
+echo "==> Memeriksa keutuhan transaksi"
+"$PY" scripts/atomikcek.py || gagal "ada operasi multi-tulis tanpa transaksi"
+
+# ---------------------------------------------------------------------
 # 4. Uji
 # ---------------------------------------------------------------------
 if [[ -d test ]]; then

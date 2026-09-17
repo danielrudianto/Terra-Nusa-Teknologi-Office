@@ -11,6 +11,7 @@ from repository.payment_outgoing_repository import PaymentOutgoingRepository
 from services.mail_service import MailService
 from services.pdf_service import PDFService
 import os
+from utils.transaksi import atomik
 
 
 class SalarySlipController:
@@ -291,6 +292,7 @@ class SalarySlipController:
             raise HTTPException(status_code=500, detail="Internal server error.")
         
     @staticmethod
+    @atomik
     async def create(userID: int, salarySlip: dict):
         try:
             month = salarySlip.get('month')

@@ -5,6 +5,7 @@ from utils.logger_utils import log_error, log_info
 from fastapi import HTTPException
 from datetime import datetime as dt
 from utils.errors import internal_error
+from utils.transaksi import atomik
 
 class ExpenseController:
     @staticmethod
@@ -190,6 +191,7 @@ class ExpenseController:
             raise HTTPException(status_code=500, detail="Internal server error.")
 
     @staticmethod
+    @atomik
     async def delete_expense(expense_id: int, userID: int, userLevel: int = 0):
         """
         Hapus beban, beserta pembayarannya.

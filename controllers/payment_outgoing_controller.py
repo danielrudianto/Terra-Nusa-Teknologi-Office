@@ -21,6 +21,7 @@ from fastapi import HTTPException
 from typing import List
 from functools import reduce
 from datetime import date
+from utils.transaksi import atomik
 
 
 def add(x, y):
@@ -641,6 +642,7 @@ class PaymentOutgoingController:
             return internal_error()
 
     @staticmethod
+    @atomik
     async def update_payment_status(
         id: int, status: str, userID: int, userLevel: int = 1
     ):
@@ -846,6 +848,7 @@ class PaymentOutgoingController:
             return {"error": "Internal Server Error", "status": 500}
 
     @staticmethod
+    @atomik
     async def update_bulk_payment_status(
         payment_ids: List[int], status: str, userID: int, userLevel: int = 1
     ):

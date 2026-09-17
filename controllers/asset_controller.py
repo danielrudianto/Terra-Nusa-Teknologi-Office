@@ -6,6 +6,7 @@ from utils.redis import r
 import json
 from schemas.asset_schema import AssetCreate, AssetUpdate
 from repository.asset_repository import AssetRepository
+from utils.transaksi import atomik
 
 class AssetController:
     @staticmethod 
@@ -155,6 +156,7 @@ class AssetController:
             )
 
     @staticmethod
+    @atomik
     async def update_asset(asset_id: int, update_data: dict, user_id: int) -> Dict:
         """
         Update an existing asset.
@@ -212,6 +214,7 @@ class AssetController:
             )
 
     @staticmethod
+    @atomik
     async def delete_asset(asset_id: int) -> Dict:
         """
         Delete an asset.

@@ -6,10 +6,12 @@ from utils.logger_utils import log_error, log_info
 from datetime import datetime
 from fastapi import HTTPException
 from utils.errors import internal_error, app_error, ErrorCode
+from utils.transaksi import atomik
 
 class ReimbursementController:
 
     @staticmethod
+    @atomik
     async def create_reimbursement(reimbursement_data: dict, userID: int):
         log_info(f"Creating reimbursement with data: {reimbursement_data}")
         try:
