@@ -1,0 +1,77 @@
+# Gerbang sebelum kode masuk ke main.
+#
+# 982 uji backend sudah hijau sejak lama — yang tidak ada adalah sesuatu yang
+# MENJALANKANNYA sebelum deploy. `deploy.sh` memang menjalankannya, tetapi itu
+# terjadi di server, sesudah `git pull`, ketika kodenya sudah sampai. Yang
+# gagal di sana adalah deploy, bukan kiriman.
+#
+# Berkas ini memindahkan pemeriksaannya ke depan: kiriman yang merah tidak
+# pernah menjadi kode yang dijalankan orang.
+
+name: Gerbang
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # WeasyPrint menggambar PDF lewat Pango/Cairo — pustaka SISTEM, bukan
+      # paket Python. Tanpa baris ini `import weasyprint` gagal saat
+      # pengumpulan uji, dan yang merah adalah seluruh berkas uji sekaligus
+      # dengan pesan yang tidak menyebut PDF sama sekali.
+      - name: Pustaka sistem untuk WeasyPrint
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libpango-1.0-0 libpangoft2-1.0-0 libcairo2 libgdk-pixbuf-2.0-0
+
+      - name: Pasang dependensi
+        run: pip install -r requirements.txt
+
+      - name: Uji
+        # `TEST_TANPA_MEILI=1` melewati Meilisearch, yang tidak berjalan di
+        # sini. `DATABASE_URL` harus ADA meski tidak dipakai: `utils/database`
+        # membacanya saat DI-IMPOR dan menolak nyala tanpa itu.
+        #
+        # `TEST_DATABASE_URL` sengaja TIDAK disetel. Uji integrasi MENULIS ke
+        # basis data yang ditunjuknya; menjalankannya tanpa basis data uji
+        # yang disiapkan khusus berarti menulis ke tempat yang salah.
+        # Tanpa variabel itu, seluruh `integrasi_*_test.py` dilewati — dan
+        # `-rs` menyebutkan alasannya satu per satu, supaya yang dilewati
+        # tidak diam-diam menjadi yang dilupakan.
+        env:
+          TEST_TANPA_MEILI: "1"
+          DATABASE_URL: "mysql://uji:uji@localhost/uji"
+          SECRET_KEY: "gerbang-ci-kunci-32-bita-penuh!!"
+        run: python -m pytest test/ -q -rs
+
+      # Pemeriksa menangkap yang tidak dapat ditangkap uji: operasi keuangan
+      # multi-tulis tanpa transaksi, dan dokumen yang kehilangan penguncian
+      # optimistiknya. Keduanya gagal tanpa galat apa pun — datanya saja yang
+      # menjadi tidak konsisten, berbulan kemudian.
+      #
+      # `cek_skema.py` TIDAK ikut: ia membandingkan model dengan basis data
+      # sungguhan, dan tidak ada basis data di sini. Ia tetap berjalan di
+      # `deploy.sh`, tempat basis datanya ada.
+      - name: Pemeriksa
+        run: |
+          gagal=0
+          for p in scripts/atomikcek.py scripts/kuncicek.py; do
+            echo "::group::$(basename "$p")"
+            python "$p" || gagal=1
+            echo "::endgroup::"
+          done
+          exit $gagal
