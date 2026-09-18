@@ -885,6 +885,23 @@ class PurchaseRepository:
 
             syarat = [
                 purchases_table.c.isDelete == False,  # noqa: E712
+                # PEMBELIAN INTERNAL BUKAN TAGIHAN.
+                #
+                # Dokumen internal dibuat perusahaan untuk kepentingannya
+                # sendiri — tidak ada pemasok luar yang menagih, dan
+                # `purchase_controller` malah langsung menyetelnya `isPaid`.
+                #
+                # Tetapi daftar ini menghitung SISA dari baris pembayaran,
+                # bukan dari `isPaid`. Pembelian internal tidak punya baris
+                # pembayaran sama sekali, jadi seluruh nilainya tampak
+                # sebagai tagihan yang belum lunas — selamanya, sebab tidak
+                # akan pernah ada pembayaran yang menutupnya.
+                #
+                # Itu persis kebalikan dari gunanya daftar ini. Keterangan di
+                # atas menyebut kelalaian yang paling mahal adalah tagihan
+                # yang tidak pernah dibuka; baris internal yang menumpuk
+                # permanen di sinilah yang menguburnya.
+                purchases_table.c.isInternal == False,  # noqa: E712
                 sisa > 5,
             ]
             if project_name:

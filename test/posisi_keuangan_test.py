@@ -307,3 +307,31 @@ def test_utang_usaha_menyaring_pembelian_internal():
     assert "isInternal == False" in badan, (
         "utang_usaha() tidak lagi menyaring pembelian internal"
     )
+
+
+def test_belum_dibayar_menyaring_pembelian_internal():
+    """
+    Daftar tagihan yang dipakai orang tiap hari, dan kekeliruan yang SAMA.
+
+    `belum_dibayar` menghitung sisa dari baris pembayaran, bukan dari
+    `isPaid`. Pembelian internal tidak punya baris pembayaran sama sekali,
+    jadi seluruh nilainya menumpuk permanen sebagai tagihan yang belum
+    lunas — dan tidak akan pernah ada pembayaran yang menutupnya.
+
+    Keterangan pada fungsi itu sendiri menyebut kelalaian yang paling mahal
+    adalah tagihan yang tidak pernah dibuka; baris internal yang menumpuk di
+    sana persis yang menguburnya.
+    """
+    import os
+
+    akar = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    jalur = os.path.join(akar, "repository", "purchase_repository.py")
+    sumber = open(jalur, encoding="utf-8").read()
+
+    awal = sumber.index("async def belum_dibayar")
+    akhir = sumber.index("sisa > 5,", awal)
+    badan = sumber[awal:akhir]
+
+    assert "isInternal == False" in badan, (
+        "belum_dibayar() tidak lagi menyaring pembelian internal"
+    )
