@@ -60,6 +60,32 @@ async def daftar_spk(
     )
 
 
+@router.get("/peringatan-faktur/{purchase_order_id}")
+async def peringatan_faktur(
+    purchase_order_id: int,
+    current_user: Annotated[User, Depends(require("certificate_of_payment", "read"))],
+):
+    """
+    Apakah SPK ini sudah pernah ditagih lewat pembuat faktur tenaga kerja.
+
+    TAMBALAN. Pembuat faktur menagih SPK yang sama tanpa menyentuh pagu CoP;
+    selama keduanya belum membaca catatan yang sama, dua dokumen dapat terbit
+    atas progres yang satu. Yang dapat dilakukan sekarang hanya
+    memberitahukannya kepada yang sedang mengisi.
+
+    RUTE TERSENDIRI, bukan bidang tambahan pada `/pagu/{id}`: gagalnya
+    peringatan tidak boleh menjatuhkan layar pencatatan volume, dan
+    mengubah bentuk jawaban `/pagu` berarti setiap pemanggilnya harus ikut
+    diubah — yang tertinggal tidak menimbulkan galat, barisnya hanya berhenti
+    tampil.
+    """
+    return _lempar_bila_galat(
+        await CertificateOfPaymentController.peringatan_faktur(
+            purchase_order_id, _level(current_user)
+        )
+    )
+
+
 @router.get("/pagu/{purchase_order_id}")
 async def pagu_spk(
     purchase_order_id: int,

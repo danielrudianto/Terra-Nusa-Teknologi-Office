@@ -201,6 +201,55 @@ class CertificateOfPaymentRepository:
         return peta
 
     @staticmethod
+    async def tagihan_faktur_atas_spk(nama_spk: str) -> Dict[str, Any]:
+        """
+        Pembelian yang sudah TERBIT atas SPK ini lewat pembuat faktur.
+
+        KENAPA DIHITUNG DI SINI, DAN KENAPA HANYA NOMINAL
+
+        Halaman Invoice (faktur & kuitansi tenaga kerja) menyimpan sebuah
+        baris `purchases` untuk tiap tagihan, tetapi ia TIDAK menyentuh pagu
+        SPK sama sekali: yang diketik di sana empat baris baku — Upah Harian,
+        Lembur, Bonus, Insentif Bor — bukan baris SPK-nya, dan SPK-nya sendiri
+        dirujuk lewat NOMOR sebagai teks, bukan `purchaseOrderID`.
+
+        Jadi yang dapat diketahui dari sana cuma "sudah ada tagihan sebesar
+        sekian", bukan "volume baris mana yang sudah terpakai". Itu tidak
+        cukup untuk dijadikan pagu bersama — dan justru karena itu ia harus
+        DISEBUTKAN: selama kedua jalur belum membaca catatan yang sama, dua
+        dokumen dapat terbit atas progres yang satu, dan yang menerima
+        tagihan tidak punya cara mengetahui mana yang berlaku.
+
+        Ini TAMBALAN, bukan penyelesaian. Yang menyelesaikannya adalah
+        pembuat faktur yang menagih terhadap baris SPK, sehingga keduanya
+        menulis ke pagu yang sama.
+        """
+        if not nama_spk:
+            return {"jumlah": 0, "nilai": 0.0}
+        try:
+            baris = await database.fetch_one(
+                """
+                SELECT COUNT(*) AS jumlah, COALESCE(SUM(p.dpp), 0) AS nilai
+                FROM purchases p
+                WHERE p.isDelete = 0
+                  AND p.purchaseOrderName = :nama
+                """,
+                {"nama": nama_spk},
+            )
+            if not baris:
+                return {"jumlah": 0, "nilai": 0.0}
+            return {
+                "jumlah": int(baris["jumlah"] or 0),
+                "nilai": float(baris["nilai"] or 0),
+            }
+        except Exception as e:
+            # Peringatan yang gagal dibaca TIDAK boleh menjatuhkan layar
+            # pencatatan volume: yang hilang keterangannya, bukan
+            # kemampuannya bekerja.
+            log_error(f"Gagal membaca tagihan faktur atas SPK: {str(e)}")
+            return {"jumlah": 0, "nilai": 0.0}
+
+    @staticmethod
     async def pagu(purchase_order_id: int) -> List[Dict[str, Any]]:
         """
         Keadaan setiap baris pekerjaan pada rantai SPK ini.

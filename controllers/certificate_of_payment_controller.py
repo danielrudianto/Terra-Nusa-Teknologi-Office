@@ -78,19 +78,37 @@ class CertificateOfPaymentController:
 
     #: Jenis SPK yang TIDAK dilayani Certificate of Payment.
     #:
-    #: Keduanya dikecualikan atas keputusan pemilik, dengan sebab berbeda:
+    #: A — pekerjaannya tidak ditagihkan bertahap, sehingga berita acara
+    #:     progres tidak menyatakan apa pun di sana.
     #:
-    #:   A — pekerjaannya tidak ditagihkan bertahap, sehingga berita acara
-    #:       progres tidak menyatakan apa pun di sana;
-    #:   D — penagihannya sudah ditangani pembuat faktur yang lebih dulu ada.
-    #:       Menyediakan jalur kedua untuk pekerjaan yang sama membuat dua
-    #:       dokumen dapat terbit atas progres yang satu, dan yang menerima
-    #:       tagihan tidak punya cara mengetahui mana yang berlaku.
+    #: D DIKELUARKAN DARI DAFTAR INI. Alasannya dulu:
+    #:
+    #:   "D — penagihannya sudah ditangani pembuat faktur yang lebih dulu
+    #:    ada. Menyediakan jalur kedua untuk pekerjaan yang sama membuat dua
+    #:    dokumen dapat terbit atas progres yang satu, dan yang menerima
+    #:    tagihan tidak punya cara mengetahui mana yang berlaku."
+    #:
+    #: Kekhawatirannya benar. Yang tidak benar adalah anggapan bahwa pembuat
+    #: faktur menutup persoalannya: halaman itu memakai EMPAT BARIS BAKU yang
+    #: diketik sendiri — Upah Harian, Lembur, Bonus, Insentif Bor — bukan
+    #: baris SPK-nya, dan nomor SPK-nya teks bebas. Ia mencatat NOMINAL, bukan
+    #: volume; tidak ada satu pun tempat yang tahu dari 2000 m' sudah ditagih
+    #: berapa.
+    #:
+    #: Akibatnya lapangan membuat berita acaranya sendiri di Excel, lengkap
+    #: dengan kolom Tagihan Sebelumnya / Periode Ini / Akumulasi — persis yang
+    #: tidak dimiliki sistem. Jadi jalur keduanya SUDAH ADA sejak lama; yang
+    #: berbeda, satu di antaranya tidak tercatat di mana pun.
+    #:
+    #: Membuka D memindahkan jalur itu ke dalam sistem, tempat akumulasinya
+    #: dihitung dan pagunya dijaga. Jalur gandanya sendiri baru benar-benar
+    #: tertutup ketika pembuat faktur ikut membaca pagu yang sama —
+    #: sampai itu, `purchases_atas_spk()` di bawah yang memperingatkan.
     #:
     #: Ditegakkan pada SETIAP pintu masuk — daftar pilihan, pagu, pembuatan,
     #: dan pencetakan. Satu jalur yang lupa dijaga sudah cukup membuat
     #: aturannya tidak berlaku.
-    JENIS_TANPA_COP = frozenset({"A", "D"})
+    JENIS_TANPA_COP = frozenset({"A"})
 
     #: Material PO-F yang TETAP dilayani CoP meski dokumennya PURCHASE ORDER.
     #:
@@ -262,6 +280,56 @@ class CertificateOfPaymentController:
     # ------------------------------------------------------------------
     # Pagu
     # ------------------------------------------------------------------
+
+    @staticmethod
+    async def peringatan_faktur(
+        purchase_order_id: int, user_level: int = 1
+    ) -> Dict[str, Any]:
+        """
+        Apakah SPK ini sudah pernah ditagih lewat pembuat faktur.
+
+        TAMBALAN, dan disebut begitu di layar juga.
+
+        Pembuat faktur tenaga kerja menagih SPK yang sama tanpa menyentuh pagu
+        CoP sama sekali: yang diketik di sana EMPAT BARIS BAKU — Upah Harian,
+        Lembur, Bonus, Insentif Bor — bukan baris SPK-nya, dan SPK-nya dirujuk
+        lewat nomor sebagai teks. Selama keduanya belum membaca catatan yang
+        sama, dua dokumen dapat terbit atas progres yang satu, dan yang
+        menerima tagihan tidak punya cara mengetahui mana yang berlaku.
+
+        Satu-satunya yang dapat dilakukan sekarang adalah MENGATAKANNYA kepada
+        yang sedang mengisi. Bukan menolak: menolak akan mematikan jalur yang
+        baru saja dibuka, untuk keadaan yang sering kali memang sah — tagihan
+        bulan lalu lewat faktur, bulan ini lewat CoP.
+
+        JALAN KELUAR TERSENDIRI, bukan ditempelkan pada `pagu_spk`.
+        Mengubah bentuk jawaban `pagu_spk` berarti setiap pemanggilnya harus
+        ikut diubah, dan yang tertinggal tidak menimbulkan galat — barisnya
+        hanya berhenti tampil. Di sini, gagalnya peringatan tidak menyentuh
+        apa pun selain peringatan itu sendiri.
+        """
+        try:
+            spk = await PurchaseOrderRepository.get_by_id(purchase_order_id)
+            if not spk or (isinstance(spk, dict) and "error" in spk):
+                return app_error(ErrorCode.NOT_FOUND, "SPK tidak ditemukan", 404)
+
+            faktur = await CertificateOfPaymentRepository.tagihan_faktur_atas_spk(
+                str(spk.get("name") or "")
+            )
+
+            # NILAINYA disaring, jumlahnya tidak.
+            #
+            # Seluruh layar pencatatan volume menyembunyikan rupiah dari yang
+            # belum berhak; peringatan ini tidak boleh menjadi celahnya.
+            # "Sudah ada 2 tagihan atas SPK ini" tetap dapat dibaca siapa pun
+            # yang mengisi — itu keterangan tentang dokumen, bukan harga.
+            keluar: Dict[str, Any] = {"jumlah": faktur["jumlah"]}
+            if boleh_melihat_nilai_cop(user_level):
+                keluar["nilai"] = faktur["nilai"]
+            return keluar
+        except Exception as e:
+            log_error(f"Gagal membaca peringatan faktur: {str(e)}")
+            return internal_error()
 
     @staticmethod
     async def pagu_spk(

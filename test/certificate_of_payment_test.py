@@ -680,15 +680,17 @@ class TestHanyaSPK:
     @pytest.mark.asyncio
     async def test_jenis_tanpa_cop_dikecualikan(self, repo):
         """
-        A tidak ditagihkan bertahap; D penagihannya lewat pembuat faktur
-        yang sudah ada. Keduanya memang terbit sebagai SPK, tetapi bukan
-        SPK yang memakai berita acara progres.
+        A tidak ditagihkan bertahap: berita acara progres tidak menyatakan
+        apa pun di sana. Ia memang terbit sebagai SPK, tetapi bukan SPK yang
+        memakai berita acara progres.
+
+        D DULU IKUT DI SINI. Lihat `TestJenisDDibuka` di bawah untuk
+        alasannya dibuka, dan apa yang belum selesai karenanya.
         """
-        for jenis in ("A", "D"):
-            repo["spk"]["purchaseType"] = jenis
-            hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
-                                     departments={"engineering"})
-            assert hasil["status"] == 400
+        repo["spk"]["purchaseType"] = "A"
+        hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
+                                 departments={"engineering"})
+        assert hasil["status"] == 400
 
     @pytest.mark.asyncio
     async def test_jenis_spk_diterima(self, repo):
@@ -1284,6 +1286,171 @@ class TestDataCetak:
         assert hasil["bap"][0]["bobot"] == 0
 
 
+class TestJenisDDibuka:
+    """
+    SPK tenaga kerja (jenis D) sekarang DILAYANI Certificate of Payment.
+
+    KENAPA DIBUKA
+
+    Alasan pengecualiannya dulu tertulis begini:
+
+        "D — penagihannya sudah ditangani pembuat faktur yang lebih dulu
+         ada. Menyediakan jalur kedua untuk pekerjaan yang sama membuat dua
+         dokumen dapat terbit atas progres yang satu."
+
+    Kekhawatirannya benar. Yang tidak benar adalah anggapan bahwa pembuat
+    faktur menutup persoalannya. Halaman itu memakai EMPAT BARIS BAKU yang
+    diketik sendiri — Upah Harian, Lembur, Bonus, Insentif Bor — bukan baris
+    SPK-nya, dan nomor SPK-nya teks bebas. Ia mencatat NOMINAL, bukan volume:
+    tidak ada satu pun tempat yang tahu dari 2000 m' sudah ditagih berapa.
+
+    Akibatnya lapangan membuat berita acaranya sendiri di Excel, lengkap
+    dengan kolom Tagihan Sebelumnya / Periode Ini / Akumulasi. Jadi jalur
+    keduanya SUDAH ADA sejak lama — yang berbeda, satu di antaranya tidak
+    tercatat di mana pun, dan pagunya tidak dijaga siapa pun.
+
+    APA YANG BELUM SELESAI
+
+    Pembuat faktur masih belum membaca pagu yang sama. Sampai itu terjadi,
+    dua dokumen MASIH dapat terbit atas progres yang satu — yang berubah
+    hanya bahwa sekarang sistem MENGETAHUINYA dan mengatakannya. Uji
+    `TestPeringatanFaktur` di bawah menjaga bahwa peringatan itu ada, justru
+    karena ia tambalan: tambalan yang diam-diam hilang meninggalkan keadaan
+    yang lebih buruk daripada sebelum ia dipasang.
+    """
+
+    @pytest.mark.asyncio
+    async def test_muncul_di_daftar_pilihan(self, repo, monkeypatch):
+        async def _kandidat(project_name=None, keyword=None, batas=50):
+            return [
+                {"id": 1, "name": "001-SPK-X-A", "projectName": "X",
+                 "purchaseType": "A", "customData": None, "date": None,
+                 "dpp": 100, "supplierName": "PT A"},
+                {"id": 3, "name": "003-SPK-X-D", "projectName": "X",
+                 "purchaseType": "D", "customData": None, "date": None,
+                 "dpp": 300, "supplierName": "Wacep Hidayat"},
+            ]
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository,
+            "spk_kandidat",
+            staticmethod(_kandidat),
+        )
+        hasil = await CoP.spk_kandidat(user_level=2)
+        assert [x["purchaseType"] for x in hasil] == ["D"], (
+            "SPK tenaga kerja tidak muncul di daftar pilihan — layarnya "
+            "terbuka tetapi tidak ada yang dapat dipilih"
+        )
+
+    @pytest.mark.asyncio
+    async def test_pagunya_dapat_dibuka(self, repo):
+        repo["spk"]["purchaseType"] = "D"
+        hasil = await CoP.pagu_spk(5, user_level=2)
+        assert not (isinstance(hasil, dict) and "error" in hasil), hasil
+
+    @pytest.mark.asyncio
+    async def test_dapat_dibuat(self, repo):
+        repo["spk"]["purchaseType"] = "D"
+        repo["items_disimpan"] = None
+        hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
+                                 departments={"engineering"})
+        assert "error" not in hasil, hasil
+
+    @pytest.mark.asyncio
+    async def test_dapat_dicetak(self, repo_cetak):
+        repo_cetak["spk"]["purchaseType"] = "D"
+        hasil = await CoP.data_cetak(9, user_level=2)
+        assert "error" not in hasil, hasil
+
+    @pytest.mark.asyncio
+    async def test_A_tetap_tertutup(self, repo):
+        """
+        Yang dibuka HANYA D.
+
+        Membuka keduanya sekaligus adalah kekeliruan yang mudah terjadi —
+        keduanya duduk di himpunan yang sama — dan tidak menimbulkan galat
+        apa pun: jenis A sekadar mulai muncul di daftar pilihan orang.
+        """
+        repo["spk"]["purchaseType"] = "A"
+        hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
+                                 departments={"engineering"})
+        assert hasil["status"] == 400
+
+
+class TestPeringatanFaktur:
+    """
+    Selama pagunya belum bersama, jalur gandanya harus DISEBUTKAN.
+
+    Ini tambalan. Yang menyelesaikannya adalah pembuat faktur yang menagih
+    terhadap baris SPK, sehingga keduanya menulis ke pagu yang sama. Sampai
+    itu ada, satu-satunya yang dapat dilakukan adalah memberitahu yang sedang
+    mengisi bahwa SPK ini sudah pernah ditagih lewat jalur lain.
+
+    Diuji karena tambalan yang diam-diam hilang meninggalkan keadaan yang
+    LEBIH BURUK daripada sebelum ia dipasang: jalurnya terbuka, dan tidak ada
+    lagi yang memberi tahu.
+    """
+
+    @pytest.mark.asyncio
+    async def test_menyebut_jumlah_tagihan_yang_sudah_ada(self, repo, monkeypatch):
+        async def _tagihan(nama_spk):
+            assert nama_spk, "nomor SPK tidak diteruskan"
+            return {"jumlah": 2, "nilai": 3_500_000.0}
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository,
+            "tagihan_faktur_atas_spk",
+            staticmethod(_tagihan),
+        )
+        hasil = await CoP.peringatan_faktur(5, user_level=2)
+        assert hasil["jumlah"] == 2
+
+    @pytest.mark.asyncio
+    async def test_nilainya_disembunyikan_dari_lapangan(self, repo, monkeypatch):
+        """
+        Seluruh layar pencatatan volume menyembunyikan rupiah dari yang belum
+        berhak. Peringatan ini tidak boleh menjadi celahnya — "sudah ada 2
+        tagihan" adalah keterangan tentang dokumen, "Rp 3.500.000" bukan.
+        """
+        async def _tagihan(nama_spk):
+            return {"jumlah": 2, "nilai": 3_500_000.0}
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository,
+            "tagihan_faktur_atas_spk",
+            staticmethod(_tagihan),
+        )
+        lapangan = await CoP.peringatan_faktur(5, user_level=1)
+        assert lapangan["jumlah"] == 2
+        assert "nilai" not in lapangan, (
+            "nilai rupiah bocor ke level yang tidak berhak lewat peringatan"
+        )
+
+    @pytest.mark.asyncio
+    async def test_tanpa_tagihan_jumlahnya_nol(self, repo, monkeypatch):
+        async def _tagihan(nama_spk):
+            return {"jumlah": 0, "nilai": 0.0}
+
+        monkeypatch.setattr(
+            modul.CertificateOfPaymentRepository,
+            "tagihan_faktur_atas_spk",
+            staticmethod(_tagihan),
+        )
+        hasil = await CoP.peringatan_faktur(5, user_level=2)
+        assert hasil["jumlah"] == 0
+
+    @pytest.mark.asyncio
+    async def test_spk_tidak_ada_menjawab_404(self, repo, monkeypatch):
+        async def _kosong(_id):
+            return None
+
+        monkeypatch.setattr(
+            modul.PurchaseOrderRepository, "get_by_id", staticmethod(_kosong)
+        )
+        hasil = await CoP.peringatan_faktur(999, user_level=2)
+        assert hasil["status"] == 404
+
+
 class TestJenisATertutupSemuaJalur:
     """
     Jenis A tidak memakai CoP & BAP sama sekali.
@@ -1291,6 +1458,8 @@ class TestJenisATertutupSemuaJalur:
     Diuji pada SETIAP pintu masuk, bukan satu saja: satu jalur yang lupa
     dijaga sudah cukup membuat aturannya tidak berlaku — dan yang menemukan
     celahnya biasanya bukan yang menulis kodenya.
+
+    JENIS D SUDAH TIDAK DI SINI — lihat `TestJenisDDibuka`.
     """
 
     @pytest.mark.asyncio
@@ -1314,19 +1483,19 @@ class TestJenisATertutupSemuaJalur:
             staticmethod(_kandidat),
         )
         hasil = await CoP.spk_kandidat(user_level=2)
-        assert [s["purchaseType"] for s in hasil] == ["B"]
+        # D ikut sekarang; A tetap tidak. Urutannya mengikuti urutan masuk.
+        assert [s["purchaseType"] for s in hasil] == ["D", "B"]
 
     @pytest.mark.asyncio
     async def test_tidak_bisa_dibuat(self, repo):
-        for jenis in ("A", "D"):
-            repo["spk"]["purchaseType"] = jenis
-            hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
-                                     departments={"engineering"})
-            assert hasil["status"] == 400, jenis
+        repo["spk"]["purchaseType"] = "A"
+        hasil = await CoP.create(_muatan(10), user_id=1, user_level=1,
+                                 departments={"engineering"})
+        assert hasil["status"] == 400
 
     @pytest.mark.asyncio
     async def test_pagunya_tidak_bisa_dibuka(self, repo):
-        repo["spk"]["purchaseType"] = "D"
+        repo["spk"]["purchaseType"] = "A"
         hasil = await CoP.pagu_spk(5, user_level=2)
         assert isinstance(hasil, dict) and hasil["status"] == 400
 
@@ -1334,9 +1503,6 @@ class TestJenisATertutupSemuaJalur:
     async def test_tidak_bisa_dicetak(self, repo_cetak):
         """Termasuk CoP lama yang terlanjur tersimpan sebelum aturan ini ada."""
         repo_cetak["spk"]["purchaseType"] = "A"
-        hasil = await CoP.data_cetak(9, user_level=2)
-        assert hasil["status"] == 400
-        repo_cetak["spk"]["purchaseType"] = "D"
         hasil = await CoP.data_cetak(9, user_level=2)
         assert hasil["status"] == 400
 
