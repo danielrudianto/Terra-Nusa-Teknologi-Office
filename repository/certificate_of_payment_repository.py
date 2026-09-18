@@ -128,6 +128,37 @@ def _d(nilai: Any) -> Decimal:
     return Decimal(str(nilai))
 
 
+#: Jenis SPK yang boleh berkontrak TANPA plafon volume.
+#:
+#: Hanya D — SPK tenaga kerja. Yang disepakati di sana harga satuannya (upah
+#: bulanan, lembur per jam), dan volumenya baru diketahui saat pekerjaannya
+#: berjalan. Pada SPK material volume nol adalah data yang KELIRU, dan
+#: membukanya berarti menghapus penjagaan pagu justru di tempat yang
+#: membutuhkannya.
+JENIS_BOLEH_TANPA_PAGU = frozenset({"D"})
+
+
+def _tanpa_pagu(jenis: Any, pagu: Decimal) -> bool:
+    """
+    Baris ini kontrak harga satuan tanpa plafon?
+
+    SATU tempat yang memutuskannya. `pagu()` menandainya, controller
+    melewatinya saat memeriksa, dan layar memakai penanda yang sama; bila
+    salah satunya menghitung sendiri, layar akan menampilkan baris yang
+    terbuka lalu penyimpanannya ditolak — atau sebaliknya, dan yang kedua
+    tidak menimbulkan galat apa pun.
+
+    Layar SPK D dulu mengirim `quantity: 1` sebagai isian mati — formulirnya
+    tidak punya kotak volume sama sekali. Angka itu bukan kesepakatan siapa
+    pun, tetapi sejak pagu dijaga ia menjadi plafon: "Volume SPK 1 m'", dan
+    setiap berita acara bervolume sebenarnya ditolak.
+    """
+    return (
+        str(jenis or "").strip().upper() in JENIS_BOLEH_TANPA_PAGU
+        and pagu <= 0
+    )
+
+
 class CertificateOfPaymentRepository:
     """Simpan & baca Certificate of Payment beserta penjagaan pagunya."""
 
@@ -277,10 +308,12 @@ class CertificateOfPaymentRepository:
             """
             SELECT i.id, i.purchaseOrderID, i.task, i.unit, i.quantity,
                    i.price, i.item_id, i.equipment_id, i.remarks_1,
-                   i.itemKind, i.parentItemID,
+                   i.remarks_3, i.itemKind, i.parentItemID,
+                   po.purchaseType,
                    mi.description AS itemDescription,
                    me.name        AS equipmentName
             FROM purchase_order_items i
+            JOIN purchase_orders       po ON po.id = i.purchaseOrderID
             LEFT JOIN master_item      mi ON mi.id = i.item_id
             LEFT JOIN master_equipment me ON me.id = i.equipment_id
             WHERE i.purchaseOrderID IN :ids
@@ -352,6 +385,13 @@ class CertificateOfPaymentRepository:
                 else:
                     tak_terbagi = True
 
+            # Kontrak harga satuan tanpa plafon; alasannya di `_tanpa_pagu`.
+            #
+            # SPK D lama bervolume 1 dibaca sebagai nol saat dokumennya
+            # dibuka di layar SPK, sehingga ia ikut terbuka tanpa ada yang
+            # perlu disunting seorang pun.
+            tanpa_pagu = _tanpa_pagu(b["purchaseType"], pagu)
+
             hasil.append(
                 {
                     "purchaseOrderItemID": b["id"],
@@ -361,10 +401,26 @@ class CertificateOfPaymentRepository:
                     "itemID": b["item_id"],
                     "equipmentID": b["equipment_id"],
                     "keterangan": b["remarks_1"],
+                    # Pembeda antar-baris yang bernama SAMA.
+                    #
+                    # Seluruh baris upah satu SPK D memakai `task` yang sama —
+                    # nama pekerjaannya — sehingga layar pencatatan volume
+                    # menampilkan dua "Operator Drilling Rig" yang tidak dapat
+                    # dibedakan. Yang membedakannya komponennya: gaji pokok,
+                    # uang makan, lembur.
+                    "komponen": b["remarks_3"],
                     "price": harga,
                     "pagu": pagu,
                     "terpakai": sudah,
+                    # `sisa` TETAP angka meski pagunya terbuka.
+                    #
+                    # Mengirim None akan membuat setiap pembacanya —
+                    # `Number(sisa ?? 0)` di layar lapangan — membacanya nol
+                    # dan menandai merah seluruh volume yang diketik. Yang
+                    # menentukan boleh-tidaknya adalah `tanpaPagu`, dan
+                    # SETIAP pembanding harus memeriksanya lebih dahulu.
                     "sisa": pagu - sudah,
+                    "tanpaPagu": tanpa_pagu,
                     "boronganTakTerbagi": tak_terbagi,
                 }
             )

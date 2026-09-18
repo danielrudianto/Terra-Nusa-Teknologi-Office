@@ -87,6 +87,37 @@
         {% if b.keterangan %}<span class="bap-ket">{{ b.keterangan }}</span>{% endif %}
         {% if b.adendum %}<span class="bap-ket">Adendum #{{ b.adendum }}</span>{% endif %}
       </td>
+      {#
+        KONTRAK HARGA SATUAN: kolom kontrak & persentase dicetak "—".
+
+        SPK tenaga kerja harga satuan tidak menyepakati volume, sehingga
+        tidak ada plafon yang dapat dijadikan penyebut. Mencetak "0" di sana
+        bukan penyederhanaan melainkan pernyataan yang keliru: lembar yang
+        ditandatangani akan berbunyi "Volume Kontrak 0" dan "Progres 0%"
+        untuk pekerjaan yang volumenya justru sedang ditagihkan pada lembar
+        yang sama.
+
+        VOLUME yang terlaksana tetap dicetak apa adanya — itu yang diperiksa
+        dan ditandatangani; yang dikosongkan hanya persentase terhadap
+        sesuatu yang tidak ada.
+      #}
+      {% if b.tanpaPlafon %}
+      <td class="angka bap-kosong">&mdash;</td>
+      <td class="tengah">{{ b.satuan }}</td>
+      <td class="angka bap-kosong">&mdash;</td>
+
+      <td class="angka">{{ b.volumeSebelumnya | angka }}</td>
+      <td class="angka bap-kosong">&mdash;</td>
+      <td class="angka bap-kosong">&mdash;</td>
+
+      <td class="angka bap-sorot">{{ b.volumePeriodeIni | angka }}</td>
+      <td class="angka bap-sorot bap-kosong">&mdash;</td>
+      <td class="angka bap-sorot bap-kosong">&mdash;</td>
+
+      <td class="angka">{{ b.volumeAkumulatif | angka }}</td>
+      <td class="angka bap-kosong">&mdash;</td>
+      <td class="angka bap-kosong">&mdash;</td>
+      {% else %}
       <td class="angka">{{ b.volumeKontrak | angka }}</td>
       <td class="tengah">{{ b.satuan }}</td>
       <td class="angka">{{ b.bobot | persenPecahan }}</td>
@@ -102,12 +133,26 @@
       <td class="angka">{{ b.volumeAkumulatif | angka }}</td>
       <td class="angka">{{ b.persentaseAkumulatif | persenPecahan }}</td>
       <td class="angka">{{ b.bobotAkumulatif | persenPecahan }}</td>
+      {% endif %}
     </tr>
     {% endfor %}
   </tbody>
   <tfoot>
     <tr>
       <td colspan="4" class="kanan">Total</td>
+      {#
+        Tanpa satu pun baris berplafon, penyebutnya nol dan seluruh baris ini
+        keluar "0,000%" — angka paling menonjol di lembar ini, dibaca sebagai
+        "pekerjaannya nol persen", pada lembar yang justru menagihnya.
+      #}
+      {#
+        `is not defined` disengaja: bila kuncinya hilang, lembarnya harus
+        kembali ke perilaku LAMA (mencetak angka), bukan mengosongkan seluruh
+        baris Total. Kunci yang hilang adalah kekeliruan pemanggil; mengubah
+        seluruh lembar karenanya membuat satu kekeliruan kecil terbaca sebagai
+        kontrak yang tidak berplafon.
+      #}
+      {% if bapAdaPlafon is not defined or bapAdaPlafon %}
       <td class="angka">{{ bapTotal.bobot | persenPecahan }}</td>
       <td colspan="2"></td>
       <td class="angka">{{ bapTotal.bobotSebelumnya | persenPecahan }}</td>
@@ -115,9 +160,38 @@
       <td class="angka bap-sorot">{{ bapTotal.bobotSaatIni | persenPecahan }}</td>
       <td colspan="2"></td>
       <td class="angka">{{ bapTotal.bobotAkumulatif | persenPecahan }}</td>
+      {% else %}
+      <td class="angka bap-kosong">&mdash;</td>
+      <td colspan="2"></td>
+      <td class="angka bap-kosong">&mdash;</td>
+      <td colspan="2" class="bap-sorot"></td>
+      <td class="angka bap-sorot bap-kosong">&mdash;</td>
+      <td colspan="2"></td>
+      <td class="angka bap-kosong">&mdash;</td>
+      {% endif %}
     </tr>
   </tfoot>
 </table>
+
+{#
+  Kolom bertanda "—" harus DIJELASKAN di lembarnya sendiri.
+
+  Yang membacanya tidak punya cara lain mengetahui apakah tanda pisah itu
+  berarti "belum dikerjakan", "datanya hilang", atau "tidak berlaku" — dan
+  ketiganya menuntun ke pertanyaan yang berbeda.
+#}
+{% if bapAdaHargaSatuan %}
+<p class="bap-catatan">
+  Baris bertanda &mdash; adalah pekerjaan HARGA SATUAN: SPK menyepakati tarif
+  per satuan, bukan volume, sehingga bobot dan persentase progres tidak
+  memiliki penyebut. Volume yang terlaksana tetap tercetak apa adanya, dan
+  nilainya dihitung dari volume tersebut dikalikan harga satuannya.
+  {% if bapAdaPlafon %}
+  Angka bobot pada baris Total karena itu hanya mencakup pekerjaan yang
+  volumenya diplafon di dalam SPK, bukan seluruh isi lembar ini.
+  {% endif %}
+</p>
+{% endif %}
 
 <!--
   TIGA PERAN, seluruhnya milik TAHAP BAP: dibuat oleh, disetujui oleh,

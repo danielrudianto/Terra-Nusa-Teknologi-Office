@@ -625,6 +625,18 @@ class CertificateOfPaymentController:
 
         for baris_id, jumlah in diminta.items():
             b = peta[baris_id]
+
+            # Baris tanpa plafon dilewati SEBELUM dibandingkan.
+            #
+            # SPK D harga satuan tidak menyepakati volume; `sisa`-nya nol
+            # dikurangi yang sudah terpakai, sehingga membandingkannya akan
+            # menolak SETIAP volume — termasuk yang pertama. Penjagaan pagu di
+            # sini dan `pagu()` di repository harus memakai satu penanda yang
+            # sama; bila salah satunya menghitung sendiri, layar akan
+            # menampilkan baris yang terbuka lalu penyimpanannya ditolak.
+            if b.get("tanpaPagu"):
+                continue
+
             tersedia = b["sisa"] + milik_sendiri.get(baris_id, Decimal("0"))
             if jumlah > tersedia:
                 return None, app_error(
@@ -1533,6 +1545,18 @@ class CertificateOfPaymentController:
             def _bagi(a: Decimal, b: Decimal) -> Decimal:
                 return (a / b) if b else Decimal("0")
 
+            # Baris mana yang TIDAK berplafon — dibaca dari `pagu()`, bukan
+            # dihitung ulang di sini.
+            #
+            # Dua tempat yang memutuskan hal yang sama akan berselisih pada
+            # perubahan berikutnya, dan yang berselisih di sini adalah lembar
+            # yang DITANDATANGANI melawan layar yang mengisinya.
+            tanpa_plafon = {
+                p["purchaseOrderItemID"]
+                for p in await CertificateOfPaymentRepository.pagu(po_id)
+                if p.get("tanpaPagu")
+            }
+
             bap: List[Dict[str, Any]] = []
             for urut, b in enumerate(baris_kontrak, start=1):
                 vol_kontrak = _d(b["quantity"])
@@ -1569,6 +1593,19 @@ class CertificateOfPaymentController:
                         "persentaseAkumulatif": float(pers_akum),
                         "bobotAkumulatif": float(bobot * pers_akum),
                         "catatan": catatan_baris.get(b["id"]),
+                        # KONTRAK HARGA SATUAN: kolom kontrak & persentase
+                        # tidak berlaku pada baris ini.
+                        #
+                        # Tanpa penanda ini lembar BAP mencetak "Volume
+                        # Kontrak 0", "Bobot 0%", dan "Progres 0%" untuk
+                        # pekerjaan yang volumenya justru sedang ditagihkan.
+                        # Tidak ada galat: lembarnya tercetak rapi, lengkap,
+                        # dan ditandatangani — hanya seluruh kolom progresnya
+                        # berbunyi nol.
+                        #
+                        # Persentase terhadap plafon yang tidak ada bukan nol;
+                        # ia TIDAK ADA, dan itu yang harus tercetak.
+                        "tanpaPlafon": b["id"] in tanpa_plafon,
                     }
                 )
 
@@ -1712,6 +1749,22 @@ class CertificateOfPaymentController:
                     "daftarAdendum": daftar_adendum,
                 },
                 "bap": bap,
+                # Bentuk lembarnya bergantung pada CAMPURAN barisnya.
+                #
+                # Baris bobot pada kaki tabel adalah angka paling menonjol di
+                # seluruh lembar: ia yang dibaca sebagai "pekerjaan ini sudah
+                # sekian persen". Pada SPK yang SELURUH barisnya harga satuan,
+                # penyebutnya nol dan angka itu keluar "0,000%" — lembar yang
+                # menagih 2.000 m' menyatakan progresnya nol persen, tanpa
+                # satu pun galat.
+                #
+                # Pada SPK CAMPURAN ia menyesatkan dengan cara lain: bobot
+                # hanya dibagi sesama baris berplafon, sehingga baris
+                # mobilisasi tampak menyusun 100% kontrak sementara upah yang
+                # jauh lebih besar tidak terhitung sama sekali. Itu tidak
+                # dapat diperbaiki dengan angka — hanya dengan mengatakannya.
+                "bapAdaPlafon": any(not r["tanpaPlafon"] for r in bap),
+                "bapAdaHargaSatuan": any(r["tanpaPlafon"] for r in bap),
                 "bapTotal": {
                     "total": float(nilai_kontrak),
                     "bobot": float(_bagi(nilai_kontrak, nilai_kontrak)),
