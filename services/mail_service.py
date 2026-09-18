@@ -5,12 +5,50 @@ from O365 import Account, FileSystemTokenBackend
 from utils.logger_utils import log_error
 
 
+def alamat_pengirim(account) -> str | None:
+    """
+    Alamat surel PEMILIK TOKEN — yaitu pengirim yang sebenarnya.
+
+    Dibaca dari singgahan token di disk, bukan dari Microsoft. Pemeriksaan
+    identitas yang menambah satu permintaan jaringan pada setiap surel akan
+    dilepas orang pertama kali ia melambat, dan penjaga yang dilepas tidak
+    menjaga apa pun.
+
+    Mengembalikan `None` bila bentuk tokennya tidak dikenali. Itu disengaja:
+    lihat alasannya di `send_email`.
+    """
+    try:
+        akun = account.con.token_backend.get_account()
+    except Exception:
+        return None
+    if not akun:
+        return None
+    alamat = (akun.get("username") or "").strip().lower()
+    return alamat or None
+
+
 class MailService:
     """
     Pengiriman surel lewat Microsoft 365.
 
     Kredensialnya dari `MICROSOFT_CLIENT_ID` dan `MICROSOFT_CLIENT_SECRET`;
     tokennya disimpan sebagai berkas di `storage/tokens`.
+
+    PENGIRIMNYA ADALAH PEMILIK TOKEN — dan tidak ada satu baris pun di berkas
+    ini yang menentukannya.
+
+    Alur otorisasinya `public` (lihat `scripts/otorisasi_o365.py`): tokennya
+    milik akun yang MASUK saat skrip itu dijalankan. Siapa pun yang menjalankan
+    otorisasi ulang — karena secret di Azure diganti, atau tokennya rusak —
+    diam-diam memindahkan alamat pengirim seluruh sistem ke akunnya sendiri.
+
+    Kegagalannya tidak menghasilkan galat apa pun. Surelnya terkirim, sampai,
+    dan terbaca; hanya namanya yang berubah. Yang menerima undangan wawancara
+    dari nama pribadi alih-alih HRD tidak akan menghubungi siapa pun untuk
+    menanyakannya.
+
+    `MAIL_FROM` di `.env` adalah satu-satunya tempat alamat itu DINYATAKAN,
+    sehingga ia dapat dibandingkan.
     """
 
     @staticmethod
@@ -64,6 +102,32 @@ class MailService:
                 "Periksa masa berlaku client secret di Azure, lalu jalankan "
                 "ulang otorisasi di server."
             )
+
+        # Pengirimnya diperiksa SEBELUM mengirim.
+        #
+        # Menolak mengirim terasa keras — satu pemberitahuan tidak sampai. Tapi
+        # yang dicegahnya lebih mahal: surel resmi ke vendor dan pelamar yang
+        # keluar atas nama orang lain, berhari-hari, tanpa satu pun tanda.
+        # Yang pertama ketahuan dalam hitungan menit dan pesannya menyebutkan
+        # perbaikannya; yang kedua ketahuan ketika ada yang kebetulan melihat
+        # kotak masuknya.
+        diharapkan = (os.getenv("MAIL_FROM") or "").strip().lower()
+        if diharapkan:
+            sebenarnya = alamat_pengirim(account)
+            # `None` = bentuk tokennya tidak terbaca, BUKAN alamat yang salah.
+            #
+            # Menolak kirim untuk keadaan ini berarti pemutakhiran pustaka O365
+            # yang mengubah bentuk singgahannya akan mematikan seluruh surel
+            # sistem — kegagalan yang jauh lebih besar daripada yang dijaga.
+            if sebenarnya and sebenarnya != diharapkan:
+                raise RuntimeError(
+                    f"Token Microsoft 365 milik `{sebenarnya}`, sedangkan "
+                    f"MAIL_FROM menyebut `{diharapkan}`. Surel tidak dikirim "
+                    f"supaya tidak keluar atas nama akun yang salah.\n"
+                    f"Perbaikan: hapus `storage/tokens/o365_token.txt`, "
+                    f"jalankan `python scripts/otorisasi_o365.py`, dan MASUK "
+                    f"dengan `{diharapkan}`."
+                )
 
         try:
             mailbox = account.mailbox()

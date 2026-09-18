@@ -37,8 +37,18 @@ from O365 import Account, FileSystemTokenBackend
 # Dijalankan dari akar backend, sehingga `.env` dan `storage/` sejajar.
 load_dotenv()
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Dipinjam dari `mail_service`, TIDAK disalin.
+#
+# Dua salinan pembacaan token akan berbeda pada pemutakhiran O365 berikutnya —
+# dan yang berbeda adalah skrip ini dengan yang benar-benar dipakai mengirim,
+# sehingga layar di sini menyatakan hijau untuk keadaan yang ditolak backend.
+from services.mail_service import alamat_pengirim  # noqa: E402
+
 CLIENT_ID = os.getenv("MICROSOFT_CLIENT_ID")
 CLIENT_SECRET = os.getenv("MICROSOFT_CLIENT_SECRET")
+MAIL_FROM = (os.getenv("MAIL_FROM") or "").strip().lower()
 
 # Sama persis dengan yang dipakai `services/mail_service.py`.
 #
@@ -60,6 +70,15 @@ def utama() -> int:
 
     print(f"Client ID    : {CLIENT_ID[:8]}…")
     print(f"Token disimpan ke: {TOKEN_PATH}/{TOKEN_FILENAME}")
+    if MAIL_FROM:
+        print(f"HARUS masuk sebagai: {MAIL_FROM}")
+    else:
+        print(
+            "PERINGATAN: MAIL_FROM belum diisi di .env, jadi tidak ada yang\n"
+            "            dapat memeriksa akun mana yang benar. Akun yang Anda\n"
+            "            pakai masuk sebentar lagi akan menjadi PENGIRIM\n"
+            "            seluruh surel sistem."
+        )
     print()
 
     backend = FileSystemTokenBackend(
@@ -70,6 +89,32 @@ def utama() -> int:
     if account.authenticate(scopes=SCOPES):
         print()
         print("BERHASIL. Token baru tersimpan.")
+
+        # Akun yang baru saja masuk DISEBUTKAN, tidak dibiarkan tersirat.
+        #
+        # Di sinilah alamat pengirim seluruh sistem sebenarnya ditentukan, dan
+        # sampai sekarang layarnya tidak pernah menyebut akun mana yang dipakai.
+        # Masuk dengan akun yang salah karena itu terasa persis sama dengan
+        # masuk dengan akun yang benar — dan selisihnya baru terlihat berhari
+        # kemudian, di kotak masuk orang lain.
+        pengirim = alamat_pengirim(account)
+        print()
+        print(f"Pengirim sekarang: {pengirim or '(tidak terbaca)'}")
+
+        if MAIL_FROM and pengirim and pengirim != MAIL_FROM:
+            print()
+            print("AKUNNYA SALAH.")
+            print(f"  MAIL_FROM di .env : {MAIL_FROM}")
+            print(f"  yang barusan masuk: {pengirim}")
+            print()
+            print("Seluruh surel sistem akan keluar atas nama akun itu, dan")
+            print("backend akan MENOLAK mengirim selama keduanya berbeda.")
+            print()
+            print("Ulangi:")
+            print(f"    rm {TOKEN_PATH}/{TOKEN_FILENAME}")
+            print("    python scripts/otorisasi_o365.py")
+            return 1
+
         print()
         print("Hidupkan ulang backend supaya membacanya:")
         print("    sudo systemctl restart terrabot")

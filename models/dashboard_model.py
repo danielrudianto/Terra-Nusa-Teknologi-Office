@@ -62,7 +62,8 @@ class DashboardModel:
             # 2) All active bank accounts (so accounts with no mutations still
             #    show up, at balance 0, instead of silently disappearing).
             account_sql = (
-                "SELECT id, bankName, bankAccountName, bankAccountNumber "
+                "SELECT id, bankName, bankAccountName, bankAccountNumber, "
+                "excludeFromCalendar "
                 "FROM bank_accounts "
                 "WHERE isDelete = 0"
                 + DashboardModel._account_filter(bank_account_ids, "id")
@@ -70,12 +71,35 @@ class DashboardModel:
             )
             accounts = await database.fetch_all(account_sql)
 
+            # Daftar rekening yang DISEBUT pemanggil menang atas tanda
+            # `excludeFromCalendar`.
+            #
+            # Tandanya adalah PILIHAN AWAL, bukan larangan: pemilih rekening di
+            # kalender mencentangnya dengan `!excludeFromCalendar`, dan yang
+            # membukanya tetap boleh mencentang rekening yang dikecualikan.
+            # Bila tanda itu tetap menyaring sesudah rekeningnya diminta
+            # dengan nama, yang memintanya akan menerima NOL tanpa penjelasan —
+            # dan angka nol yang salah tidak pernah terlihat salah.
+            #
+            # Jadi: tanpa daftar (beranda) tandanya berlaku; dengan daftar,
+            # yang diminta itulah yang dihitung.
+            hormati_tanda = not bank_account_ids
+
             data = []
             total = 0.0
+            total_dikecualikan = 0.0
+            jumlah_dikecualikan = 0
             for a in accounts:
                 mut = balance_by_id.get(a["id"])
                 bal = float(mut["balance"]) if mut and mut["balance"] is not None else 0.0
-                total += bal
+                dikecualikan = bool(
+                    hormati_tanda and getattr(a, "excludeFromCalendar", False)
+                )
+                if dikecualikan:
+                    total_dikecualikan += bal
+                    jumlah_dikecualikan += 1
+                else:
+                    total += bal
                 data.append({
                     "bankAccountID": a["id"],
                     "bankName": a["bankName"],
@@ -87,11 +111,27 @@ class DashboardModel:
                         if mut and mut["lastMutationDate"] else None
                     ),
                     "hasActivity": mut is not None,
+                    "excludeFromCalendar": dikecualikan,
                 })
 
             return {
                 "accounts": data,
+                # `totalBalance` TIDAK memuat rekening yang dikecualikan.
+                #
+                # Namanya sengaja tidak diubah: `proyeksi-kas` membacanya
+                # sebagai titik jangkar proyeksi, dan ia selalu mengirim daftar
+                # rekening, sehingga angkanya di sana tidak bergeser sama
+                # sekali oleh perubahan ini.
                 "totalBalance": total,
+                # Yang dikecualikan tetap DILAPORKAN, tidak dihilangkan.
+                #
+                # Uang di rekening jaminan tetap uang. Membuangnya dari
+                # jawaban berarti satu-satunya layar yang menyebut saldo
+                # rekening berhenti menyebutnya — dan saldo yang tidak pernah
+                # ditampilkan adalah saldo yang tidak pernah dicocokkan.
+                "excludedBalance": total_dikecualikan,
+                "excludedCount": jumlah_dikecualikan,
+                "grandTotalBalance": total + total_dikecualikan,
                 "accountCount": len(data),
                 "generatedAt": today.isoformat(),
             }
