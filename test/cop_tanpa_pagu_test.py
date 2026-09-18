@@ -27,6 +27,7 @@ import pytest
 from repository.certificate_of_payment_repository import (
     JENIS_BOLEH_TANPA_PAGU,
     _tanpa_pagu,
+    _volume_disepakati,
 )
 
 from certificate_of_payment_test import (  # noqa: F401  (fixture)
@@ -44,7 +45,7 @@ from certificate_of_payment_test import (  # noqa: F401  (fixture)
 
 def test_spk_d_bervolume_nol_tanpa_plafon():
     """Inilah bentuk SPK D yang dibuat layar sekarang: volume dikosongkan."""
-    assert _tanpa_pagu("D", Decimal("0")) is True
+    assert _tanpa_pagu("D", Decimal("0"), True) is True
 
 
 def test_spk_d_bervolume_terisi_tetap_berplafon():
@@ -55,7 +56,7 @@ def test_spk_d_bervolume_terisi_tetap_berplafon():
     satuan, diisi berarti berplafon. Kalau yang terisi pun dibiarkan terbuka,
     kotak volumenya berhenti berarti apa-apa.
     """
-    assert _tanpa_pagu("D", Decimal("2000")) is False
+    assert _tanpa_pagu("D", Decimal("2000"), True) is False
 
 
 def test_spk_material_bervolume_nol_tetap_berplafon():
@@ -67,12 +68,12 @@ def test_spk_material_bervolume_nol_tetap_berplafon():
     berapa pun, tanpa satu pun layar menyebutnya janggal.
     """
     for jenis in ("A", "B", "H", "6.4.1", "PO", "", None):
-        assert _tanpa_pagu(jenis, Decimal("0")) is False, jenis
+        assert _tanpa_pagu(jenis, Decimal("0"), True) is False, jenis
 
 
 def test_jenis_tidak_peka_huruf_dan_spasi():
     """Kolomnya teks bebas; " d " dan "D" SPK yang sama."""
-    assert _tanpa_pagu(" d ", Decimal("0")) is True
+    assert _tanpa_pagu(" d ", Decimal("0"), True) is True
 
 
 def test_volume_minus_ikut_terbuka():
@@ -83,7 +84,7 @@ def test_volume_minus_ikut_terbuka():
     Bila hanya nol yang dibuka, baris-baris itu tetap terkunci — dan justru
     merekalah yang sedang tidak dapat ditagih.
     """
-    assert _tanpa_pagu("D", Decimal("-5")) is True
+    assert _tanpa_pagu("D", Decimal("-5"), True) is True
 
 
 def test_hanya_d_yang_boleh():
@@ -185,3 +186,54 @@ class TestTanpaPaguDiController:
             departments={"engineering"},
         )
         assert hasil["status"] == 400
+
+
+# --------------------------------------------------------------------------
+# SPK LAMA — dikenali dari dokumennya, bukan dari angkanya
+# --------------------------------------------------------------------------
+
+
+def test_spk_d_lama_terbuka_walau_volumenya_satu():
+    """
+    INI YANG TERLEWAT pada perbaikan pertama, dan ini yang dilihat di lapangan.
+
+    Formulir SPK D dulu mengirim `quantity: 1` pada SETIAP baris upah — ia
+    tidak punya kotak volume sama sekali. Seluruh SPK D yang sudah terbit
+    berisi angka itu.
+
+    Perbaikan pertama hanya membuka baris bervolume NOL, yaitu bentuk yang
+    ditulis formulir BARU. Akibatnya tidak ada satu pun SPK yang sudah terbit
+    yang ikut terbuka: layar tetap menyebut "Volume SPK 1 hari", dan berita
+    acara untuk pekerja yang sehari menyelesaikan 60 meter tetap ditolak.
+    """
+    assert _tanpa_pagu("D", Decimal("1"), volume_disepakati=False) is True
+
+
+def test_spk_d_baru_bervolume_satu_TETAP_berplafon():
+    """
+    Satu yang DIKETIK orang adalah kesepakatan, dan harus ditegakkan.
+
+    Inilah alasan penandanya ada pada dokumen dan bukan pada angkanya.
+    Menebak "1 berarti penambal" akan membuat yang diketik berbeda dari yang
+    ditegakkan begitu formulirnya punya kotak volume — tanpa galat apa pun.
+    """
+    assert _tanpa_pagu("D", Decimal("1"), volume_disepakati=True) is False
+
+
+def test_spk_material_lama_TIDAK_ikut_terbuka():
+    """
+    Penanda yang hilang hanya berarti "formulir lama" pada jenis D.
+
+    SPK material tidak pernah punya penambal itu; membukanya berarti
+    menghapus penjagaan pagu pada dokumen yang justru paling membutuhkannya,
+    dan seluruh SPK material lama sekaligus.
+    """
+    for jenis in ("A", "B", "H", "6.4.1"):
+        assert _tanpa_pagu(jenis, Decimal("1"), volume_disepakati=False) is False
+
+
+def test_penanda_dibaca_dari_customdata():
+    """Bentuk dari dokumen sungguhan; yang tidak punya dibaca salah."""
+    assert _volume_disepakati({"volumeDiisi": True}) is True
+    assert _volume_disepakati({}) is False
+    assert _volume_disepakati({"volumeDiisi": False}) is False

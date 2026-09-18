@@ -266,6 +266,27 @@ class FinanceStatusRepository:
                 .where(
                     and_(
                         purchases_table.c.isDelete == False,  # noqa: E712
+                        # PEMBELIAN INTERNAL BUKAN UTANG.
+                        #
+                        # `isInternal` menandai dokumen kepentingan sendiri —
+                        # tidak ada pemasok luar yang menagih, dan
+                        # `purchase_controller` malah langsung menyetelnya
+                        # `isPaid`. Tetapi utang di sini dihitung sebagai
+                        # `nilai - yang dibayarkan`, dan pembelian internal
+                        # memang tidak punya baris pembayaran sama sekali —
+                        # jadi SELURUH nilainya muncul sebagai utang yang
+                        # tidak akan pernah tertutup oleh apa pun.
+                        #
+                        # Akibatnya utang usaha membesar, quick ratio dan
+                        # modal kerja bersih mengecil, dan kewajiban 30 hari
+                        # menyebut uang yang tidak akan dibayarkan ke mana
+                        # pun. Tidak ada galat; angkanya saja yang salah.
+                        #
+                        # `laba_rugi_repository` dan
+                        # `PurchaseRepository.belum_dibayar` sudah
+                        # mengecualikannya sejak awal — hanya di sini yang
+                        # tertinggal.
+                        purchases_table.c.isInternal == False,  # noqa: E712
                         sisa > TOLERANSI_LUNAS,
                     )
                 )

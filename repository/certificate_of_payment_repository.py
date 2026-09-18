@@ -138,7 +138,17 @@ def _d(nilai: Any) -> Decimal:
 JENIS_BOLEH_TANPA_PAGU = frozenset({"D"})
 
 
-def _tanpa_pagu(jenis: Any, pagu: Decimal) -> bool:
+#: Penanda di `customData`: SPK ini dibuat oleh formulir yang PUNYA kotak
+#: volume, sehingga `quantity` barisnya adalah kesepakatan — bukan penambal.
+PENANDA_VOLUME_DIISI = "volumeDiisi"
+
+
+def _volume_disepakati(custom: Dict[str, Any]) -> bool:
+    """SPK ini menyimpan volume yang benar-benar dipilih orang?"""
+    return bool(custom.get(PENANDA_VOLUME_DIISI))
+
+
+def _tanpa_pagu(jenis: Any, pagu: Decimal, volume_disepakati: bool) -> bool:
     """
     Baris ini kontrak harga satuan tanpa plafon?
 
@@ -148,15 +158,34 @@ def _tanpa_pagu(jenis: Any, pagu: Decimal) -> bool:
     terbuka lalu penyimpanannya ditolak — atau sebaliknya, dan yang kedua
     tidak menimbulkan galat apa pun.
 
-    Layar SPK D dulu mengirim `quantity: 1` sebagai isian mati — formulirnya
-    tidak punya kotak volume sama sekali. Angka itu bukan kesepakatan siapa
-    pun, tetapi sejak pagu dijaga ia menjadi plafon: "Volume SPK 1 m'", dan
-    setiap berita acara bervolume sebenarnya ditolak.
+    DUA KEADAAN, dan keduanya perlu — ini yang terlewat sebelumnya.
+
+    1. `volume_disepakati` SALAH -> SPK lama. Formulir SPK D dulu tidak punya
+       kotak volume sama sekali dan mengirim `quantity: 1` sebagai penambal,
+       pada SETIAP baris upah. Angka itu bukan kesepakatan siapa pun.
+       Seluruh SPK D yang sudah terbit berisi angka itu.
+
+    2. `pagu <= 0` -> SPK baru yang volumenya sengaja dikosongkan.
+
+    KENAPA BUKAN "quantity == 1 berarti penambal". Itu tebakan yang akan
+    salah pada SPK BARU: begitu formulirnya punya kotak volume, seseorang
+    boleh mengetik 1 dan memaksudkannya sungguh-sungguh. Menebak dari
+    angkanya membuat yang diketik dan yang ditegakkan berbeda — tanpa galat.
+
+    Penandanya karena itu ada pada DOKUMEN, bukan pada angkanya: formulir
+    baru menuliskannya, dokumen lama tidak memilikinya, dan keduanya
+    terbedakan selamanya tanpa perlu menyentuh data yang sudah ada.
+
+    Perbaikan sebelumnya hanya menangani keadaan (2), lalu diklaim menangani
+    keduanya. Yang terjadi: seluruh SPK D yang sudah terbit TETAP berplafon 1
+    — "Volume SPK 1 hari" — dan berita acara untuk pekerja yang sehari
+    menyelesaikan 60 meter tetap ditolak.
     """
-    return (
-        str(jenis or "").strip().upper() in JENIS_BOLEH_TANPA_PAGU
-        and pagu <= 0
-    )
+    if str(jenis or "").strip().upper() not in JENIS_BOLEH_TANPA_PAGU:
+        return False
+    if not volume_disepakati:
+        return True
+    return pagu <= 0
 
 
 class CertificateOfPaymentRepository:
@@ -230,6 +259,28 @@ class CertificateOfPaymentRepository:
             if nilai is not None:
                 peta[p["id"]] = nilai
         return peta
+
+    @staticmethod
+    async def _peta_volume_disepakati(ids: List[int]) -> Dict[int, bool]:
+        """
+        SPK mana pada rantai ini yang volumenya benar-benar dipilih orang.
+
+        Dibaca dari `customData`, PER DOKUMEN — bukan ditebak dari angkanya.
+        Adendum yang dibuat formulir baru karena itu menegakkan volumenya
+        sendiri meskipun induknya SPK lama; itu benar, sebab yang mengetik
+        adendum memang melihat kotak volume di hadapannya.
+        """
+        if not ids:
+            return {}
+        rows = await database.fetch_all(
+            select(
+                purchase_orders_table.c.id,
+                purchase_orders_table.c.customData,
+            ).where(purchase_orders_table.c.id.in_(ids))
+        )
+        return {
+            p["id"]: _volume_disepakati(_custom(p["customData"])) for p in rows
+        }
 
     @staticmethod
     async def tagihan_faktur_atas_spk(nama_spk: str) -> Dict[str, Any]:
@@ -355,6 +406,9 @@ class CertificateOfPaymentRepository:
         # begitu progres sebagian bekerja sendirinya — separuh volume pada SPK
         # borongan 4 juta menjadi 2 juta, tanpa aturan terpisah.
         borongan = await CertificateOfPaymentRepository._peta_borongan(ids)
+        volume_sepakat = (
+            await CertificateOfPaymentRepository._peta_volume_disepakati(ids)
+        )
         nama_induk = _peta_nama_induk(baris)
 
         # Berapa baris yang dimiliki tiap SPK — nilai borongan hanya dapat
@@ -387,10 +441,12 @@ class CertificateOfPaymentRepository:
 
             # Kontrak harga satuan tanpa plafon; alasannya di `_tanpa_pagu`.
             #
-            # SPK D lama bervolume 1 dibaca sebagai nol saat dokumennya
-            # dibuka di layar SPK, sehingga ia ikut terbuka tanpa ada yang
-            # perlu disunting seorang pun.
-            tanpa_pagu = _tanpa_pagu(b["purchaseType"], pagu)
+            # SPK LAMA dikenali dari dokumennya, bukan dari angkanya —
+            # lihat `_tanpa_pagu`. Tanpa itu seluruh SPK D yang sudah terbit
+            # tetap berplafon 1.
+            tanpa_pagu = _tanpa_pagu(
+                b["purchaseType"], pagu, volume_sepakat.get(po_id, False)
+            )
 
             hasil.append(
                 {

@@ -270,3 +270,40 @@ class TestBatasAkurasi:
         monkeypatch.setattr(R, "akurasi_rencana", staticmethod(_palsu))
         await FS.akurasi_rencana(-3)
         assert ditangkap["mundur"] == 0
+
+
+# --------------------------------------------------------------------------
+# Pembelian internal
+# --------------------------------------------------------------------------
+
+
+def test_utang_usaha_menyaring_pembelian_internal():
+    """
+    PEMBELIAN INTERNAL BUKAN UTANG — dijaga dengan membaca sumbernya.
+
+    Ini penjaga BENTUK, bukan perilaku, dan alasannya disebut apa adanya:
+    `utang_usaha()` hanya dapat diuji perilakunya terhadap basis data
+    sungguhan, dan gerbang CI berjalan tanpa basis data. Tanpa penjaga ini,
+    saringannya boleh hilang lagi dan seluruh berkas uji tetap hijau —
+    persis cara ia tidak ada sejak awal.
+
+    Yang terjadi bila ia hilang (sudah diukur terhadap MariaDB sungguhan):
+    pembelian internal Rp 25 juta muncul sebagai utang yang tidak akan pernah
+    tertutup oleh pembayaran apa pun, sebab dokumen internal memang tidak
+    punya baris pembayaran. Utang usaha membesar, quick ratio dan modal kerja
+    bersih mengecil, dan kewajiban 30 hari menyebut uang yang tidak akan
+    dibayarkan ke mana pun.
+    """
+    import os
+
+    akar = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    jalur = os.path.join(akar, "repository", "finance_status_repository.py")
+    sumber = open(jalur, encoding="utf-8").read()
+
+    awal = sumber.index("async def utang_usaha")
+    akhir = sumber.index("async def pinjaman")
+    badan = sumber[awal:akhir]
+
+    assert "isInternal == False" in badan, (
+        "utang_usaha() tidak lagi menyaring pembelian internal"
+    )
