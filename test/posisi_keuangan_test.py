@@ -106,6 +106,15 @@ def repo(monkeypatch):
             "jumlahDokumen": 3,
         },
         "pinjaman": {"total": 500.0, "jumlahPinjaman": 1},
+        # Kewajiban selain pembelian — nol secara bawaan supaya uji lama
+        # tetap menguji hal yang sama; uji yang memang tentangnya mengisinya.
+        "lain": {"total": 0.0, "jumlahDokumen": 0, "rincian": {}},
+        "asetTetap": {
+            "nilaiBuku": 0.0,
+            "perolehan": 0.0,
+            "akumulasiPenyusutan": 0.0,
+            "jumlahAset": 0,
+        },
     }
 
     async def _kas():
@@ -120,10 +129,18 @@ def repo(monkeypatch):
     async def _pinjaman():
         return keadaan["pinjaman"]
 
+    async def _lain():
+        return keadaan["lain"]
+
+    async def _aset():
+        return keadaan["asetTetap"]
+
     monkeypatch.setattr(R, "total_kas", staticmethod(_kas))
     monkeypatch.setattr(R, "piutang", staticmethod(_piutang))
     monkeypatch.setattr(R, "utang_usaha", staticmethod(_utang))
     monkeypatch.setattr(R, "pinjaman", staticmethod(_pinjaman))
+    monkeypatch.setattr(R, "kewajiban_lain", staticmethod(_lain))
+    monkeypatch.setattr(R, "nilai_buku_aset", staticmethod(_aset))
     return keadaan
 
 
@@ -335,3 +352,109 @@ def test_belum_dibayar_menyaring_pembelian_internal():
     assert "isInternal == False" in badan, (
         "belum_dibayar() tidak lagi menyaring pembelian internal"
     )
+
+
+# --------------------------------------------------------------------------
+# Kewajiban lengkap & ekuitas turunan
+# --------------------------------------------------------------------------
+
+
+class TestKewajibanLengkap:
+
+    @pytest.mark.asyncio
+    async def test_gaji_belum_cair_ikut_menekan_quick_ratio(self, repo):
+        """
+        `payments_outgoing` menunjuk LIMA jenis dokumen; empat di antaranya
+        kewajiban kepada pihak luar. Selama hanya pembelian yang dihitung,
+        gaji bulan berjalan yang belum cair tidak muncul sebagai kewajiban
+        sama sekali — dan rasionya tampak lebih baik daripada keadaannya.
+
+        Utang 50 + kewajiban lain 30 = 80. Rasio yang benar (100+60)/80 = 2,0;
+        yang lama (100+60)/50 = 3,2.
+        """
+        repo["lain"] = {"total": 30.0, "jumlahDokumen": 4, "rincian": {}}
+        hasil = await FS.get_status()
+
+        assert hasil["kewajibanLancar"] == 80.0
+        assert hasil["quickRatio"] == pytest.approx(2.0)
+        assert hasil["modalKerjaBersih"] == pytest.approx(80.0)
+
+    @pytest.mark.asyncio
+    async def test_selisih_terhadap_versi_lama_disebutkan(self, repo):
+        """
+        Rasionya TURUN dibanding yang sempat dilihat orang.
+
+        Tanpa menyebutkan selisihnya, siapa pun yang mencatat angka minggu
+        lalu akan mengira ada yang rusak — dan angka yang dicurigai berhenti
+        dipakai, yang lebih buruk daripada angka yang salah.
+        """
+        repo["lain"] = {"total": 30.0, "jumlahDokumen": 4, "rincian": {}}
+        hasil = await FS.get_status()
+        selisih = hasil["selisihVersiLama"]
+
+        assert selisih["utangUsahaSaja"] == 50.0
+        assert selisih["kewajibanLancarSekarang"] == 80.0
+        assert selisih["tambahan"] == 30.0
+        assert selisih["quickRatioVersiLama"] == pytest.approx(3.2)
+        assert hasil["catatan"]["kewajibanLengkapSejakVersiIni"] is True
+
+
+class TestNeracaRingkas:
+
+    @pytest.mark.asyncio
+    async def test_ekuitas_adalah_aset_dikurangi_kewajiban(self, repo):
+        """
+        Ekuitas tidak tercatat; ia DITURUNKAN — dan komponen besarnya memang
+        ada di sistem ini.
+
+        Aset 100 kas + 60 piutang + 300 aset tetap = 460.
+        Kewajiban 50 utang + 30 lain + 500 pinjaman = 580.
+        Ekuitas = -120.
+        """
+        repo["lain"] = {"total": 30.0, "jumlahDokumen": 4, "rincian": {}}
+        repo["asetTetap"]["nilaiBuku"] = 300.0
+        hasil = await FS.get_status()
+        n = hasil["neraca"]
+
+        assert n["aset"]["total"] == pytest.approx(460.0)
+        assert n["kewajiban"]["total"] == pytest.approx(580.0)
+        assert n["ekuitas"] == pytest.approx(-120.0)
+
+    @pytest.mark.asyncio
+    async def test_debt_to_equity_pada_ekuitas_minus_TIDAK_dicetak(self, repo):
+        """
+        Pada ekuitas minus, D/E tidak bermakna.
+
+        `580 / -120` adalah -4,83 — angka yang terbaca terukur, pada keadaan
+        yang justru paling perlu dibicarakan orang. Tanda pisah memaksa
+        pertanyaannya diajukan.
+        """
+        repo["asetTetap"]["nilaiBuku"] = 300.0
+        hasil = await FS.get_status()
+
+        assert hasil["neraca"]["ekuitas"] < 0
+        assert hasil["neraca"]["debtToEquity"] is None
+
+    @pytest.mark.asyncio
+    async def test_debt_to_equity_dihitung_saat_ekuitas_positif(self, repo):
+        """Aset tetap 2000 -> ekuitas 2110, kewajiban 550 -> D/E 0,26."""
+        repo["asetTetap"]["nilaiBuku"] = 2000.0
+        hasil = await FS.get_status()
+        n = hasil["neraca"]
+
+        assert n["ekuitas"] == pytest.approx(1610.0)
+        assert n["debtToEquity"] == pytest.approx(550.0 / 1610.0)
+
+    @pytest.mark.asyncio
+    async def test_celah_neraca_disebut_satu_per_satu(self, repo):
+        """
+        Perkiraan yang tidak menyebut celahnya akan dibaca sebagai angka
+        pembukuan — lalu dicocokkan dengan akuntan dan tidak pernah cocok.
+        """
+        hasil = await FS.get_status()
+        celah = hasil["neraca"]["celah"]
+
+        assert "uangMukaKlien" in celah
+        assert "utangPajakBelumDisetor" in celah
+        assert "pembelianAsetYangDibebankanLangsung" in celah
+        assert hasil["catatan"]["ekuitasDiturunkanBukanDicatat"] is True

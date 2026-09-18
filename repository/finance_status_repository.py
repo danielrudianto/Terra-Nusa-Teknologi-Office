@@ -13,8 +13,15 @@ from models.sales_invoice_model import (
 )
 from models.payment_outgoing_model import payments_outgoing_table
 from models.payment_incoming_model import payment_incoming_table
+from models.payment_plan_model import payment_plans_table
 from models.loans_model import loans_table
 from models.dashboard_model import DashboardModel
+from models.expense_model import expenses_table
+from models.reimbursement_model import (
+    reimbursements_table,
+    reimbursement_items_table,
+)
+from models.asset_model import asset_table
 from utils.errors import ErrorCode, internal_error
 
 """
@@ -49,6 +56,35 @@ TOLERANSI_LUNAS = 5
 #
 # Yang terpotong DISEBUTKAN (`dokumenDipotong`), tidak dihilangkan diam-diam.
 BATAS_DOKUMEN = 50
+
+
+#: Nama tabel untuk kueri SQL MENTAH — diambil dari modelnya, tidak diketik.
+#:
+#: Dua kueri di berkas ini sempat menyebut `payments_outgoing`, sementara
+#: tabelnya bernama `payment_outgoing`. Yang terjadi BUKAN galat di layar:
+#: `try/except` di sekelilingnya menangkapnya dan mengembalikan nol, sehingga
+#: "aktual keluar" pada grafik akurasi rencana berbunyi NOL untuk setiap
+#: bulan, dan gaji yang belum cair tidak pernah muncul sebagai kewajiban.
+#: Grafik yang seluruh batangnya nol terbaca sebagai bulan yang memang tidak
+#: bergerak.
+#:
+#: Diambil dari objek modelnya supaya penggantian nama di sana ikut terbawa,
+#: dan supaya tidak ada nama tabel yang dapat mengetik dirinya sendiri keliru.
+TABEL_KELUAR = payments_outgoing_table.name
+TABEL_MASUK = payment_incoming_table.name
+TABEL_RENCANA = payment_plans_table.name
+
+
+def _ringkas(baris) -> Dict[str, Any]:
+    """Satu baris agregat (SUM, COUNT) menjadi bentuk yang seragam."""
+    if not baris:
+        return {"total": 0.0, "jumlahDokumen": 0}
+    r = baris[0]
+    nilai = list(r.values()) if hasattr(r, "values") else list(r)
+    return {
+        "total": float(nilai[0] or 0),
+        "jumlahDokumen": int(nilai[1] or 0),
+    }
 
 
 class FinanceStatusRepository:
@@ -471,10 +507,10 @@ class FinanceStatusRepository:
             waktu = {"awal": awal, "akhir": akhir}
 
             rencana_keluar = await _per_bulan(
-                """
+                f"""
                 SELECT DATE_FORMAT(date, '%Y-%m') AS bulan,
                        SUM(amount) AS total
-                FROM payment_plans
+                FROM {TABEL_RENCANA}
                 WHERE isDelete = 0 AND status <> 'batal'
                   AND planType = 'keluar'
                   AND date >= :awal AND date < :akhir
@@ -483,10 +519,10 @@ class FinanceStatusRepository:
                 waktu,
             )
             rencana_masuk = await _per_bulan(
-                """
+                f"""
                 SELECT DATE_FORMAT(date, '%Y-%m') AS bulan,
                        SUM(amount) AS total
-                FROM payment_plans
+                FROM {TABEL_RENCANA}
                 WHERE isDelete = 0 AND status <> 'batal'
                   AND planType = 'masuk'
                   AND date >= :awal AND date < :akhir
@@ -498,10 +534,10 @@ class FinanceStatusRepository:
             # belum menggerakkan uang, dan memasukkannya membuat "aktual"
             # menyebut kas yang masih ada di rekening.
             aktual_keluar = await _per_bulan(
-                """
+                f"""
                 SELECT DATE_FORMAT(date, '%Y-%m') AS bulan,
                        SUM(amount) AS total
-                FROM payments_outgoing
+                FROM {TABEL_KELUAR}
                 WHERE isDelete = 0 AND isApprove = 1
                   AND date >= :awal AND date < :akhir
                 GROUP BY DATE_FORMAT(date, '%Y-%m')
@@ -509,10 +545,10 @@ class FinanceStatusRepository:
                 waktu,
             )
             aktual_masuk = await _per_bulan(
-                """
+                f"""
                 SELECT DATE_FORMAT(date, '%Y-%m') AS bulan,
                        SUM(amount) AS total
-                FROM payment_incoming
+                FROM {TABEL_MASUK}
                 WHERE isDelete = 0 AND isApprove = 1
                   AND date >= :awal AND date < :akhir
                 GROUP BY DATE_FORMAT(date, '%Y-%m')
@@ -542,9 +578,9 @@ class FinanceStatusRepository:
                     t += 1
 
             disposisi_rows = await database.fetch_all(
-                """
+                f"""
                 SELECT status, COUNT(*) AS jumlah, SUM(amount) AS total
-                FROM payment_plans
+                FROM {TABEL_RENCANA}
                 WHERE isDelete = 0
                   AND date >= :awal AND date < :akhir
                 GROUP BY status
@@ -565,9 +601,9 @@ class FinanceStatusRepository:
             # menggantung, dan setiap proyeksi kas yang memakainya menghitung
             # uang yang tidak akan bergerak ke mana pun.
             gantung = await database.fetch_one(
-                """
+                f"""
                 SELECT COUNT(*) AS jumlah, COALESCE(SUM(amount), 0) AS total
-                FROM payment_plans
+                FROM {TABEL_RENCANA}
                 WHERE isDelete = 0 AND status = 'rencana' AND date < :hari_ini
                 """,
                 {"hari_ini": d.today()},
@@ -595,5 +631,261 @@ class FinanceStatusRepository:
                 "bulanan": [],
                 "disposisi": {},
                 "menggantung": {"jumlah": 0, "total": 0.0},
+                "error": ErrorCode.INTERNAL,
+            }
+
+    # ------------------------------------------------------------------
+    # Kewajiban selain utang usaha
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def kewajiban_lain() -> Dict[str, Any]:
+        """
+        Beban, reimbursement, dan slip gaji yang BELUM dibayarkan.
+
+        KENAPA INI PERLU ADA
+
+        `utang_usaha()` hanya membaca `purchases`. Tetapi `payments_outgoing`
+        dapat menunjuk LIMA jenis dokumen — pembelian, beban, reimbursement,
+        slip gaji, dan angsuran pinjaman — dan empat di antaranya adalah
+        kewajiban kepada pihak luar yang sama nyatanya.
+
+        Selama hanya pembelian yang dihitung, "utang usaha" di layar posisi
+        keuangan menyebut angka yang lebih kecil daripada yang benar-benar
+        harus dibayar, dan quick ratio serta modal kerja bersih yang disusun
+        di atasnya tampak lebih baik daripada keadaannya. Gaji bulan berjalan
+        yang belum cair tidak muncul sebagai kewajiban sama sekali.
+
+        NILAINYA MEMAKAI RUMUS YANG SAMA dengan yang dipakai saat
+        MENYETUJUI pembayaran (`payment_outgoing_controller.nilai_beban` dan
+        `nilai_slip`). Bila ditulis ulang di sini dengan suku yang berbeda,
+        dokumen yang sama akan dianggap lunas oleh satu bagian sistem dan
+        masih berutang oleh bagian yang lain — persis kekeliruan yang
+        `nilai_pembelian_sql` dibuat untuk menghentikannya.
+        """
+        try:
+            hasil: Dict[str, Any] = {}
+
+            # --- Beban: DPP + PBBKB - PPh. PPN TIDAK ikut (disetor
+            #     terpisah), sama seperti `nilai_beban`.
+            e = expenses_table.c
+            bayar_beban = (
+                select(
+                    payments_outgoing_table.c.expenseID.label("doc"),
+                    func.coalesce(
+                        func.sum(payments_outgoing_table.c.amount), 0
+                    ).label("dibayar"),
+                )
+                .where(
+                    payments_outgoing_table.c.isDelete == False,  # noqa: E712
+                    payments_outgoing_table.c.isApprove == True,  # noqa: E712
+                )
+                .group_by(payments_outgoing_table.c.expenseID)
+                .subquery()
+            )
+            nilai_beban = (
+                func.coalesce(e.dpp, 0)
+                + func.coalesce(e.pbbkb, 0)
+                - func.coalesce(e.pphPercentage, 0) * func.coalesce(e.dpp, 0) / 100
+            )
+            sisa_beban = nilai_beban - func.coalesce(bayar_beban.c.dibayar, 0)
+            baris = await database.fetch_all(
+                select(func.coalesce(func.sum(sisa_beban), 0), func.count())
+                .select_from(
+                    expenses_table.outerjoin(
+                        bayar_beban, bayar_beban.c.doc == e.id
+                    )
+                )
+                .where(
+                    and_(
+                        e.isDelete == False,  # noqa: E712
+                        sisa_beban > TOLERANSI_LUNAS,
+                    )
+                )
+            )
+            hasil["beban"] = _ringkas(baris)
+
+            # --- Reimbursement: jumlah barisnya sendiri.
+            #     HANYA yang sudah disetujui — pengajuan yang belum disetujui
+            #     belum menjadi kewajiban siapa pun.
+            r = reimbursements_table.c
+            nilai_reimb = (
+                select(
+                    reimbursement_items_table.c.reimbursementID.label("doc"),
+                    func.coalesce(
+                        func.sum(reimbursement_items_table.c.amount), 0
+                    ).label("nilai"),
+                )
+                .group_by(reimbursement_items_table.c.reimbursementID)
+                .subquery()
+            )
+            bayar_reimb = (
+                select(
+                    payments_outgoing_table.c.reimbursementID.label("doc"),
+                    func.coalesce(
+                        func.sum(payments_outgoing_table.c.amount), 0
+                    ).label("dibayar"),
+                )
+                .where(
+                    payments_outgoing_table.c.isDelete == False,  # noqa: E712
+                    payments_outgoing_table.c.isApprove == True,  # noqa: E712
+                )
+                .group_by(payments_outgoing_table.c.reimbursementID)
+                .subquery()
+            )
+            sisa_reimb = func.coalesce(nilai_reimb.c.nilai, 0) - func.coalesce(
+                bayar_reimb.c.dibayar, 0
+            )
+            baris = await database.fetch_all(
+                select(func.coalesce(func.sum(sisa_reimb), 0), func.count())
+                .select_from(
+                    reimbursements_table.outerjoin(
+                        nilai_reimb, nilai_reimb.c.doc == r.id
+                    ).outerjoin(bayar_reimb, bayar_reimb.c.doc == r.id)
+                )
+                .where(
+                    and_(
+                        r.isDelete == False,  # noqa: E712
+                        r.isApprove == True,  # noqa: E712
+                        sisa_reimb > TOLERANSI_LUNAS,
+                    )
+                )
+            )
+            hasil["reimbursement"] = _ringkas(baris)
+
+            # --- Slip gaji: pokok + tunjangan - potongan - pajak.
+            #     `salary_slips` TIDAK punya kolom total; nilainya memang
+            #     dihitung dari komponennya. Yang membaca `slip["total"]`
+            #     akan jatuh ke nol untuk SETIAP slip.
+            hasil["gaji"] = await FinanceStatusRepository._gaji_belum_dibayar()
+
+            total = sum(float(v["total"]) for v in hasil.values())
+            jumlah = sum(int(v["jumlahDokumen"]) for v in hasil.values())
+            return {"total": total, "jumlahDokumen": jumlah, "rincian": hasil}
+        except Exception as e:
+            log_error(f"Error menghitung kewajiban lain: {str(e)}")
+            return {
+                "total": 0.0,
+                "jumlahDokumen": 0,
+                "rincian": {},
+                "error": ErrorCode.INTERNAL,
+            }
+
+    @staticmethod
+    async def _gaji_belum_dibayar() -> Dict[str, Any]:
+        """
+        Slip gaji yang belum cair, dengan rumus `nilai_slip`.
+
+        Tunjangan dan potongan disaring `isIncluded`: baris yang tidak
+        disertakan memang tercantum di slip untuk dibaca, tetapi tidak ikut
+        menambah atau mengurangi yang dibayarkan.
+        """
+        rows = await database.fetch_all(
+            f"""
+            SELECT s.id,
+                   COALESCE(s.basicSalary, 0)
+                 + COALESCE(s.transportationAllowanceRate, 0)
+                   * COALESCE(s.transportationAllowanceQuantity, 0)
+                 + COALESCE(s.mealAllowanceRate, 0)
+                   * COALESCE(s.mealAllowanceQuantity, 0)
+                 + COALESCE(s.overtimeRate, 0) * COALESCE(s.overtimeQuantity, 0)
+                 + COALESCE(t.total, 0)
+                 - COALESCE(p.total, 0)
+                 - COALESCE(s.taxAmount, 0)
+                 - COALESCE(b.dibayar, 0) AS sisa
+            FROM salary_slips s
+            LEFT JOIN (
+                SELECT salarySlipID, SUM(amount) AS total
+                FROM salary_slips_allowances WHERE isIncluded = 1
+                GROUP BY salarySlipID
+            ) t ON t.salarySlipID = s.id
+            LEFT JOIN (
+                SELECT salarySlipID, SUM(amount) AS total
+                FROM salary_slips_deductions WHERE isIncluded = 1
+                GROUP BY salarySlipID
+            ) p ON p.salarySlipID = s.id
+            LEFT JOIN (
+                SELECT salarySlipID, SUM(amount) AS dibayar
+                FROM {TABEL_KELUAR}
+                WHERE isDelete = 0 AND isApprove = 1
+                GROUP BY salarySlipID
+            ) b ON b.salarySlipID = s.id
+            WHERE s.isDelete = 0
+            HAVING sisa > :toleransi
+            """,
+            {"toleransi": TOLERANSI_LUNAS},
+        )
+        total = sum(float(r["sisa"] or 0) for r in rows)
+        return {"total": total, "jumlahDokumen": len(rows)}
+
+    # ------------------------------------------------------------------
+    # Aset tetap
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def nilai_buku_aset() -> Dict[str, Any]:
+        """
+        Nilai buku aset tetap: perolehan dikurangi penyusutan terkumpul.
+
+        Garis lurus ke nol tanpa nilai sisa, memakai masa manfaat pada kolom
+        `depreciation` (dalam TAHUN) — metode yang SAMA dengan
+        `laba_rugi_repository._penyusutan_rentang`. Aset bermasa manfaat 0
+        (mis. tanah) tidak disusutkan, dan aset yang sudah dijual tidak
+        dihitung lagi.
+
+        CATATAN yang harus ikut tercetak: sebagian pembelian aset juga
+        tercatat sebagai beban langsung kategori 5.1.1 alih-alih
+        dikapitalisasi. Bila begitu, asetnya muncul di sini SEKALIGUS sudah
+        membebani laba rugi — dan laba rugi sudah menandai selisih itu.
+        Angkanya karena itu perkiraan, bukan angka pembukuan.
+        """
+        try:
+            hari_ini = d.today()
+            rows = await database.fetch_all(
+                select(
+                    asset_table.c.value,
+                    asset_table.c.depreciation,
+                    asset_table.c.purchaseDate,
+                    asset_table.c.soldDate,
+                ).where(asset_table.c.purchaseDate <= hari_ini)
+            )
+
+            perolehan = 0.0
+            nilai_buku = 0.0
+            jumlah = 0
+            idx_kini = hari_ini.year * 12 + hari_ini.month
+            for r in rows:
+                if r["soldDate"] is not None:
+                    continue
+                nilai = float(r["value"] or 0)
+                tahun = int(r["depreciation"] or 0)
+                pd = r["purchaseDate"]
+                if nilai <= 0 or pd is None:
+                    continue
+                jumlah += 1
+                perolehan += nilai
+                if tahun <= 0:
+                    # Tidak disusutkan (mis. tanah): nilai bukunya tetap.
+                    nilai_buku += nilai
+                    continue
+                # Bulan perolehan IKUT disusutkan, sama seperti laba rugi.
+                bulan_jalan = idx_kini - (pd.year * 12 + pd.month) + 1
+                bulan_jalan = max(0, min(bulan_jalan, tahun * 12))
+                akumulasi = nilai / (tahun * 12) * bulan_jalan
+                nilai_buku += max(0.0, nilai - akumulasi)
+
+            return {
+                "nilaiBuku": round(nilai_buku, 2),
+                "perolehan": round(perolehan, 2),
+                "akumulasiPenyusutan": round(perolehan - nilai_buku, 2),
+                "jumlahAset": jumlah,
+            }
+        except Exception as e:
+            log_error(f"Error menghitung nilai buku aset: {str(e)}")
+            return {
+                "nilaiBuku": 0.0,
+                "perolehan": 0.0,
+                "akumulasiPenyusutan": 0.0,
+                "jumlahAset": 0,
                 "error": ErrorCode.INTERNAL,
             }

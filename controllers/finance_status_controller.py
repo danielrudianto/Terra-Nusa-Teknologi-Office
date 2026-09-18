@@ -22,11 +22,20 @@ class FinanceStatusController:
         hasil yang lain.
         """
         try:
-            kas, piutang, utang, pinjaman = await asyncio.gather(
+            (
+                kas,
+                piutang,
+                utang,
+                pinjaman,
+                lain,
+                aset_tetap,
+            ) = await asyncio.gather(
                 FinanceStatusRepository.total_kas(),
                 FinanceStatusRepository.piutang(),
                 FinanceStatusRepository.utang_usaha(),
                 FinanceStatusRepository.pinjaman(),
+                FinanceStatusRepository.kewajiban_lain(),
+                FinanceStatusRepository.nilai_buku_aset(),
             )
 
             # `total_kas` kini mengembalikan RINCIAN, bukan satu angka:
@@ -38,6 +47,17 @@ class FinanceStatusController:
             total_piutang = float(piutang.get("total") or 0)
             total_utang = float(utang.get("total") or 0)
             total_pinjaman = float(pinjaman.get("total") or 0)
+            total_lain = float(lain.get("total") or 0)
+            nilai_buku = float(aset_tetap.get("nilaiBuku") or 0)
+
+            # ---- KEWAJIBAN LANCAR: pembelian DAN yang selama ini terlewat ----
+            #
+            # `payments_outgoing` dapat menunjuk lima jenis dokumen, dan empat
+            # di antaranya kewajiban kepada pihak luar. Selama hanya pembelian
+            # yang dihitung, gaji bulan berjalan yang belum cair tidak muncul
+            # sebagai kewajiban sama sekali — dan rasio yang disusun di atasnya
+            # tampak lebih baik daripada keadaannya.
+            kewajiban_lancar = total_utang + total_lain
 
             """
             Quick ratio = (kas + piutang usaha) / utang usaha.
@@ -59,8 +79,8 @@ class FinanceStatusController:
             keadaan sebenarnya. Karena itu saldo pinjaman dikembalikan juga
             dan ditampilkan di sisi rasionya.
             """
-            if total_utang > 0:
-                quick_ratio = (kas_dipakai + total_piutang) / total_utang
+            if kewajiban_lancar > 0:
+                quick_ratio = (kas_dipakai + total_piutang) / kewajiban_lancar
             else:
                 # Tanpa utang usaha, rasionya tak terhingga — bukan nol.
                 # Mengembalikan 0 akan terbaca sebagai keadaan terburuk,
@@ -105,18 +125,78 @@ class FinanceStatusController:
                 "piutangTermuda": piutang_muda,
             }
 
+            # ---- NERACA RINGKAS & EKUITAS ----
+            #
+            # Ekuitas TIDAK tercatat di mana pun; ia DITURUNKAN, aset dikurangi
+            # kewajiban. Itu sah, dan komponen besarnya memang ada: saldo
+            # rekening, faktur yang belum tertagih, nilai buku aset tetap,
+            # tagihan yang belum dibayar, dan sisa pinjaman.
+            #
+            # Tetapi ia PERKIRAAN, bukan angka pembukuan, dan celahnya disebut
+            # satu per satu di `neracaCelah` supaya setiap turunannya — D/E,
+            # ROE, dan SKN — dapat dibaca bersama batasnya. Yang belum masuk:
+            # uang muka dari klien, utang pajak yang belum disetor, dan piutang
+            # atau utang lain-lain yang tidak berdokumen di sistem ini.
+            #
+            # Satu lagi yang harus disebut: sebagian pembelian aset tercatat
+            # sebagai beban langsung 5.1.1 alih-alih dikapitalisasi. Pada
+            # dokumen seperti itu asetnya muncul di neraca ini SEKALIGUS sudah
+            # membebani laba rugi.
+            total_aset = kas_dipakai + total_piutang + nilai_buku
+            total_kewajiban = kewajiban_lancar + total_pinjaman
+            ekuitas = total_aset - total_kewajiban
+
+            # Debt to equity. `None` bila ekuitasnya nol atau minus — bukan
+            # nol dan bukan angka besar: pada ekuitas minus rasio ini tidak
+            # bermakna, dan mencetak angkanya memberi kesan terukur pada
+            # keadaan yang justru paling perlu dibicarakan orang.
+            dte = (
+                (total_kewajiban / ekuitas) if ekuitas > 0 else None
+            )
+
+            neraca = {
+                "aset": {
+                    "kas": kas_dipakai,
+                    "piutang": total_piutang,
+                    "asetTetap": nilai_buku,
+                    "total": total_aset,
+                },
+                "kewajiban": {
+                    "utangUsaha": total_utang,
+                    "kewajibanLain": total_lain,
+                    "pinjaman": total_pinjaman,
+                    "total": total_kewajiban,
+                },
+                "ekuitas": ekuitas,
+                "debtToEquity": dte,
+                "asetTetapRincian": aset_tetap,
+                # Disebut sebagai DAFTAR, bukan satu kalimat: yang membaca
+                # angkanya perlu tahu persis apa yang tidak ada di dalamnya.
+                "celah": [
+                    "uangMukaKlien",
+                    "utangPajakBelumDisetor",
+                    "piutangUtangLainLain",
+                    "pembelianAsetYangDibebankanLangsung",
+                ],
+            }
+
             return {
                 "kas": kas,
                 "kasDikecualikan": kas_dikecualikan,
+                "kewajibanLain": lain,
+                "kewajibanLancar": kewajiban_lancar,
+                "neraca": neraca,
                 "likuiditas30": likuiditas,
                 "piutang": piutang,
                 "utangUsaha": utang,
                 "pinjaman": pinjaman,
                 "quickRatio": quick_ratio,
-                "modalKerjaBersih": kas_dipakai + total_piutang - total_utang,
+                "modalKerjaBersih": (
+                    kas_dipakai + total_piutang - kewajiban_lancar
+                ),
                 # Dikirim agar layar tidak perlu menyusun ulang rumusnya dan
                 # berisiko berbeda dari yang dihitung di sini.
-                "rumus": "(kas + piutang usaha) / utang usaha",
+                "rumus": "(kas + piutang usaha) / kewajiban lancar",
                 "catatan": {
                     "pinjamanDiluarRasio": total_pinjaman > 0,
                     "piutangDiumurkanDariTanggalFaktur": True,
@@ -127,6 +207,24 @@ class FinanceStatusController:
                     "piutangTanpaJatuhTempo": True,
                     "rencanaKasTidakDijumlahkan": True,
                     "kasTanpaRekeningDikecualikan": kas_dikecualikan > 0,
+                    # Rasio di atas kini memakai kewajiban LANCAR yang
+                    # lengkap, bukan pembelian saja. Layar menyebutnya supaya
+                    # siapa pun yang sempat mencatat angka lama tahu mengapa
+                    # rasionya turun — dan tidak mengira ada yang rusak.
+                    "kewajibanLengkapSejakVersiIni": True,
+                    "ekuitasDiturunkanBukanDicatat": True,
+                },
+                # Selisih terhadap hitungan LAMA (pembelian saja), supaya
+                # perubahannya dapat dijelaskan alih-alih ditemukan sendiri.
+                "selisihVersiLama": {
+                    "utangUsahaSaja": total_utang,
+                    "kewajibanLancarSekarang": kewajiban_lancar,
+                    "tambahan": total_lain,
+                    "quickRatioVersiLama": (
+                        (kas_dipakai + total_piutang) / total_utang
+                        if total_utang > 0
+                        else None
+                    ),
                 },
             }
         except Exception as e:
