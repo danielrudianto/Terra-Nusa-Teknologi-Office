@@ -25,3 +25,20 @@ async def get_finance_status(
             status_code=result.get("status", 500), detail=error_detail(result)
         )
     return result
+
+
+@router.get("/akurasi-rencana")
+async def get_akurasi_rencana(
+    # Izin yang SAMA dengan ringkasannya: keduanya menceritakan posisi kas
+    # perusahaan, dan pintu kedua yang lebih longgar membuat matriks izinnya
+    # tidak berlaku lagi.
+    current_user: Annotated[dict, Depends(require("finance_status", "read"))],
+    mundur: int = 5,
+):
+    """Rencana kas vs yang benar-benar terjadi, per bulan."""
+    result = await FinanceStatusController.akurasi_rencana(mundur)
+    if isinstance(result, dict) and "status" in result and "error" in result:
+        raise HTTPException(
+            status_code=result.get("status", 500), detail=error_detail(result)
+        )
+    return result

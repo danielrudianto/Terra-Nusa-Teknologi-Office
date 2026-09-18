@@ -23,9 +23,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 3.12, BUKAN 3.11 — dan angkanya ditentukan requirements.txt.
+      #
+      # `requirements.txt` adalah hasil `pip freeze` utuh dari mesin
+      # pengembangan, jadi ia memuat paket yang tidak pernah diimpor kode ini
+      # sama sekali — `numpy`, `pandas`, `Flask`, `nodeenv`. Salah satunya
+      # dipatok pada versi yang menuntut Python >= 3.12 (diperiksa ke PyPI,
+      # bukan ditebak):
+      #
+      #     numpy==2.5.2   ->  Requires-Python >= 3.12   <- ini yang menolak
+      #     pandas==3.0.5  ->  Requires-Python >= 3.11
+      #
+      # Pada 3.11 `pip install -r requirements.txt` berhenti dengan
+      # "No matching distribution found for numpy==2.5.2" — gerbangnya merah
+      # sebelum satu uji pun dijalankan, dan pesannya tidak menyebut versi
+      # Python sama sekali.
+      #
+      # Yang keliru versi di sini, BUKAN kodenya: pada commit yang merah itu
+      # seluruh 1022 uji lolos dan kedua pemeriksa keluar 0 bila dijalankan
+      # dengan penafsir yang benar.
+      #
+      # Kalau suatu saat pin-nya diturunkan atau paket tak terpakainya
+      # dibuang, angka di sini boleh ikut turun — tetapi ia harus SAMA dengan
+      # penafsir yang dipakai server, bukan sekadar yang bisa memasang.
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
 
       # WeasyPrint menggambar PDF lewat Pango/Cairo — pustaka SISTEM, bukan
