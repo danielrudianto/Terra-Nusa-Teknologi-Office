@@ -2,6 +2,7 @@ import asyncio
 from datetime import date as d, timedelta
 from typing import Any, Dict
 
+from controllers import kesimpulan_keuangan
 from repository.finance_status_repository import (
     AMBANG_BAWAAN,
     FinanceStatusRepository,
@@ -426,12 +427,38 @@ class FinanceStatusController:
                 for kode, nilai in dinilai.items()
             }
 
+            # Kesimpulan disusun SESUDAH seluruh rasio dan penilaiannya
+            # terkumpul — termasuk marjin bila levelnya mencukupi. Disusun
+            # lebih awal, ia akan menyimpulkan dari sebagian rasio dan tidak
+            # ada apa pun di jawabannya yang menyebut bahwa ada yang
+            # terlewat.
+            #
+            # `dinilai`, BUKAN `rasio` — dan selisihnya bukan sepele.
+            #
+            # `rasio` tidak memuat quick ratio maupun D/E; keduanya masuk ke
+            # `dinilai` secara terpisah beberapa baris di atas. Diserahkan
+            # `rasio`, kesimpulan ini akan menjatuhkan quick ratio —
+            # satu-satunya rasio berbobot tertinggi di sana, yang artinya
+            # "tidak mampu membayar yang jatuh tempo" tidak akan pernah muncul
+            # sebagai butir mendesak. Tidak ada galat: daftarnya hanya lebih
+            # pendek, dan yang membacanya menyimpulkan tidak ada masalah
+            # likuiditas.
+            kesimpulan = kesimpulan_keuangan.susun(
+                dinilai,
+                penilaian,
+                ambang,
+                ekuitas=ekuitas,
+                pinjaman=total_pinjaman,
+                boleh_laba=boleh_melihat_laba(user_level),
+            )
+
             return {
                 "kas": kas,
                 "kasDikecualikan": kas_dikecualikan,
                 "rasio": rasio,
                 "hitungan": hitungan,
                 "penilaian": penilaian,
+                "kesimpulan": kesimpulan,
                 "bolehMelihatLaba": boleh_melihat_laba(user_level),
                 "konsentrasi": konsentrasi,
                 "backlog": backlog,
