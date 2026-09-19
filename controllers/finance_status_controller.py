@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date as d
+from datetime import date as d, timedelta
 from typing import Any, Dict
 
 from repository.finance_status_repository import (
@@ -595,6 +595,231 @@ class FinanceStatusController:
             return await FinanceStatusRepository.akurasi_rencana(mundur)
         except Exception as e:
             log_error(f"Error menyusun akurasi rencana: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    #: Rasio yang ditarik mundur. SENGAJA hanya likuiditas dan penagihan.
+    #:
+    #: Marjin TIDAK ada di sini. Marjin butuh laba rugi per periode, dan
+    #: laba rugi disusun dari beban yang dicatat menurut tanggal DOKUMEN —
+    #: bukan tanggal kejadiannya. Menariknya mundur akan menghasilkan marjin
+    #: masa lalu yang berubah setiap kali sebuah nota lama diinput hari ini,
+    #: dan garis yang berubah sendiri tanpa ada yang mengubah apa pun adalah
+    #: garis yang berhenti dipercaya.
+    RASIO_RIWAYAT = (
+        "quickRatio",
+        "debtToEquity",
+        "dso",
+        "dpo",
+        "siklusModalKerja",
+        "piutangTua",
+        "konsentrasiPiutang",
+    )
+
+    @staticmethod
+    def _titik_bulan(mundur: int) -> list:
+        """
+        Tanggal potret untuk tiap bulan, dari yang terlama ke hari ini.
+
+        Potretnya diambil pada AKHIR bulan, kecuali bulan berjalan yang
+        diambil pada hari ini — akhir bulan berjalan belum terjadi, dan
+        memakainya berarti membandingkan posisi hari ini dengan tanggal yang
+        belum ada dokumennya.
+        """
+        hari_ini = d.today()
+        titik: list = []
+        t, b = hari_ini.year, hari_ini.month
+
+        # Mundur dulu ke bulan terlama, lalu maju supaya urutannya kronologis.
+        b -= mundur - 1
+        while b <= 0:
+            b += 12
+            t -= 1
+
+        for _ in range(mundur):
+            if t == hari_ini.year and b == hari_ini.month:
+                titik.append(hari_ini)
+            else:
+                # Akhir bulan = sehari sebelum awal bulan berikutnya. Ditulis
+                # begini, bukan dengan tabel 28/30/31, supaya tahun kabisat
+                # tidak perlu diurus sendiri.
+                if b == 12:
+                    awal_depan = d(t + 1, 1, 1)
+                else:
+                    awal_depan = d(t, b + 1, 1)
+                titik.append(awal_depan - timedelta(days=1))
+            b += 1
+            if b > 12:
+                b = 1
+                t += 1
+        return titik
+
+    @staticmethod
+    async def _potret(pada: d) -> Dict[str, Any]:
+        """
+        Rasio likuiditas dan penagihan PADA satu tanggal.
+
+        Rumusnya SAMA PERSIS dengan `get_status`; yang berbeda hanya
+        tanggalnya. Kalau rumus di sini disalin lalu menyimpang seujung pun,
+        titik terakhir grafik tidak akan sama dengan angka besar yang
+        tercetak di atasnya — dan yang melihatnya akan mengira salah satunya
+        rusak tanpa tahu yang mana.
+        """
+        (
+            kas,
+            piutang,
+            utang,
+            pinjaman,
+            lain,
+            aset_tetap,
+            arus,
+            konsentrasi,
+        ) = await asyncio.gather(
+            FinanceStatusRepository.total_kas(pada),
+            FinanceStatusRepository.piutang(pada),
+            FinanceStatusRepository.utang_usaha(pada),
+            FinanceStatusRepository.pinjaman(pada),
+            FinanceStatusRepository.kewajiban_lain(pada),
+            FinanceStatusRepository.nilai_buku_aset(pada),
+            FinanceStatusRepository.arus_setahun(pada),
+            FinanceStatusRepository.konsentrasi_piutang(pada),
+        )
+
+        # KAS YANG TIDAK TERBACA BUKAN KAS NOL.
+        #
+        # Saldo lampau disusun ulang dari view `mutation`. Bila view itu
+        # tidak ada — atau kuerinya gagal — `total_kas` mengembalikan nol
+        # beserta penanda `gagal`. Tanpa memeriksa penanda itu, titik
+        # bersangkutan tergambar sebagai bulan tanpa kas sama sekali:
+        # quick ratio jatuh, ekuitas minus, dan grafiknya menceritakan
+        # kebangkrutan yang tidak pernah terjadi.
+        kas_gagal = bool(kas.get("gagal"))
+        kas_dipakai = float(kas.get("total") or 0)
+        total_piutang = float(piutang.get("total") or 0)
+        total_utang = float(utang.get("total") or 0)
+        total_pinjaman = float(pinjaman.get("total") or 0)
+        total_lain = float(lain.get("total") or 0)
+        nilai_buku = float(aset_tetap.get("nilaiBuku") or 0)
+
+        kewajiban_lancar = total_utang + total_lain
+        total_aset = kas_dipakai + total_piutang + nilai_buku
+        total_kewajiban = kewajiban_lancar + total_pinjaman
+        ekuitas = total_aset - total_kewajiban
+
+        quick = (
+            (kas_dipakai + total_piutang) / kewajiban_lancar
+            if kewajiban_lancar > 0
+            else None
+        )
+        dte = (total_kewajiban / ekuitas) if ekuitas > 0 else None
+
+        pendapatan_th = float(arus.get("pendapatan") or 0)
+        pembelian_th = float(arus.get("pembelian") or 0)
+        hari = int(arus.get("hari") or 365)
+
+        dso = (
+            (total_piutang / pendapatan_th * hari) if pendapatan_th > 0 else None
+        )
+        dpo = (
+            (total_utang / pembelian_th * hari) if pembelian_th > 0 else None
+        )
+        siklus = (dso - dpo) if (dso is not None and dpo is not None) else None
+
+        umur = piutang.get("umur") or {}
+        piutang_tua = (
+            (float(umur.get("90+") or 0) / total_piutang)
+            if total_piutang > 0
+            else None
+        )
+
+        kon_total = float(konsentrasi.get("total") or 0)
+        kon_terbesar = float((konsentrasi.get("terbesar") or {}).get("sisa") or 0)
+        kon = (kon_terbesar / kon_total) if kon_total > 0 else None
+
+        if kas_gagal:
+            # Yang bergantung pada kas DIKOSONGKAN seluruhnya. Yang tidak —
+            # DSO, DPO, piutang tua, konsentrasi — tetap sah dan tetap
+            # digambar; membuang semuanya akan menghapus informasi yang
+            # benar karena satu sumber yang gagal.
+            quick = None
+            dte = None
+
+        return {
+            "tanggal": pada.isoformat(),
+            # Penanda per TITIK, bukan per jawaban: satu bulan yang gagal
+            # tidak boleh membuat sebelas bulan lainnya ikut dicurigai.
+            "kasTidakTerbaca": kas_gagal,
+            "quickRatio": quick,
+            "debtToEquity": dte,
+            "dso": dso,
+            "dpo": dpo,
+            "siklusModalKerja": siklus,
+            "piutangTua": piutang_tua,
+            "konsentrasiPiutang": kon,
+            # Angka mentahnya ikut: grafik rasio tanpa angka di baliknya
+            # tidak dapat dicek oleh siapa pun yang mencurigainya.
+            "kas": None if kas_gagal else kas_dipakai,
+            "piutang": total_piutang,
+            "utangUsaha": total_utang,
+            "kewajibanLain": total_lain,
+            "pinjaman": total_pinjaman,
+            "asetTetap": nilai_buku,
+            "ekuitas": None if kas_gagal else ekuitas,
+            # Ekuitas minus membuat D/E kosong. Tanpa penanda ini, layar
+            # hanya melihat `null` dan tidak dapat membedakan "tidak ada
+            # datanya" dari "keadaannya memang begitu".
+            "ekuitasMinus": (not kas_gagal) and ekuitas <= 0,
+        }
+
+    @staticmethod
+    async def riwayat(mundur: int = 12) -> Dict[str, Any]:
+        """
+        Rasio likuiditas dan penagihan, ditarik mundur per bulan.
+
+        DIHITUNG ULANG DARI DOKUMEN, bukan dibaca dari tabel potret. Tidak
+        ada tabel potret di sistem ini, dan membuatnya berarti angka masa
+        lalu berhenti ikut terkoreksi ketika sebuah faktur lama diperbaiki.
+
+        Harganya jujur disebut: delapan kueri per bulan. Karena itu ia rute
+        TERSENDIRI dan tidak ikut terbawa setiap kali halaman posisi keuangan
+        dibuka, dan bulannya dibatasi.
+
+        SATU BATASAN YANG HARUS DIBACA BERSAMA ANGKANYA: saldo kas masa lalu
+        DIREKONSTRUKSI dari mutasi rekening, bukan dibaca dari saldo yang
+        tercatat — karena yang tercatat hanya saldo hari ini. Bila ada
+        mutasi yang tidak terekam, kas bulan-bulan lampau akan meleset, dan
+        melesetnya ikut ke quick ratio dan ekuitas pada titik itu. Titik
+        terakhir tidak terkena: ia memakai saldo yang tercatat, sama dengan
+        angka besar di halaman utama.
+        """
+        try:
+            mundur = max(1, min(int(mundur), FinanceStatusController.MAKS_MUNDUR))
+
+            # BERURUTAN per bulan, bukan seluruhnya sekaligus.
+            #
+            # `gather` atas 12 bulan sekaligus berarti 96 kueri dilepas
+            # bersamaan ke kolam koneksi yang jauh lebih kecil dari itu;
+            # yang terjadi bukan lebih cepat melainkan antrean dan
+            # kemungkinan timeout. Di dalam satu bulan barulah kedelapannya
+            # berbarengan.
+            titik = []
+            for tanggal in FinanceStatusController._titik_bulan(mundur):
+                titik.append(await FinanceStatusController._potret(tanggal))
+
+            ambang = await FinanceStatusRepository.ambang()
+
+            return {
+                "mundur": mundur,
+                "rasio": list(FinanceStatusController.RASIO_RIWAYAT),
+                "titik": titik,
+                "ambang": ambang,
+                "catatan": {
+                    "kasLampauDirekonstruksiDariMutasi": True,
+                    "titikTerakhirAdalahHariIni": True,
+                    "marjinTidakDitarikMundur": True,
+                },
+            }
+        except Exception as e:
+            log_error(f"Error menyusun riwayat rasio: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
 
 

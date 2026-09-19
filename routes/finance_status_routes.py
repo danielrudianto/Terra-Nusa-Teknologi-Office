@@ -80,6 +80,23 @@ async def get_akurasi_rencana(
     return result
 
 
+@router.get("/riwayat")
+async def get_riwayat_rasio(
+    # Izin yang SAMA dengan ringkasannya. Riwayat rasio menceritakan posisi
+    # keuangan perusahaan bulan demi bulan; pintu yang lebih longgar di sini
+    # membuat gerbang level 4 pada ringkasannya tidak ada artinya lagi.
+    current_user: Annotated[dict, Depends(require("finance_status", "read"))],
+    mundur: int = 12,
+):
+    """Rasio likuiditas & penagihan per bulan, dihitung ulang dari dokumen."""
+    result = await FinanceStatusController.riwayat(mundur)
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(
+            status_code=result.get("status", 500), detail=error_detail(result)
+        )
+    return result
+
+
 @router.put("/ambang/{kode}")
 async def simpan_ambang(
     kode: str,

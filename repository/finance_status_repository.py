@@ -240,7 +240,24 @@ class FinanceStatusRepository:
             }
         except Exception as e:
             log_error(f"Error menghitung total kas: {str(e)}")
-            return {"total": 0.0, "dikecualikan": 0.0, "jumlahDikecualikan": 0}
+            # `gagal` DITANDAI, tidak cukup mengembalikan nol.
+            #
+            # Nol di sini bukan "tidak ada uang" melainkan "tidak terbaca",
+            # dan keduanya tergambar sama persis. Pada riwayat rasio
+            # akibatnya paling buruk: saldo lampau disusun ulang dari view
+            # `mutation`, dan bila view itu tidak ada, SELURUH titik lampau
+            # berkas 0 — grafiknya menggambar perusahaan yang bangkrut
+            # sepanjang tahun lalu lalu pulih hari ini, tanpa satu pun galat
+            # di layar maupun log yang dibaca orang.
+            #
+            # Penandanya dipakai pemanggil untuk mengosongkan titik itu
+            # alih-alih menggambarnya sebagai nol.
+            return {
+                "total": 0.0,
+                "dikecualikan": 0.0,
+                "jumlahDikecualikan": 0,
+                "gagal": True,
+            }
 
     @staticmethod
     async def piutang(pada: d | None = None) -> Dict[str, Any]:
