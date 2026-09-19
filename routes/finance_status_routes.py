@@ -9,6 +9,39 @@ from utils.permission import require
 router = APIRouter()
 
 
+def _level(user) -> int:
+    """
+    Baca level dari objek pengguna.
+
+    Objek yang dikembalikan `require()` berupa Record dari pustaka
+    `databases`, yang TIDAK memiliki metode `.get()` — memanggilnya melempar
+    AttributeError DI DALAM RUTE, yaitu di luar `try/except` milik
+    controller. Yang terjadi bukan angka yang salah melainkan seluruh
+    halaman posisi keuangan gagal dimuat, dengan pesan "Tindakan gagal
+    dijalankan" yang tidak menyebut sebabnya.
+
+    Jalan keluar `akurasi-rencana` tetap bekerja karena ia tidak menyentuh
+    objek pengguna sama sekali — sehingga yang terlihat di layar adalah
+    halaman yang separuhnya hidup, dan itu menyesatkan ke arah data alih-alih
+    ke arah rutenya.
+
+    Bila levelnya tidak terbaca, jangan diperlakukan sebagai akses tinggi:
+    yang aman adalah menganggapnya paling rendah.
+    """
+    try:
+        return int(user["authenticationLevel"] or 1)
+    except (KeyError, TypeError, ValueError):
+        return 1
+
+
+def _id(user) -> int:
+    """Id pengguna; nol bila tidak terbaca. Lihat `_level` untuk sebabnya."""
+    try:
+        return int(user["id"] or 0)
+    except (KeyError, TypeError, ValueError):
+        return 0
+
+
 @router.get("/")
 async def get_finance_status(
     # Modul `finance_status` menetapkan baca level 4; tidak ada tindakan
@@ -19,9 +52,7 @@ async def get_finance_status(
     # Level diteruskan supaya marjin dan ROE hanya digambar untuk level 5 —
     # gerbangnya di SERVER, bukan di layar. Menyembunyikan blok di peramban
     # tidak menahan siapa pun yang memanggil rutenya langsung.
-    result = await FinanceStatusController.get_status(
-        int(current_user.get("authenticationLevel") or 0)
-    )
+    result = await FinanceStatusController.get_status(_level(current_user))
     if isinstance(result, dict) and "error" in result:
         # `error_detail`, bukan `result["error"]` mentah: galat berkode
         # dikirim sebagai objek agar layar dapat menerjemahkannya, dan yang
@@ -59,7 +90,7 @@ async def simpan_ambang(
 ):
     """Setel satu pita acuan."""
     result = await FinanceStatusController.simpan_ambang(
-        kode, payload, int(current_user.get("id") or 0)
+        kode, payload, _id(current_user)
     )
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(
