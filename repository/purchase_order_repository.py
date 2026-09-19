@@ -746,13 +746,29 @@ class PurchaseOrderRepository:
             # menambah kondisi apa pun, sehingga daftar tanpa penyaring tetap
             # menghasilkan kueri yang sama seperti sebelumnya.
 
-            # Status disimpulkan dari `isApproved`, bukan kolom tersendiri.
+            # Status disimpulkan dari `isApproved` DAN `isChecked`, bukan
+            # dari kolom status tersendiri.
             #
-            # Dokumen hanya punya dua keadaan yang berarti di sini: masih
-            # draf, atau sudah disetujui. Yang dibatalkan sudah tersaring
-            # lebih dulu lewat `isDelete`.
+            # TIGA keadaan, bukan dua, dan pemisahannya disengaja. Sebelumnya
+            # "draf" memuat dua hal yang sangat berbeda: dokumen yang belum
+            # disentuh siapa pun, dan dokumen yang sudah diperiksa dan tinggal
+            # menunggu persetujuan. Keduanya tampil dengan lencana kuning yang
+            # sama, dan yang membuka daftar tidak dapat membedakan mana yang
+            # menunggu dirinya.
+            #
+            # Ketiganya saling lepas dan menutupi seluruh kemungkinan — tidak
+            # ada dokumen yang jatuh di antara penyaring dan menjadi tidak
+            # pernah tampil pada pilihan mana pun:
+            #
+            #   draft    : belum disetujui, belum diperiksa
+            #   checked  : belum disetujui, sudah diperiksa
+            #   approved : sudah disetujui
             if status == "draft":
                 conditions.append(purchase_orders_table.c.isApproved == False)
+                conditions.append(purchase_orders_table.c.isChecked == False)
+            elif status == "checked":
+                conditions.append(purchase_orders_table.c.isApproved == False)
+                conditions.append(purchase_orders_table.c.isChecked == True)
             elif status == "approved":
                 conditions.append(purchase_orders_table.c.isApproved == True)
 

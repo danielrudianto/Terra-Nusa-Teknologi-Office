@@ -167,7 +167,13 @@ async def get_all_purchase_orders(
     keyword: str = Query(None, description="Search by PO number, project, or supplier"),
     sortBy: str = Query(None, description="Sort column: date, value, supplier, project, name, status"),
     sortByDirection: str = Query("desc", description="Sort direction: asc or desc"),
-    status: str = Query(None, description="draft | approved"),
+    status: str = Query(
+        None,
+        description=(
+            "draft (belum diperiksa) | checked (sudah diperiksa, belum "
+            "disetujui) | approved"
+        ),
+    ),
     purchase_type: str = Query(None, description="Kode tipe PO, dipisah koma"),
     project_name: str = Query(None, description="Kode proyek, persis"),
     date_from: str = Query(None, description="Tanggal dokumen sejak (YYYY-MM-DD)"),
