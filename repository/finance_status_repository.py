@@ -128,8 +128,16 @@ AMBANG_BAWAAN: Dict[str, Dict[str, Any]] = {
     "piutangTua": {"bawah": None, "atas": 0.15, "acuan": "kebiasaan"},
     # Bagian piutang yang menumpuk pada SATU klien.
     "konsentrasiPiutang": {"bawah": None, "atas": 0.40, "acuan": "kebiasaan"},
-    # Marjin — pecahan, bukan persen. Kontraktor umum 12-16%, spesialis
-    # 15-25%; AKN subkontraktor MEP, jadi bawaannya mengambil yang spesialis.
+    # Marjin — pecahan, bukan persen. Kontraktor umum 12-16%, kontraktor
+    # spesialis 15-25%.
+    #
+    # AKN mengerjakan PONDASI BORED PILE, jadi bawaannya mengambil pita
+    # spesialis — bukan pita kontraktor umum. Yang perlu disebut apa adanya:
+    # CFMA tidak memecah angkanya sampai ke pekerjaan pondasi, dan pekerjaan
+    # tiang bor padat ALAT, sehingga penyusutan duduk di harga pokoknya dan
+    # marjin kotornya cenderung berbeda dari spesialis yang padat tenaga.
+    # Karena itu pita ini ORIENTASI, dan sejak versi ini dapat disetel
+    # sendiri dari layarnya.
     "marjinKotor": {"bawah": 0.15, "atas": None, "acuan": "CFMA"},
     "marjinBersih": {"bawah": 0.05, "atas": None, "acuan": "CFMA"},
     "rasioOverhead": {"bawah": None, "atas": 0.15, "acuan": "CFMA"},
