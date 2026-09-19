@@ -1,7 +1,8 @@
-from datetime import date as d, timedelta
+from datetime import date as d, timedelta, datetime as dt
 from typing import Any, Dict
 
 from sqlalchemy import select, func, and_
+from sqlalchemy.dialects.mysql import insert as mysql_insert
 
 from utils.database import database
 from utils.logger_utils import log_error
@@ -22,6 +23,7 @@ from models.reimbursement_model import (
     reimbursement_items_table,
 )
 from models.asset_model import asset_table
+from models.finance_threshold_model import finance_thresholds_table
 from utils.errors import ErrorCode, internal_error
 
 """
@@ -73,6 +75,66 @@ BATAS_DOKUMEN = 50
 TABEL_KELUAR = payments_outgoing_table.name
 TABEL_MASUK = payment_incoming_table.name
 TABEL_RENCANA = payment_plans_table.name
+TABEL_FAKTUR = sales_invoice_tables.name
+
+
+#: Pita acuan BAWAAN tiap rasio.
+#:
+#: Sumbernya disebut per baris supaya yang membaca angkanya dapat
+#: menimbangnya sendiri. CFMA = Construction Financial Management
+#: Association, konstruksi Amerika, lintas jenis usaha — ORIENTASI, bukan
+#: vonis, dan tidak disusun dari subkontraktor di Indonesia.
+#:
+#: `None` berarti sisi itu memang tidak dibatasi: DSO tidak punya batas bawah
+#: yang bermakna (tertagih lebih cepat selalu lebih baik), dan marjin tidak
+#: punya batas atas.
+#: Arah tiap rasio — MANA yang lebih baik saat angkanya naik.
+#:
+#: Tanpa ini, "di luar acuan" tidak dapat diterjemahkan menjadi bagus atau
+#: tidak. Marjin 25% di atas pita adalah kabar baik; DSO 130 hari di atas
+#: pita adalah kabar buruk. Menyamakan keduanya membuat layar memberi tanda
+#: yang sama untuk dua keadaan yang berlawanan.
+#:
+#:   "naikBaik"   -> makin tinggi makin baik (marjin, ROE)
+#:   "naikBuruk"  -> makin tinggi makin buruk (DSO, utang, konsentrasi)
+#:   "pita"       -> dua sisinya sama-sama berarti (quick ratio: terlalu
+#:                   rendah berarti tidak mampu bayar, terlalu tinggi berarti
+#:                   kas menganggur)
+ARAH: Dict[str, str] = {
+    "quickRatio": "pita",
+    "debtToEquity": "naikBuruk",
+    "dso": "naikBuruk",
+    "dpo": "naikBaik",
+    "siklusModalKerja": "naikBuruk",
+    "piutangTua": "naikBuruk",
+    "konsentrasiPiutang": "naikBuruk",
+    "marjinKotor": "naikBaik",
+    "marjinBersih": "naikBaik",
+    "rasioOverhead": "naikBuruk",
+    "roe": "naikBaik",
+}
+
+AMBANG_BAWAAN: Dict[str, Dict[str, Any]] = {
+    # Likuiditas
+    "quickRatio": {"bawah": 1.1, "atas": 1.5, "acuan": "CFMA"},
+    "debtToEquity": {"bawah": 0.5, "atas": 1.5, "acuan": "CFMA"},
+    # Perputaran, dalam HARI. Konstruksi memang lambat: penagihan bertahap,
+    # retensi 5-10% ditahan sampai selesai, dan rantai pemilik-kontraktor
+    # utama-subkontraktor. 72 hari rata-rata, wajar 55-95.
+    "dso": {"bawah": None, "atas": 95.0, "acuan": "Hackett/CRF 2025-2026"},
+    "dpo": {"bawah": None, "atas": None, "acuan": "pasangan DSO"},
+    "siklusModalKerja": {"bawah": None, "atas": 60.0, "acuan": "turunan"},
+    # Bagian piutang yang sudah lewat 90 hari.
+    "piutangTua": {"bawah": None, "atas": 0.15, "acuan": "kebiasaan"},
+    # Bagian piutang yang menumpuk pada SATU klien.
+    "konsentrasiPiutang": {"bawah": None, "atas": 0.40, "acuan": "kebiasaan"},
+    # Marjin — pecahan, bukan persen. Kontraktor umum 12-16%, spesialis
+    # 15-25%; AKN subkontraktor MEP, jadi bawaannya mengambil yang spesialis.
+    "marjinKotor": {"bawah": 0.15, "atas": None, "acuan": "CFMA"},
+    "marjinBersih": {"bawah": 0.05, "atas": None, "acuan": "CFMA"},
+    "rasioOverhead": {"bawah": None, "atas": 0.15, "acuan": "CFMA"},
+    "roe": {"bawah": 0.10, "atas": None, "acuan": "CFMA"},
+}
 
 
 def _ringkas(baris) -> Dict[str, Any]:
@@ -887,5 +949,308 @@ class FinanceStatusRepository:
                 "perolehan": 0.0,
                 "akumulasiPenyusutan": 0.0,
                 "jumlahAset": 0,
+                "error": ErrorCode.INTERNAL,
+            }
+
+    # ------------------------------------------------------------------
+    # Pita acuan
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def ambang() -> Dict[str, Dict[str, Any]]:
+        """
+        Pita acuan tiap rasio: bawaan, ditimpa oleh yang disimpan.
+
+        BAWAANNYA DI KODE, bukan di basis data. Tabelnya hanya menyimpan yang
+        DIUBAH. Dua akibatnya disengaja: tabel yang kosong sama sekali tetap
+        menghasilkan halaman yang benar — tidak ada langkah penyemaian yang
+        bila terlewat membuat seluruh pita menjadi nol — dan menghapus satu
+        baris MENGEMBALIKAN bawaannya alih-alih menghapus pitanya.
+
+        Kegagalan membaca tabelnya TIDAK menjatuhkan apa pun: yang kembali
+        bawaannya, dan `sumber` menyebut bahwa yang berlaku bawaan. Pita yang
+        gagal dibaca lalu diam-diam menjadi nol akan menandai setiap rasio
+        sebagai di luar acuan.
+        """
+        hasil = {
+            kode: {
+                **nilai,
+                "sumber": "bawaan",
+                # Arah dikirim bersama pitanya: layar tidak boleh
+                # memutuskannya sendiri, sebab dua tempat yang memutuskan
+                # akan berselisih — dan selisihnya berupa tanda BAIK pada
+                # angka yang buruk.
+                "arah": ARAH.get(kode, "pita"),
+            }
+            for kode, nilai in AMBANG_BAWAAN.items()
+        }
+        try:
+            rows = await database.fetch_all(
+                select(
+                    finance_thresholds_table.c.kode,
+                    finance_thresholds_table.c.bawah,
+                    finance_thresholds_table.c.atas,
+                )
+            )
+            for r in rows:
+                kode = str(r["kode"])
+                if kode not in hasil:
+                    # Kode yang tidak dikenal DIABAIKAN, bukan ikut dikirim.
+                    # Sisa dari rasio yang pernah ada lalu dibuang tidak boleh
+                    # muncul sebagai pita tanpa angka yang mengikutinya.
+                    continue
+                hasil[kode] = {
+                    **hasil[kode],
+                    "bawah": (
+                        float(r["bawah"]) if r["bawah"] is not None else None
+                    ),
+                    "atas": float(r["atas"]) if r["atas"] is not None else None,
+                    "sumber": "disetel",
+                }
+        except Exception as e:
+            log_error(f"Error membaca ambang keuangan: {str(e)}")
+        return hasil
+
+    @staticmethod
+    async def simpan_ambang(
+        kode: str, bawah: Any, atas: Any, user_id: int
+    ) -> Dict[str, Any]:
+        """Simpan satu pita; menimpa bila kodenya sudah ada."""
+        try:
+            if kode not in AMBANG_BAWAAN:
+                return {"error": ErrorCode.VALIDATION, "kode": kode}
+            await database.execute(
+                mysql_insert(finance_thresholds_table)
+                .values(
+                    kode=kode,
+                    bawah=bawah,
+                    atas=atas,
+                    updatedAt=dt.now(),
+                    updatedBy=user_id,
+                )
+                .on_duplicate_key_update(
+                    bawah=bawah,
+                    atas=atas,
+                    updatedAt=dt.now(),
+                    updatedBy=user_id,
+                )
+            )
+            return {"ok": True}
+        except Exception as e:
+            log_error(f"Error menyimpan ambang keuangan: {str(e)}")
+            return {"error": ErrorCode.INTERNAL}
+
+    @staticmethod
+    async def hapus_ambang(kode: str) -> Dict[str, Any]:
+        """
+        Kembalikan satu pita ke bawaannya.
+
+        MENGHAPUS BARISNYA, bukan menuliskan angka bawaan ke dalamnya. Bila
+        bawaan di kode kelak diperbarui, pita yang "dikembalikan" dengan cara
+        menulis angka justru membeku pada angka lama — dan tidak ada yang
+        dapat membedakannya dari pita yang memang sengaja disetel begitu.
+        """
+        try:
+            await database.execute(
+                finance_thresholds_table.delete().where(
+                    finance_thresholds_table.c.kode == kode
+                )
+            )
+            return {"ok": True}
+        except Exception as e:
+            log_error(f"Error menghapus ambang keuangan: {str(e)}")
+            return {"error": ErrorCode.INTERNAL}
+
+    # ------------------------------------------------------------------
+    # Perputaran & konsentrasi
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def arus_setahun() -> Dict[str, Any]:
+        """
+        Pendapatan dan pembelian 12 bulan terakhir — penyebut DSO dan DPO.
+
+        DUA BELAS BULAN, bukan bulan berjalan. Pendapatan kontraktor datang
+        bergelombang mengikuti termin; membagi piutang dengan pendapatan satu
+        bulan menghasilkan DSO yang melompat-lompat antara belasan dan
+        ratusan hari, dan angka yang melompat berhenti dipercaya.
+
+        Pendapatan diambil dari faktur yang SUDAH DISETUJUI — sama dengan
+        syarat `piutang()`. Bila pembilang dan penyebutnya menyaring berbeda,
+        DSO-nya menghitung piutang atas pendapatan yang tidak memuatnya.
+        """
+        try:
+            hari_ini = d.today()
+            awal = hari_ini - timedelta(days=365)
+
+            pendapatan = await database.fetch_val(
+                select(func.coalesce(func.sum(nilai_faktur_sql()), 0)).where(
+                    and_(
+                        sales_invoice_tables.c.isDelete == False,  # noqa: E712
+                        sales_invoice_tables.c.isApprove == True,  # noqa: E712
+                        sales_invoice_tables.c.date >= awal,
+                        sales_invoice_tables.c.date <= hari_ini,
+                    )
+                )
+            )
+            pembelian = await database.fetch_val(
+                select(func.coalesce(func.sum(nilai_pembelian_sql()), 0)).where(
+                    and_(
+                        purchases_table.c.isDelete == False,  # noqa: E712
+                        # Internal bukan pembelian kepada pihak luar, jadi ia
+                        # bukan penyebut umur bayar. Sama dengan
+                        # `utang_usaha()`, supaya DPO tidak membandingkan
+                        # utang yang menyaringnya dengan pembelian yang tidak.
+                        purchases_table.c.isInternal == False,  # noqa: E712
+                        purchases_table.c.date >= awal,
+                        purchases_table.c.date <= hari_ini,
+                    )
+                )
+            )
+            return {
+                "pendapatan": float(pendapatan or 0),
+                "pembelian": float(pembelian or 0),
+                "hari": 365,
+                "sejak": awal.isoformat(),
+            }
+        except Exception as e:
+            log_error(f"Error menghitung arus setahun: {str(e)}")
+            return {
+                "pendapatan": 0.0,
+                "pembelian": 0.0,
+                "hari": 365,
+                "error": ErrorCode.INTERNAL,
+            }
+
+    @staticmethod
+    async def konsentrasi_piutang() -> Dict[str, Any]:
+        """
+        Berapa bagian piutang yang menumpuk pada SATU klien.
+
+        Rasio likuiditas tidak dapat melihat ini: piutang Rp 2 miliar yang
+        tersebar pada delapan klien dan yang seluruhnya pada satu klien
+        menghasilkan quick ratio yang sama persis — padahal yang kedua
+        berarti satu klien yang terlambat membuat kas perusahaan berhenti.
+        """
+        try:
+            bayar = terbayar_faktur_sql()
+            nilai = nilai_faktur_sql()
+            sisa = nilai - func.coalesce(bayar.c.total_paid, 0)
+
+            rows = await database.fetch_all(
+                select(
+                    sales_invoice_tables.c.clientID,
+                    func.coalesce(func.sum(sisa), 0).label("sisa"),
+                )
+                .select_from(
+                    sales_invoice_tables.outerjoin(
+                        bayar, bayar.c.invoice_id == sales_invoice_tables.c.id
+                    )
+                )
+                .where(
+                    and_(
+                        sales_invoice_tables.c.isDelete == False,  # noqa: E712
+                        sales_invoice_tables.c.isApprove == True,  # noqa: E712
+                        sisa > TOLERANSI_LUNAS,
+                    )
+                )
+                .group_by(sales_invoice_tables.c.clientID)
+            )
+
+            per_klien = sorted(
+                (
+                    {
+                        "clientID": r["clientID"],
+                        "sisa": float(r["sisa"] or 0),
+                    }
+                    for r in rows
+                ),
+                key=lambda x: -x["sisa"],
+            )
+            total = sum(x["sisa"] for x in per_klien)
+            teratas = per_klien[0] if per_klien else None
+            return {
+                "jumlahKlien": len(per_klien),
+                "total": total,
+                "terbesar": teratas,
+                # `None`, BUKAN nol, saat belum ada piutang sama sekali:
+                # "0% terkonsentrasi" pada perusahaan tanpa piutang adalah
+                # pengukuran atas sesuatu yang tidak ada.
+                "bagianTerbesar": (
+                    (teratas["sisa"] / total) if teratas and total > 0 else None
+                ),
+            }
+        except Exception as e:
+            log_error(f"Error menghitung konsentrasi piutang: {str(e)}")
+            return {
+                "jumlahKlien": 0,
+                "total": 0.0,
+                "terbesar": None,
+                "bagianTerbesar": None,
+                "error": ErrorCode.INTERNAL,
+            }
+
+    @staticmethod
+    async def backlog() -> Dict[str, Any]:
+        """
+        Nilai kontrak proyek BERJALAN yang belum difakturkan.
+
+        Inilah pekerjaan yang sudah dipegang tetapi belum menjadi uang — satu
+        angka yang tidak terlihat di rasio mana pun, dan yang paling sering
+        ditanya: "kerjaan kita masih ada berapa".
+
+        "Berjalan" memakai definisi yang SAMA dengan daftar proyek
+        (`isActive` dan bukan batal dan bukan menunggu retensi). Bila layar
+        ini memakai definisi sendiri, dua halaman akan menyebut jumlah proyek
+        yang berbeda untuk perusahaan yang sama.
+
+        Nilai kontrak memakai DPP: PPN titipan negara dan bukan pendapatan.
+        Adendum IKUT — ia memang menambah nilai kontrak.
+        """
+        try:
+            nilai_kontrak = await database.fetch_val(
+                """
+                SELECT COALESCE(SUM(k.dpp), 0)
+                FROM project_contracts k
+                JOIN projects p ON p.id = k.projectID
+                WHERE p.isDelete = 0
+                  AND p.isActive = 1
+                  AND p.isCancelled = 0
+                  AND p.isRetention = 0
+                """
+            )
+            # Yang SUDAH difakturkan atas proyek-proyek itu.
+            difakturkan = await database.fetch_val(
+                f"""
+                SELECT COALESCE(SUM(f.dpp), 0)
+                FROM {TABEL_FAKTUR} f
+                JOIN projects p ON p.code = f.projectName
+                WHERE f.isDelete = 0
+                  AND f.isApprove = 1
+                  AND p.isDelete = 0
+                  AND p.isActive = 1
+                  AND p.isCancelled = 0
+                  AND p.isRetention = 0
+                """
+            )
+            kontrak = float(nilai_kontrak or 0)
+            sudah = float(difakturkan or 0)
+            return {
+                "nilaiKontrak": kontrak,
+                "sudahDifakturkan": sudah,
+                # Dijepit pada nol: faktur dapat melampaui nilai kontrak bila
+                # adendumnya belum sempat dicatat, dan backlog minus terbaca
+                # sebagai kesalahan hitung, bukan sebagai dokumen yang
+                # tertinggal.
+                "belumDifakturkan": max(0.0, kontrak - sudah),
+                "kontrakMelampauiNilai": sudah > kontrak,
+            }
+        except Exception as e:
+            log_error(f"Error menghitung backlog: {str(e)}")
+            return {
+                "nilaiKontrak": 0.0,
+                "sudahDifakturkan": 0.0,
+                "belumDifakturkan": 0.0,
+                "kontrakMelampauiNilai": False,
                 "error": ErrorCode.INTERNAL,
             }

@@ -37,6 +37,8 @@ import models.loans_model  # noqa: F401
 import models.certificate_of_payment_model  # noqa: F401
 import models.purchase_order_model  # noqa: F401
 import models.purchase_order_item_model  # noqa: F401
+import models.project_model  # noqa: F401
+import models.finance_threshold_model  # noqa: F401
 
 from utils.database import metadata
 

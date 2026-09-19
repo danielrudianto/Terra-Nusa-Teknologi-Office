@@ -25,8 +25,14 @@ from datetime import date
 
 import pytest
 
-from controllers.finance_status_controller import FinanceStatusController as FS
-from repository.finance_status_repository import FinanceStatusRepository as R
+from controllers.finance_status_controller import (
+    FinanceStatusController as FS,
+    posisi_terhadap_pita as PTP,
+)
+from repository.finance_status_repository import (
+    AMBANG_BAWAAN as R_AMBANG,
+    FinanceStatusRepository as R,
+)
 
 
 # --------------------------------------------------------------------------
@@ -115,6 +121,27 @@ def repo(monkeypatch):
             "akumulasiPenyusutan": 0.0,
             "jumlahAset": 0,
         },
+        # Pendapatan 600 & pembelian 300 setahun: dengan piutang 60 dan utang
+        # 50, DSO = 60/600*365 = 36,5 hari dan DPO = 50/300*365 = 60,8 hari.
+        "arus": {
+            "pendapatan": 600.0,
+            "pembelian": 300.0,
+            "hari": 365,
+            "sejak": "2025-09-18",
+        },
+        "konsentrasi": {
+            "jumlahKlien": 2,
+            "total": 60.0,
+            "terbesar": {"clientID": 1, "sisa": 40.0},
+            "bagianTerbesar": 40.0 / 60.0,
+        },
+        "backlog": {
+            "nilaiKontrak": 1000.0,
+            "sudahDifakturkan": 400.0,
+            "belumDifakturkan": 600.0,
+            "kontrakMelampauiNilai": False,
+        },
+        "ambang": dict(R_AMBANG),
     }
 
     async def _kas():
@@ -135,12 +162,28 @@ def repo(monkeypatch):
     async def _aset():
         return keadaan["asetTetap"]
 
+    async def _arus():
+        return keadaan["arus"]
+
+    async def _konsentrasi():
+        return keadaan["konsentrasi"]
+
+    async def _backlog():
+        return keadaan["backlog"]
+
+    async def _ambang():
+        return keadaan["ambang"]
+
     monkeypatch.setattr(R, "total_kas", staticmethod(_kas))
     monkeypatch.setattr(R, "piutang", staticmethod(_piutang))
     monkeypatch.setattr(R, "utang_usaha", staticmethod(_utang))
     monkeypatch.setattr(R, "pinjaman", staticmethod(_pinjaman))
     monkeypatch.setattr(R, "kewajiban_lain", staticmethod(_lain))
     monkeypatch.setattr(R, "nilai_buku_aset", staticmethod(_aset))
+    monkeypatch.setattr(R, "arus_setahun", staticmethod(_arus))
+    monkeypatch.setattr(R, "konsentrasi_piutang", staticmethod(_konsentrasi))
+    monkeypatch.setattr(R, "backlog", staticmethod(_backlog))
+    monkeypatch.setattr(R, "ambang", staticmethod(_ambang))
     return keadaan
 
 
@@ -458,3 +501,303 @@ class TestNeracaRingkas:
         assert "utangPajakBelumDisetor" in celah
         assert "pembelianAsetYangDibebankanLangsung" in celah
         assert hasil["catatan"]["ekuitasDiturunkanBukanDicatat"] is True
+
+
+# --------------------------------------------------------------------------
+# Perputaran, konsentrasi, backlog
+# --------------------------------------------------------------------------
+
+
+class TestPerputaran:
+
+    @pytest.mark.asyncio
+    async def test_dso_dan_dpo_dihitung_dari_arus_setahun(self, repo):
+        """
+        DUA BELAS BULAN, bukan bulan berjalan.
+
+        Pendapatan kontraktor datang bergelombang mengikuti termin; membagi
+        piutang dengan pendapatan satu bulan menghasilkan DSO yang melompat
+        antara belasan dan ratusan hari — dan angka yang melompat berhenti
+        dipercaya sebelum sempat dipakai.
+        """
+        hasil = await FS.get_status()
+        r = hasil["rasio"]
+
+        assert r["dso"] == pytest.approx(60.0 / 600.0 * 365)
+        assert r["dpo"] == pytest.approx(50.0 / 300.0 * 365)
+        assert r["siklusModalKerja"] == pytest.approx(r["dso"] - r["dpo"])
+
+    @pytest.mark.asyncio
+    async def test_tanpa_pendapatan_DSO_bukan_nol(self, repo):
+        """
+        Perusahaan yang belum berfaktur setahun terakhir tidak punya DSO.
+
+        "0 hari" pada keadaan itu terbaca sebagai penagihan yang sempurna —
+        kebalikan dari yang sebenarnya diketahui, yaitu tidak ada apa-apa
+        untuk diukur.
+        """
+        repo["arus"]["pendapatan"] = 0.0
+        hasil = await FS.get_status()
+
+        assert hasil["rasio"]["dso"] is None
+        assert hasil["rasio"]["siklusModalKerja"] is None
+
+    @pytest.mark.asyncio
+    async def test_bagian_piutang_tua_dihitung(self, repo):
+        """Ember 90+ dibagi seluruh piutang: 0 dari 60 pada keadaan bawaan."""
+        repo["piutang"]["umur"]["90+"] = 30.0
+        repo["piutang"]["total"] = 60.0
+        hasil = await FS.get_status()
+
+        assert hasil["rasio"]["piutangTua"] == pytest.approx(0.5)
+
+    @pytest.mark.asyncio
+    async def test_konsentrasi_diteruskan_apa_adanya(self, repo):
+        """
+        Rasio likuiditas tidak dapat melihat ini: piutang yang tersebar pada
+        delapan klien dan yang seluruhnya pada satu klien menghasilkan quick
+        ratio yang sama persis.
+        """
+        hasil = await FS.get_status()
+        assert hasil["rasio"]["konsentrasiPiutang"] == pytest.approx(40.0 / 60.0)
+
+    @pytest.mark.asyncio
+    async def test_dasar_penyebut_ikut_dikirim(self, repo):
+        """Angka yang penyebutnya tidak terlihat hanya dapat dipercaya, tidak ditelusuri."""
+        dasar = (await FS.get_status())["rasio"]["dasar"]
+        assert dasar["pendapatan12Bulan"] == 600.0
+        assert dasar["hari"] == 365
+
+
+class TestMarjinHanyaLevel5:
+
+    @pytest.mark.asyncio
+    async def test_level_4_tidak_menerima_marjin_sama_sekali(self, repo, monkeypatch):
+        """
+        Bloknya TIDAK DIGAMBAR, bukan digambar kosong.
+
+        Kotak bertanda pisah memberi tahu bahwa ada angka yang disembunyikan,
+        dan itu pertanyaan yang berulang. Yang lebih penting: gerbangnya di
+        SERVER — menyembunyikan blok di peramban tidak menahan siapa pun yang
+        memanggil rutenya langsung.
+        """
+        async def _marjin_palsu(ekuitas, pendapatan):
+            return {"marjinKotor": 0.2, "roe": 0.3}
+
+        monkeypatch.setattr(
+            FS, "_marjin", staticmethod(_marjin_palsu)
+        )
+        hasil = await FS.get_status(user_level=4)
+
+        assert "marjinKotor" not in hasil["rasio"]
+        assert "roe" not in hasil["rasio"]
+        assert hasil["bolehMelihatLaba"] is False
+
+    @pytest.mark.asyncio
+    async def test_level_5_menerima_marjin(self, repo, monkeypatch):
+        async def _marjin_palsu(ekuitas, pendapatan):
+            return {"marjinKotor": 0.2, "roe": 0.3}
+
+        monkeypatch.setattr(FS, "_marjin", staticmethod(_marjin_palsu))
+        hasil = await FS.get_status(user_level=5)
+
+        assert hasil["rasio"]["marjinKotor"] == 0.2
+        assert hasil["bolehMelihatLaba"] is True
+
+    @pytest.mark.asyncio
+    async def test_marjin_yang_GAGAL_tidak_menjatuhkan_halaman(self, repo, monkeypatch):
+        """
+        Laba rugi adalah modul lain dengan kuerinya sendiri. Membiarkannya
+        menjatuhkan angka kas berarti satu kegagalan di sana menghapus
+        seluruh alasan halaman ini dibuka.
+        """
+        async def _marjin_gagal(ekuitas, pendapatan):
+            return {}
+
+        monkeypatch.setattr(FS, "_marjin", staticmethod(_marjin_gagal))
+        hasil = await FS.get_status(user_level=5)
+
+        assert hasil["kas"]["total"] == 100.0
+        assert "marjinKotor" not in hasil["rasio"]
+
+
+class TestPitaAcuan:
+
+    @pytest.mark.asyncio
+    async def test_pita_ikut_dikirim_bersama_angkanya(self, repo):
+        """
+        Angka tanpa pembandingnya tidak dapat ditimbang siapa pun — dan pita
+        yang hanya hidup di kode layar akan berselisih dengan yang disetel.
+        """
+        ambang = (await FS.get_status())["ambang"]
+        assert ambang["quickRatio"]["atas"] == 1.5
+        assert ambang["dso"]["atas"] == 95.0
+        assert ambang["dso"]["bawah"] is None
+
+    @pytest.mark.asyncio
+    async def test_pita_terbalik_ditolak(self, monkeypatch):
+        """
+        Pita terbalik tidak menghasilkan galat; ia hanya membuat SETIAP nilai
+        berada di luar acuan — seluruh rasio menyala sekaligus, dan yang
+        membacanya akan mengira perusahaannya yang bermasalah.
+
+        Penyimpanannya DITIRU supaya satu-satunya yang dapat menolak adalah
+        pemeriksaan pita itu sendiri. Tanpa tiruan ini ujinya lolos karena
+        basis data ujinya memang tidak punya tabelnya — yaitu lolos untuk
+        alasan yang tidak ada hubungannya dengan yang sedang dijaga.
+        """
+        tersimpan = []
+
+        async def _simpan(kode, bawah, atas, user_id):
+            tersimpan.append((kode, bawah, atas))
+            return {"ok": True}
+
+        monkeypatch.setattr(R, "simpan_ambang", staticmethod(_simpan))
+        hasil = await FS.simpan_ambang(
+            "quickRatio", {"bawah": 2.0, "atas": 1.0}, user_id=1
+        )
+        assert hasil["status"] == 400
+        assert not tersimpan, "pita terbalik sempat tersimpan"
+
+    @pytest.mark.asyncio
+    async def test_kode_yang_tidak_dikenal_ditolak(self, monkeypatch):
+        async def _simpan(kode, bawah, atas, user_id):
+            return {"error": "VALIDATION"}
+
+        monkeypatch.setattr(R, "simpan_ambang", staticmethod(_simpan))
+        hasil = await FS.simpan_ambang("ngawur", {"bawah": 1}, user_id=1)
+        assert hasil["status"] == 400
+
+    @pytest.mark.asyncio
+    async def test_sisi_kosong_boleh(self, monkeypatch):
+        """DSO tidak punya batas bawah yang bermakna — kosong harus sah."""
+        disimpan = {}
+
+        async def _simpan(kode, bawah, atas, user_id):
+            disimpan.update({"bawah": bawah, "atas": atas})
+            return {"ok": True}
+
+        monkeypatch.setattr(R, "simpan_ambang", staticmethod(_simpan))
+        hasil = await FS.simpan_ambang("dso", {"bawah": "", "atas": 80}, user_id=1)
+
+        assert "error" not in hasil
+        assert disimpan["bawah"] is None
+        assert disimpan["atas"] == 80.0
+
+
+class TestRoe:
+
+    @pytest.mark.asyncio
+    async def test_roe_pada_ekuitas_minus_TIDAK_dicetak(self, repo):
+        """
+        Pada ekuitas minus, laba POSITIF menghasilkan ROE MINUS.
+
+        Di layar itu terbaca sebagai rugi — kebalikan dari keadaannya. Dan
+        yang membacanya tidak punya cara mengetahui bahwa tandanya berasal
+        dari penyebut, bukan dari pembilang.
+        """
+        hasil = await FS._marjin(ekuitas=-120.0, pendapatan_th=600.0)
+        # Laba rugi tidak tersedia di lingkungan uji; yang dijaga bentuk
+        # keputusannya, diperiksa langsung pada rumusnya.
+        assert hasil == {} or hasil.get("roe") is None
+
+    @pytest.mark.asyncio
+    async def test_rumus_roe_memakai_ekuitas_positif_saja(self):
+        """
+        Dibaca dari sumbernya: satu-satunya cara menjaga cabang ini tanpa
+        laporan laba rugi yang berjalan di lingkungan uji, dan itu disebutkan
+        apa adanya alih-alih dibiarkan tampak seperti uji perilaku.
+        """
+        import os
+
+        akar = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        sumber = open(
+            os.path.join(akar, "controllers", "finance_status_controller.py"),
+            encoding="utf-8",
+        ).read()
+        assert '(laba_bersih / ekuitas) if ekuitas > 0 else None' in sumber, (
+            "ROE tidak lagi dijaga terhadap ekuitas nol atau minus"
+        )
+
+
+# --------------------------------------------------------------------------
+# "Ini bagus atau tidak"
+# --------------------------------------------------------------------------
+
+
+class TestPosisiTerhadapPita:
+    """
+    Layar sempat berhenti menjawab pertanyaan yang membuat orang membukanya.
+
+    Angkanya dicetak telanjang beserta pitanya sebagai tulisan kecil, dengan
+    alasan tidak mau memvonis. Akibatnya "2,03" tidak mengatakan apa-apa: yang
+    membacanya harus membandingkannya sendiri dengan pita yang dicetak lebih
+    redup daripada peringatan di sebelahnya.
+
+    Yang dijaga di sini MENILAI ANGKANYA, bukan perusahaannya.
+    """
+
+    def test_di_atas_pita_pada_utang_adalah_kabar_buruk(self):
+        """D/E 2,03 pada pita 0,5-1,5 — utang dua kali lipat ekuitas."""
+        hasil = PTP(2.03, {"bawah": 0.5, "atas": 1.5, "arah": "naikBuruk"})
+        assert hasil["posisi"] == "diatas"
+        assert hasil["baik"] is False
+
+    def test_di_atas_pita_pada_marjin_adalah_kabar_BAIK(self):
+        """
+        Menyamakan keduanya adalah kekeliruan yang paling mudah terjadi:
+        marjin 25% di atas pita kabar baik, DSO 130 hari di atas pita kabar
+        buruk. Satu tanda untuk dua keadaan yang berlawanan.
+        """
+        hasil = PTP(0.25, {"bawah": 0.15, "atas": None, "arah": "naikBaik"})
+        assert hasil["posisi"] == "didalam"
+        assert hasil["baik"] is True
+
+        # Dengan batas atas yang disetel orang, di atasnya tetap baik.
+        hasil = PTP(0.30, {"bawah": 0.15, "atas": 0.25, "arah": "naikBaik"})
+        assert hasil["posisi"] == "diatas"
+        assert hasil["baik"] is True
+
+    def test_di_bawah_pita_pada_DSO_adalah_kabar_baik(self):
+        """Tertagih lebih cepat daripada kebiasaan industri."""
+        hasil = PTP(40.0, {"bawah": None, "atas": 95.0, "arah": "naikBuruk"})
+        assert hasil["posisi"] == "didalam"
+        assert hasil["baik"] is True
+
+    def test_quick_ratio_terlalu_TINGGI_juga_bukan_kabar_baik(self):
+        """
+        Dua sisinya sama-sama berarti: terlalu rendah berarti tidak mampu
+        bayar, terlalu tinggi berarti kas menganggur alih-alih bekerja.
+        """
+        hasil = PTP(4.0, {"bawah": 1.1, "atas": 1.5, "arah": "pita"})
+        assert hasil["posisi"] == "diatas"
+        assert hasil["baik"] is False
+
+    def test_angka_yang_belum_ada_BUKAN_di_dalam_acuan(self):
+        """
+        `None` berarti belum dapat diukur. Menandainya "di dalam acuan"
+        memberi tanda aman pada sesuatu yang tidak pernah diperiksa.
+        """
+        hasil = PTP(None, {"bawah": 1.1, "atas": 1.5, "arah": "pita"})
+        assert hasil["posisi"] is None
+        assert hasil["baik"] is None
+
+    def test_sisi_pita_yang_kosong_tidak_pernah_dilanggar(self):
+        """DSO tidak punya batas bawah — berapa pun cepatnya tetap di dalam."""
+        hasil = PTP(1.0, {"bawah": None, "atas": 95.0, "arah": "naikBuruk"})
+        assert hasil["posisi"] == "didalam"
+
+    @pytest.mark.asyncio
+    async def test_penilaian_ikut_dikirim_untuk_tiap_rasio(self, repo):
+        """
+        Dinilai SESUDAH seluruh rasio terkumpul, supaya rasio yang
+        ditambahkan belakangan tidak terlewat dinilai — dan muncul di layar
+        sebagai angka telanjang lagi.
+        """
+        hasil = await FS.get_status()
+        p = hasil["penilaian"]
+
+        assert "quickRatio" in p
+        assert "debtToEquity" in p
+        assert "dso" in p
+        assert p["dso"]["posisi"] == "didalam"

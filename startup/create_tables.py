@@ -22,6 +22,7 @@ import models.salary_slip_model  # Import the salary slip model to create the ta
 import models.interpayment_model  # Import the interpayment model to create the table
 import models.sales_invoice_model  # Import the sales invoice model to create the table
 import models.reminder_model  # pengingat agenda beserta orang yang ditandai
+import models.finance_threshold_model  # pita acuan rasio keuangan
 
 # Model di bawah ini sempat TIDAK diimpor, sehingga tabelnya tidak pernah
 # ikut dibuat `metadata.create_all`.

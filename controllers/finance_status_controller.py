@@ -1,8 +1,81 @@
 import asyncio
+from datetime import date as d
 from typing import Any, Dict
 
-from repository.finance_status_repository import FinanceStatusRepository
+from repository.finance_status_repository import (
+    AMBANG_BAWAAN,
+    FinanceStatusRepository,
+)
 from utils.logger_utils import log_error
+from utils.errors import ErrorCode, app_error
+
+
+#: Level yang boleh melihat angka laba rugi pada halaman ini.
+#:
+#: Sama dengan gerbang laporan laba rugi itu sendiri. Ditulis SEKALI di sini
+#: dan dibaca dari situ, bukan disalin sebagai angka 5 ke beberapa tempat —
+#: yang disalin akan berselisih pada perubahan berikutnya, dan yang
+#: berselisih di sini berarti angka laba bocor ke halaman yang tidak
+#: dimaksudkan.
+LEVEL_LIHAT_LABA = 5
+
+
+def boleh_melihat_laba(user_level: int) -> bool:
+    try:
+        return int(user_level or 0) >= LEVEL_LIHAT_LABA
+    except (TypeError, ValueError):
+        return False
+
+
+def posisi_terhadap_pita(nilai, pita) -> Dict[str, Any]:
+    """
+    Di mana satu angka berdiri terhadap pitanya, DAN apakah itu kabar baik.
+
+    KENAPA INI ADA
+
+    Versi sebelumnya hanya mencetak angkanya beserta pitanya sebagai tulisan
+    kecil, dengan alasan tidak mau memvonis. Akibatnya layar berhenti
+    menjawab pertanyaan yang membuat orang membukanya: "2,03 itu bagus atau
+    tidak?" Peringatannya lebih panjang dan lebih menonjol daripada
+    jawabannya, dan angkanya berdiri telanjang tanpa apa pun yang
+    menerangkannya.
+
+    Yang dikembalikan di sini MENILAI ANGKANYA, bukan perusahaannya —
+    "di atas acuan" adalah pernyataan tentang letak, dan `baik` mengatakan ke
+    mana letak itu condong menurut arah rasionya. Kalimat "apa artinya" dan
+    "apa yang menggerakkannya" ditambahkan layar di atas ini. Itu beda
+    dengan mencetak kata SEHAT pada perusahaannya, yang membuat orang
+    berhenti bertanya.
+
+    `None` bila angkanya belum ada — dan itu BUKAN "di dalam acuan".
+    """
+    if nilai is None:
+        return {"posisi": None, "baik": None}
+
+    pita = pita or {}
+    bawah = pita.get("bawah")
+    atas = pita.get("atas")
+    arah = pita.get("arah") or "pita"
+
+    if bawah is not None and nilai < bawah:
+        posisi = "dibawah"
+    elif atas is not None and nilai > atas:
+        posisi = "diatas"
+    else:
+        posisi = "didalam"
+
+    if posisi == "didalam":
+        baik = True
+    elif arah == "naikBaik":
+        # Di atas pita pada rasio yang makin tinggi makin baik BUKAN masalah.
+        baik = posisi == "diatas"
+    elif arah == "naikBuruk":
+        baik = posisi == "dibawah"
+    else:
+        # Dua sisinya sama-sama berarti.
+        baik = False
+
+    return {"posisi": posisi, "baik": baik}
 
 
 class FinanceStatusController:
@@ -14,7 +87,7 @@ class FinanceStatusController:
     MAKS_MUNDUR = 12
 
     @staticmethod
-    async def get_status() -> Dict[str, Any]:
+    async def get_status(user_level: int = 1) -> Dict[str, Any]:
         """
         Posisi keuangan hari ini.
 
@@ -29,6 +102,10 @@ class FinanceStatusController:
                 pinjaman,
                 lain,
                 aset_tetap,
+                arus,
+                konsentrasi,
+                backlog,
+                ambang,
             ) = await asyncio.gather(
                 FinanceStatusRepository.total_kas(),
                 FinanceStatusRepository.piutang(),
@@ -36,6 +113,10 @@ class FinanceStatusController:
                 FinanceStatusRepository.pinjaman(),
                 FinanceStatusRepository.kewajiban_lain(),
                 FinanceStatusRepository.nilai_buku_aset(),
+                FinanceStatusRepository.arus_setahun(),
+                FinanceStatusRepository.konsentrasi_piutang(),
+                FinanceStatusRepository.backlog(),
+                FinanceStatusRepository.ambang(),
             )
 
             # `total_kas` kini mengembalikan RINCIAN, bukan satu angka:
@@ -180,9 +261,97 @@ class FinanceStatusController:
                 ],
             }
 
+            # ---- PERPUTARAN ----
+            #
+            # `None` BUKAN nol. Perusahaan yang belum berfaktur setahun
+            # terakhir tidak punya DSO — dan "0 hari" pada keadaan itu
+            # terbaca sebagai penagihan yang sempurna.
+            pendapatan_th = float(arus.get("pendapatan") or 0)
+            pembelian_th = float(arus.get("pembelian") or 0)
+            hari = int(arus.get("hari") or 365)
+
+            dso = (
+                (total_piutang / pendapatan_th * hari)
+                if pendapatan_th > 0
+                else None
+            )
+            dpo = (
+                (total_utang / pembelian_th * hari)
+                if pembelian_th > 0
+                else None
+            )
+            # Tanpa persediaan, siklus modal kerja = DSO - DPO. Inilah berapa
+            # hari perusahaan MENALANGI pekerjaannya sendiri.
+            siklus = (dso - dpo) if (dso is not None and dpo is not None) else None
+
+            piutang_total = float(piutang.get("total") or 0)
+            umur_piutang = piutang.get("umur") or {}
+            piutang_tua = (
+                (float(umur_piutang.get("90+") or 0) / piutang_total)
+                if piutang_total > 0
+                else None
+            )
+
+            rasio = {
+                "dso": dso,
+                "dpo": dpo,
+                "siklusModalKerja": siklus,
+                "piutangTua": piutang_tua,
+                "konsentrasiPiutang": konsentrasi.get("bagianTerbesar"),
+                # Penyebutnya disebut supaya angkanya dapat ditelusuri, bukan
+                # sekadar dipercaya.
+                "dasar": {
+                    "pendapatan12Bulan": pendapatan_th,
+                    "pembelian12Bulan": pembelian_th,
+                    "hari": hari,
+                    "sejak": arus.get("sejak"),
+                },
+            }
+
+            # ---- MARJIN & ROE: HANYA LEVEL 5 ----
+            #
+            # Keduanya angka LABA RUGI, dan laba rugi memang hanya dilayani
+            # untuk pemilik usaha. Menggambarnya di halaman level 4 akan
+            # melonggarkan batas itu sebagai EFEK SAMPING — bukan sebagai
+            # keputusan yang pernah diambil siapa pun.
+            #
+            # Bloknya TIDAK DIGAMBAR sama sekali untuk level di bawahnya,
+            # bukan digambar kosong: kotak bertanda pisah memberi tahu bahwa
+            # ada angka yang disembunyikan, dan itu pertanyaan yang berulang.
+            if boleh_melihat_laba(user_level):
+                laba = await FinanceStatusController._marjin(
+                    ekuitas, pendapatan_th
+                )
+                if laba:
+                    rasio.update(laba)
+
+            # Penilaian letak tiap angka terhadap pitanya — SATU tempat,
+            # sesudah seluruh rasio terkumpul (termasuk marjin bila
+            # levelnya mencukupi), supaya tidak ada rasio yang terlewat
+            # dinilai hanya karena ditambahkan belakangan.
+            dinilai = {
+                "quickRatio": quick_ratio,
+                "debtToEquity": dte,
+                **{
+                    k: v
+                    for k, v in rasio.items()
+                    if k in AMBANG_BAWAAN and isinstance(v, (int, float))
+                },
+            }
+            penilaian = {
+                kode: posisi_terhadap_pita(nilai, ambang.get(kode))
+                for kode, nilai in dinilai.items()
+            }
+
             return {
                 "kas": kas,
                 "kasDikecualikan": kas_dikecualikan,
+                "rasio": rasio,
+                "penilaian": penilaian,
+                "bolehMelihatLaba": boleh_melihat_laba(user_level),
+                "konsentrasi": konsentrasi,
+                "backlog": backlog,
+                "ambang": ambang,
                 "kewajibanLain": lain,
                 "kewajibanLancar": kewajiban_lancar,
                 "neraca": neraca,
@@ -232,6 +401,60 @@ class FinanceStatusController:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    async def _marjin(ekuitas: float, pendapatan_th: float) -> Dict[str, Any]:
+        """
+        Marjin kotor/bersih/overhead dan ROE — dari laporan laba rugi.
+
+        Memakai AKUMULASI TAHUN BERJALAN, bukan bulan berjalan: marjin satu
+        bulan pada kontraktor melompat mengikuti termin, dan angka yang
+        melompat berhenti dipercaya sebelum sempat dipakai.
+
+        Kegagalan di sini mengembalikan `{}` — blok marjinnya tidak digambar,
+        dan SISA halamannya tetap utuh. Laba rugi adalah modul lain dengan
+        kuerinya sendiri; membiarkannya menjatuhkan angka kas akan membuat
+        satu kegagalan di sana menghapus seluruh alasan halaman ini dibuka.
+        """
+        try:
+            from repository.laba_rugi_repository import LabaRugiRepository
+
+            hari_ini = d.today()
+            lr = await LabaRugiRepository.laba_rugi(
+                hari_ini.month, hari_ini.year
+            )
+            if not isinstance(lr, dict) or "error" in lr:
+                return {}
+            ytd = lr.get("ytd") or lr.get("tahunBerjalan") or {}
+            if not ytd:
+                return {}
+
+            pendapatan = float(ytd.get("pendapatan") or 0)
+            if pendapatan <= 0:
+                # Tanpa pendapatan, marjin tidak terdefinisi — bukan nol.
+                return {}
+
+            laba_kotor = float(ytd.get("labaKotor") or 0)
+            beban_usaha = float((ytd.get("bebanUsaha") or {}).get("total") or 0)
+            laba_bersih = float(ytd.get("labaSebelumPajak") or 0)
+
+            return {
+                "marjinKotor": laba_kotor / pendapatan,
+                "marjinBersih": laba_bersih / pendapatan,
+                "rasioOverhead": beban_usaha / pendapatan,
+                # ROE hanya bermakna pada ekuitas POSITIF. Pada ekuitas minus
+                # laba positif menghasilkan ROE minus, yang terbaca sebagai
+                # rugi — kebalikan dari keadaannya.
+                "roe": (laba_bersih / ekuitas) if ekuitas > 0 else None,
+                "dasarLaba": {
+                    "pendapatanYtd": pendapatan,
+                    "labaBersihYtd": laba_bersih,
+                    "basis": "akumulasi tahun berjalan",
+                },
+            }
+        except Exception as e:
+            log_error(f"Error menghitung marjin: {str(e)}")
+            return {}
+
+    @staticmethod
     async def akurasi_rencana(mundur: int = 5) -> Dict[str, Any]:
         """
         Rencana kas dibanding yang benar-benar terjadi.
@@ -250,4 +473,60 @@ class FinanceStatusController:
             return await FinanceStatusRepository.akurasi_rencana(mundur)
         except Exception as e:
             log_error(f"Error menyusun akurasi rencana: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+
+    @staticmethod
+    async def simpan_ambang(
+        kode: str, payload: Dict[str, Any], user_id: int
+    ) -> Dict[str, Any]:
+        """
+        Setel satu pita acuan.
+
+        Batas bawah tidak boleh melampaui batas atas: pita terbalik tidak
+        menghasilkan galat, ia hanya membuat SETIAP nilai berada di luar
+        acuan — seluruh rasio menyala merah sekaligus, dan yang membacanya
+        akan mengira perusahaannya yang bermasalah.
+        """
+        try:
+            bawah = payload.get("bawah")
+            atas = payload.get("atas")
+            bawah = None if bawah in (None, "") else float(bawah)
+            atas = None if atas in (None, "") else float(atas)
+
+            if bawah is not None and atas is not None and bawah > atas:
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "Batas bawah tidak boleh melampaui batas atas.",
+                    400,
+                )
+
+            hasil = await FinanceStatusRepository.simpan_ambang(
+                kode, bawah, atas, user_id
+            )
+            if "error" in hasil:
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    f"Pita acuan '{kode}' tidak dikenali.",
+                    400,
+                )
+            return {"kode": kode, "bawah": bawah, "atas": atas}
+        except (TypeError, ValueError):
+            return app_error(
+                ErrorCode.VALIDATION, "Nilai pita harus berupa angka.", 400
+            )
+        except Exception as e:
+            log_error(f"Error menyimpan ambang: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def hapus_ambang(kode: str) -> Dict[str, Any]:
+        """Kembalikan satu pita ke bawaannya."""
+        try:
+            hasil = await FinanceStatusRepository.hapus_ambang(kode)
+            if "error" in hasil:
+                return {"error": "Internal server error.", "status": 500}
+            return {"kode": kode, "dikembalikan": True}
+        except Exception as e:
+            log_error(f"Error menghapus ambang: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
