@@ -151,7 +151,7 @@ def _ringkas(baris) -> Dict[str, Any]:
 
 class FinanceStatusRepository:
     @staticmethod
-    async def total_kas() -> Dict[str, Any]:
+    async def total_kas(pada: d | None = None) -> Dict[str, Any]:
         """
         Kas yang BENAR-BENAR dapat dipakai, beserta yang dikecualikan.
 
@@ -177,20 +177,73 @@ class FinanceStatusRepository:
         laporan adalah uang yang tidak pernah dicocokkan lagi.
         """
         try:
-            posisi = await DashboardModel.fetch_cash_position()
-            if not isinstance(posisi, dict) or "error" in posisi:
-                raise RuntimeError("posisi kas tidak dapat dibaca")
+            if pada is None:
+                posisi = await DashboardModel.fetch_cash_position()
+                if not isinstance(posisi, dict) or "error" in posisi:
+                    raise RuntimeError("posisi kas tidak dapat dibaca")
+                return {
+                    "total": float(posisi.get("totalBalance") or 0),
+                    "dikecualikan": float(posisi.get("excludedBalance") or 0),
+                    "jumlahDikecualikan": int(posisi.get("excludedCount") or 0),
+                }
+
+            # Diimpor DI SINI, bukan di tingkat modul.
+            #
+            # `mutation_model` memuat view `mutation` lewat `autoload_with`,
+            # sehingga mengimpornya di atas menjadikan view itu syarat NYALA
+            # bagi seluruh modul ini — dan modul ini dirantai sampai ke
+            # `routes`. Satu view yang hilang akan menjatuhkan aplikasinya,
+            # bukan hanya riwayat rasio yang membutuhkannya.
+            from models.mutation_model import Mutation
+
+            # --- Saldo PADA tanggal lampau ---
+            #
+            # `_saldo_awal_sebelum` memberi baris mutasi TERAKHIR sebelum
+            # tanggal yang diminta, per rekening. Batasnya eksklusif, jadi
+            # untuk "saldo pada akhir hari X" yang diminta adalah X + 1 hari.
+            #
+            # SATU tempat yang menyusun kueri saldo awal, dipakai bersama
+            # kalender dan unduhannya. Menyusunnya sendiri di sini akan
+            # menghasilkan angka yang berbeda tanpa satu pun tampak salah.
+            saldo = await Mutation._saldo_awal_sebelum(
+                pada + timedelta(days=1), None
+            )
+            per_rekening = {
+                r["bankaccountid"]: float(r["balance"] or 0) for r in saldo
+            }
+
+            # TANDA `excludeFromCalendar` hanya punya keadaan SEKARANG.
+            #
+            # Tidak ada riwayatnya di basis data, jadi rekening yang hari ini
+            # dikecualikan diperlakukan dikecualikan juga untuk seluruh masa
+            # lalu. Itu keliru bila tandanya baru dipasang belakangan — dan
+            # keliru yang TIDAK DAPAT diperbaiki dari data yang ada, jadi ia
+            # disebutkan alih-alih ditutupi.
+            rekening = await database.fetch_all(
+                "SELECT id, excludeFromCalendar FROM bank_accounts "
+                "WHERE isDelete = 0"
+            )
+            total = 0.0
+            dikecualikan = 0.0
+            jumlah_dikecualikan = 0
+            for a in rekening:
+                bal = per_rekening.get(a["id"], 0.0)
+                if bool(getattr(a, "excludeFromCalendar", False)):
+                    dikecualikan += bal
+                    jumlah_dikecualikan += 1
+                else:
+                    total += bal
             return {
-                "total": float(posisi.get("totalBalance") or 0),
-                "dikecualikan": float(posisi.get("excludedBalance") or 0),
-                "jumlahDikecualikan": int(posisi.get("excludedCount") or 0),
+                "total": total,
+                "dikecualikan": dikecualikan,
+                "jumlahDikecualikan": jumlah_dikecualikan,
             }
         except Exception as e:
             log_error(f"Error menghitung total kas: {str(e)}")
             return {"total": 0.0, "dikecualikan": 0.0, "jumlahDikecualikan": 0}
 
     @staticmethod
-    async def piutang() -> Dict[str, Any]:
+    async def piutang(pada: d | None = None) -> Dict[str, Any]:
         """
         Faktur penjualan yang belum lunas, dikelompokkan menurut umurnya.
 
@@ -199,7 +252,13 @@ class FinanceStatusRepository:
         layar supaya tidak dikira tenggat yang disepakati dengan klien.
         """
         try:
-            bayar = terbayar_faktur_sql()
+            # BATAS TANGGAL: inilah yang membuat riwayat benar-benar riwayat.
+            # Tanpanya tiap titik bulan menghitung dokumen yang sama persis
+            # dan grafiknya mendatar sempurna — terbaca sebagai perusahaan
+            # yang tidak berubah sama sekali, bukan sebagai kueri yang lupa
+            # dibatasi.
+            hari_ini = pada or d.today()
+            bayar = terbayar_faktur_sql(hari_ini)
 
             # Nilai tagihan DINILAI SAMA dengan yang menentukan lunas.
             #
@@ -242,12 +301,12 @@ class FinanceStatusRepository:
                         # tagihan di layar ini dan tidak di rekap bulanan —
                         # dua jawaban atas dokumen yang sama.
                         sales_invoice_tables.c.isApprove == True,  # noqa: E712
+                        sales_invoice_tables.c.date <= hari_ini,
                         sisa > TOLERANSI_LUNAS,
                     )
                 )
             )
 
-            hari_ini = d.today()
             ember = {"0-30": 0.0, "31-60": 0.0, "61-90": 0.0, "90+": 0.0}
             total = 0.0
             dokumen = []
@@ -298,7 +357,7 @@ class FinanceStatusRepository:
                     "error": ErrorCode.INTERNAL}
 
     @staticmethod
-    async def utang_usaha() -> Dict[str, Any]:
+    async def utang_usaha(pada: d | None = None) -> Dict[str, Any]:
         """
         Pembelian yang belum lunas, dikelompokkan menurut jatuh temponya.
 
@@ -307,6 +366,7 @@ class FinanceStatusRepository:
         perkiraan dari tanggal dokumen.
         """
         try:
+            hari_ini = pada or d.today()
             bayar = (
                 select(
                     payments_outgoing_table.c.purchaseID.label("purchase_id"),
@@ -328,6 +388,11 @@ class FinanceStatusRepository:
                     # `belum_dibayar` dan `pinjaman` menyaring keduanya sejak
                     # awal; hanya di sini yang tertinggal.
                     payments_outgoing_table.c.isApprove == True,  # noqa: E712
+                    # Pembayaran SESUDAH tanggal itu belum terjadi. Tanpa
+                    # batas ini, utang "pada Maret" ikut dikurangi pembayaran
+                    # yang baru keluar Agustus — seluruh titik lampau tampak
+                    # jauh lebih kecil daripada keadaannya saat itu.
+                    payments_outgoing_table.c.date <= hari_ini,
                 )
                 .group_by(payments_outgoing_table.c.purchaseID)
                 .subquery()
@@ -385,12 +450,12 @@ class FinanceStatusRepository:
                         # mengecualikannya sejak awal — hanya di sini yang
                         # tertinggal.
                         purchases_table.c.isInternal == False,  # noqa: E712
+                        purchases_table.c.date <= hari_ini,
                         sisa > TOLERANSI_LUNAS,
                     )
                 )
             )
 
-            hari_ini = d.today()
             ember = {"lewat": 0.0, "0-30": 0.0, "31-60": 0.0, "60+": 0.0}
             total = 0.0
             dokumen = []
@@ -451,7 +516,7 @@ class FinanceStatusRepository:
                     "error": ErrorCode.INTERNAL}
 
     @staticmethod
-    async def pinjaman() -> Dict[str, Any]:
+    async def pinjaman(pada: d | None = None) -> Dict[str, Any]:
         """
         Sisa pinjaman ke kreditur.
 
@@ -480,6 +545,7 @@ class FinanceStatusRepository:
                     and_(
                         payments_outgoing_table.c.isDelete == False,  # noqa: E712
                         payments_outgoing_table.c.isApprove == True,  # noqa: E712
+                        payments_outgoing_table.c.date <= (pada or d.today()),
                     )
                 )
                 .group_by(payments_outgoing_table.c.loanID)
@@ -701,7 +767,7 @@ class FinanceStatusRepository:
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def kewajiban_lain() -> Dict[str, Any]:
+    async def kewajiban_lain(pada: d | None = None) -> Dict[str, Any]:
         """
         Beban, reimbursement, dan slip gaji yang BELUM dibayarkan.
 
@@ -726,6 +792,7 @@ class FinanceStatusRepository:
         `nilai_pembelian_sql` dibuat untuk menghentikannya.
         """
         try:
+            hari_ini = pada or d.today()
             hasil: Dict[str, Any] = {}
 
             # --- Beban: DPP + PBBKB - PPh. PPN TIDAK ikut (disetor
@@ -741,6 +808,7 @@ class FinanceStatusRepository:
                 .where(
                     payments_outgoing_table.c.isDelete == False,  # noqa: E712
                     payments_outgoing_table.c.isApprove == True,  # noqa: E712
+                    payments_outgoing_table.c.date <= hari_ini,
                 )
                 .group_by(payments_outgoing_table.c.expenseID)
                 .subquery()
@@ -761,6 +829,7 @@ class FinanceStatusRepository:
                 .where(
                     and_(
                         e.isDelete == False,  # noqa: E712
+                        e.date <= hari_ini,
                         sisa_beban > TOLERANSI_LUNAS,
                     )
                 )
@@ -791,6 +860,7 @@ class FinanceStatusRepository:
                 .where(
                     payments_outgoing_table.c.isDelete == False,  # noqa: E712
                     payments_outgoing_table.c.isApprove == True,  # noqa: E712
+                    payments_outgoing_table.c.date <= hari_ini,
                 )
                 .group_by(payments_outgoing_table.c.reimbursementID)
                 .subquery()
@@ -809,6 +879,7 @@ class FinanceStatusRepository:
                     and_(
                         r.isDelete == False,  # noqa: E712
                         r.isApprove == True,  # noqa: E712
+                        r.date <= hari_ini,
                         sisa_reimb > TOLERANSI_LUNAS,
                     )
                 )
@@ -819,7 +890,9 @@ class FinanceStatusRepository:
             #     `salary_slips` TIDAK punya kolom total; nilainya memang
             #     dihitung dari komponennya. Yang membaca `slip["total"]`
             #     akan jatuh ke nol untuk SETIAP slip.
-            hasil["gaji"] = await FinanceStatusRepository._gaji_belum_dibayar()
+            hasil["gaji"] = await FinanceStatusRepository._gaji_belum_dibayar(
+                hari_ini
+            )
 
             total = sum(float(v["total"]) for v in hasil.values())
             jumlah = sum(int(v["jumlahDokumen"]) for v in hasil.values())
@@ -834,7 +907,7 @@ class FinanceStatusRepository:
             }
 
     @staticmethod
-    async def _gaji_belum_dibayar() -> Dict[str, Any]:
+    async def _gaji_belum_dibayar(pada: d) -> Dict[str, Any]:
         """
         Slip gaji yang belum cair, dengan rumus `nilai_slip`.
 
@@ -869,13 +942,15 @@ class FinanceStatusRepository:
             LEFT JOIN (
                 SELECT salarySlipID, SUM(amount) AS dibayar
                 FROM {TABEL_KELUAR}
-                WHERE isDelete = 0 AND isApprove = 1
+                WHERE isDelete = 0 AND isApprove = 1 AND date <= :pada
                 GROUP BY salarySlipID
             ) b ON b.salarySlipID = s.id
             WHERE s.isDelete = 0
+              AND STR_TO_DATE(CONCAT(s.year, '-', s.month, '-01'), '%Y-%m-%d')
+                  <= :pada
             HAVING sisa > :toleransi
             """,
-            {"toleransi": TOLERANSI_LUNAS},
+            {"toleransi": TOLERANSI_LUNAS, "pada": pada},
         )
         total = sum(float(r["sisa"] or 0) for r in rows)
         return {"total": total, "jumlahDokumen": len(rows)}
@@ -885,7 +960,7 @@ class FinanceStatusRepository:
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def nilai_buku_aset() -> Dict[str, Any]:
+    async def nilai_buku_aset(pada: d | None = None) -> Dict[str, Any]:
         """
         Nilai buku aset tetap: perolehan dikurangi penyusutan terkumpul.
 
@@ -902,7 +977,7 @@ class FinanceStatusRepository:
         Angkanya karena itu perkiraan, bukan angka pembukuan.
         """
         try:
-            hari_ini = d.today()
+            hari_ini = pada or d.today()
             rows = await database.fetch_all(
                 select(
                     asset_table.c.value,
@@ -1066,7 +1141,7 @@ class FinanceStatusRepository:
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def arus_setahun() -> Dict[str, Any]:
+    async def arus_setahun(pada: d | None = None) -> Dict[str, Any]:
         """
         Pendapatan dan pembelian 12 bulan terakhir — penyebut DSO dan DPO.
 
@@ -1080,7 +1155,7 @@ class FinanceStatusRepository:
         DSO-nya menghitung piutang atas pendapatan yang tidak memuatnya.
         """
         try:
-            hari_ini = d.today()
+            hari_ini = pada or d.today()
             awal = hari_ini - timedelta(days=365)
 
             pendapatan = await database.fetch_val(
@@ -1123,7 +1198,7 @@ class FinanceStatusRepository:
             }
 
     @staticmethod
-    async def konsentrasi_piutang() -> Dict[str, Any]:
+    async def konsentrasi_piutang(pada: d | None = None) -> Dict[str, Any]:
         """
         Berapa bagian piutang yang menumpuk pada SATU klien.
 
@@ -1133,7 +1208,8 @@ class FinanceStatusRepository:
         berarti satu klien yang terlambat membuat kas perusahaan berhenti.
         """
         try:
-            bayar = terbayar_faktur_sql()
+            hari_ini = pada or d.today()
+            bayar = terbayar_faktur_sql(hari_ini)
             nilai = nilai_faktur_sql()
             sisa = nilai - func.coalesce(bayar.c.total_paid, 0)
 
@@ -1151,6 +1227,7 @@ class FinanceStatusRepository:
                     and_(
                         sales_invoice_tables.c.isDelete == False,  # noqa: E712
                         sales_invoice_tables.c.isApprove == True,  # noqa: E712
+                        sales_invoice_tables.c.date <= hari_ini,
                         sisa > TOLERANSI_LUNAS,
                     )
                 )

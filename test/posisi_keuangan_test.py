@@ -801,3 +801,76 @@ class TestPosisiTerhadapPita:
         assert "debtToEquity" in p
         assert "dso" in p
         assert p["dso"]["posisi"] == "didalam"
+
+
+class TestHitunganDapatDicek:
+    """
+    Rasio yang tidak dapat ditelusuri ke komponennya adalah rasio yang hanya
+    dapat DIPERCAYA — dan yang dipercaya tanpa dapat dicek akan ditanyakan
+    berulang kali, sampai yang menjawab membuka laporan lain untuk
+    membuktikannya.
+    """
+
+    @pytest.mark.asyncio
+    async def test_quick_ratio_membawa_pembilang_dan_penyebutnya(self, repo):
+        repo["lain"] = {"total": 30.0, "jumlahDokumen": 4, "rincian": {}}
+        h = (await FS.get_status())["hitungan"]["quickRatio"]
+
+        assert h["pembilang"]["nilai"] == pytest.approx(160.0)
+        assert h["penyebut"]["nilai"] == pytest.approx(80.0)
+        # Dan penyusunnya, bukan cuma jumlahnya.
+        kategori = [x["kategori"] for x in h["penyebut"]["rincian"]]
+        assert kategori == ["utangUsaha", "kewajibanLain"]
+
+    @pytest.mark.asyncio
+    async def test_dso_membawa_pengalinya_juga(self, repo):
+        """
+        Tanpa pengali hari, angka 36,5 tidak dapat dicocokkan dengan apa pun:
+        yang mengeceknya tidak tahu apakah 365 atau 360 yang dipakai.
+        """
+        h = (await FS.get_status())["hitungan"]["dso"]
+        assert h["pembilang"]["nilai"] == 60.0
+        assert h["penyebut"]["nilai"] == 600.0
+        assert h["pengali"]["nilai"] == 365
+
+    @pytest.mark.asyncio
+    async def test_konsentrasi_membawa_klien_terbesarnya(self, repo):
+        h = (await FS.get_status())["hitungan"]["konsentrasiPiutang"]
+        assert h["pembilang"]["nilai"] == 40.0
+        assert h["penyebut"]["nilai"] == 60.0
+
+    @pytest.mark.asyncio
+    async def test_hitungan_marjin_TIDAK_bocor_jadi_rasio(self, repo, monkeypatch):
+        """
+        `_hitungan` bukan rasio melainkan rincian penyusunnya.
+
+        Dibiarkan masuk, penilaian pita akan mencoba menilai sebuah dict dan
+        layar menggambar kartu rasio bernama "_hitungan" — di antara angka
+        keuangan yang lain, di halaman yang dibuka stakeholder.
+        """
+        async def _marjin_palsu(ekuitas, pendapatan):
+            return {
+                "rasioOverhead": 0.185,
+                "_hitungan": {
+                    "rasioOverhead": {
+                        "pembilang": {
+                            "label": "bebanUsaha",
+                            "nilai": 185.0,
+                            "rincian": [{"kategori": "gaji", "nilai": 120.0}],
+                        },
+                        "penyebut": {"label": "pendapatan", "nilai": 1000.0},
+                    }
+                },
+            }
+
+        monkeypatch.setattr(FS, "_marjin", staticmethod(_marjin_palsu))
+        hasil = await FS.get_status(user_level=5)
+
+        assert "_hitungan" not in hasil["rasio"]
+        assert hasil["rasio"]["rasioOverhead"] == 0.185
+        # Rinciannya sampai ke tempat yang benar.
+        beban = hasil["hitungan"]["rasioOverhead"]
+        assert beban["pembilang"]["nilai"] == 185.0
+        assert beban["pembilang"]["rincian"][0]["kategori"] == "gaji"
+        # Dan tetap dinilai terhadap pitanya.
+        assert hasil["penilaian"]["rasioOverhead"]["posisi"] == "diatas"

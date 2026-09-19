@@ -292,6 +292,75 @@ class FinanceStatusController:
                 else None
             )
 
+            # Penyusun tiap rasio — supaya angkanya dapat DICEK sendiri.
+            hitungan: Dict[str, Any] = {
+                "quickRatio": {
+                    "pembilang": {
+                        "label": "kasDanPiutang",
+                        "nilai": kas_dipakai + total_piutang,
+                        "rincian": [
+                            {"kategori": "kas", "nilai": kas_dipakai},
+                            {"kategori": "piutang", "nilai": total_piutang},
+                        ],
+                    },
+                    "penyebut": {
+                        "label": "kewajibanLancar",
+                        "nilai": kewajiban_lancar,
+                        "rincian": [
+                            {"kategori": "utangUsaha", "nilai": total_utang},
+                            {"kategori": "kewajibanLain", "nilai": total_lain},
+                        ],
+                    },
+                },
+                "debtToEquity": {
+                    "pembilang": {
+                        "label": "totalKewajiban",
+                        "nilai": kewajiban_lancar + total_pinjaman,
+                        "rincian": [
+                            {"kategori": "utangUsaha", "nilai": total_utang},
+                            {"kategori": "kewajibanLain", "nilai": total_lain},
+                            {"kategori": "pinjaman", "nilai": total_pinjaman},
+                        ],
+                    },
+                    "penyebut": {"label": "ekuitas", "nilai": ekuitas},
+                },
+                "dso": {
+                    "pembilang": {"label": "piutang", "nilai": total_piutang},
+                    "penyebut": {
+                        "label": "pendapatan12Bulan",
+                        "nilai": pendapatan_th,
+                    },
+                    "pengali": {"label": "hari", "nilai": hari},
+                },
+                "dpo": {
+                    "pembilang": {"label": "utangUsaha", "nilai": total_utang},
+                    "penyebut": {
+                        "label": "pembelian12Bulan",
+                        "nilai": pembelian_th,
+                    },
+                    "pengali": {"label": "hari", "nilai": hari},
+                },
+                "piutangTua": {
+                    "pembilang": {
+                        "label": "piutangLewat90",
+                        "nilai": float(umur_piutang.get("90+") or 0),
+                    },
+                    "penyebut": {"label": "piutang", "nilai": piutang_total},
+                },
+                "konsentrasiPiutang": {
+                    "pembilang": {
+                        "label": "klienTerbesar",
+                        "nilai": float(
+                            (konsentrasi.get("terbesar") or {}).get("sisa") or 0
+                        ),
+                    },
+                    "penyebut": {
+                        "label": "piutang",
+                        "nilai": float(konsentrasi.get("total") or 0),
+                    },
+                },
+            }
+
             rasio = {
                 "dso": dso,
                 "dpo": dpo,
@@ -323,6 +392,11 @@ class FinanceStatusController:
                     ekuitas, pendapatan_th
                 )
                 if laba:
+                    # `_hitungan` BUKAN rasio — ia rincian penyusunnya.
+                    # Membiarkannya masuk membuat penilaian pita mencoba
+                    # menilai sebuah dict, dan layar menggambar kartu rasio
+                    # bernama "_hitungan".
+                    hitungan.update(laba.pop("_hitungan", {}))
                     rasio.update(laba)
 
             # Penilaian letak tiap angka terhadap pitanya — SATU tempat,
@@ -347,6 +421,7 @@ class FinanceStatusController:
                 "kas": kas,
                 "kasDikecualikan": kas_dikecualikan,
                 "rasio": rasio,
+                "hitungan": hitungan,
                 "penilaian": penilaian,
                 "bolehMelihatLaba": boleh_melihat_laba(user_level),
                 "konsentrasi": konsentrasi,
@@ -436,10 +511,57 @@ class FinanceStatusController:
             beban_usaha = float((ytd.get("bebanUsaha") or {}).get("total") or 0)
             laba_bersih = float(ytd.get("labaSebelumPajak") or 0)
 
+            # RINCIAN penyusun tiap marjin, supaya angkanya dapat DICEK —
+            # bukan hanya dipercaya. Rasio yang tidak dapat ditelusuri ke
+            # komponennya akan ditanyakan berulang kali, dan yang menjawab
+            # harus membuka laporan lain untuk membuktikannya.
+            rincian_beban = (ytd.get("bebanUsaha") or {}).get("rincian") or []
+            rincian_hpp = (ytd.get("hpp") or {}).get("rincian") or []
+
+            hitungan = {
+                "marjinKotor": {
+                    "pembilang": {
+                        "label": "labaKotor",
+                        "nilai": laba_kotor,
+                        "rumus": "pendapatan - beban pokok proyek",
+                    },
+                    "penyebut": {"label": "pendapatan", "nilai": pendapatan},
+                    "pengurang": {
+                        "label": "hpp",
+                        "nilai": float((ytd.get("hpp") or {}).get("total") or 0),
+                        "rincian": rincian_hpp,
+                    },
+                },
+                "rasioOverhead": {
+                    "pembilang": {
+                        "label": "bebanUsaha",
+                        "nilai": beban_usaha,
+                        # Inilah yang ditanyakan: isinya apa saja.
+                        "rincian": rincian_beban,
+                    },
+                    "penyebut": {"label": "pendapatan", "nilai": pendapatan},
+                },
+                "marjinBersih": {
+                    "pembilang": {
+                        "label": "labaSebelumPajak",
+                        "nilai": laba_bersih,
+                    },
+                    "penyebut": {"label": "pendapatan", "nilai": pendapatan},
+                },
+                "roe": {
+                    "pembilang": {
+                        "label": "labaSebelumPajak",
+                        "nilai": laba_bersih,
+                    },
+                    "penyebut": {"label": "ekuitas", "nilai": ekuitas},
+                },
+            }
+
             return {
                 "marjinKotor": laba_kotor / pendapatan,
                 "marjinBersih": laba_bersih / pendapatan,
                 "rasioOverhead": beban_usaha / pendapatan,
+                "_hitungan": hitungan,
                 # ROE hanya bermakna pada ekuitas POSITIF. Pada ekuitas minus
                 # laba positif menghasilkan ROE minus, yang terbaca sebagai
                 # rugi — kebalikan dari keadaannya.

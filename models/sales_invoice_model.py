@@ -112,7 +112,7 @@ def nilai_faktur_sql():
     )
 
 
-def terbayar_faktur_sql():
+def terbayar_faktur_sql(sampai=None):
     """
     Jumlah yang sudah diterima atas satu faktur, sebagai subkueri.
 
@@ -125,8 +125,18 @@ def terbayar_faktur_sql():
 
     Repository pembayaran masuk sendiri sudah menyaringnya di setiap
     pembacaannya; hanya subkueri-subkueri inilah yang tertinggal.
+
+    `sampai` membatasi pembayaran yang dihitung sampai tanggal itu — dipakai
+    menyusun RIWAYAT rasio. Tanpanya, piutang "pada Maret" akan dikurangi
+    pembayaran yang baru masuk Agustus, sehingga seluruh titik lampau tampak
+    jauh lebih kecil daripada keadaannya saat itu; grafiknya lalu menurun
+    mulus ke masa lalu dan terbaca sebagai penagihan yang dulu rajin.
     """
     from models.payment_incoming_model import payment_incoming_table
+
+    syarat = [payment_incoming_table.c.isDelete == False]  # noqa: E712
+    if sampai is not None:
+        syarat.append(payment_incoming_table.c.date <= sampai)
 
     return (
         select(
@@ -135,7 +145,7 @@ def terbayar_faktur_sql():
                 "total_paid"
             ),
         )
-        .where(payment_incoming_table.c.isDelete == False)  # noqa: E712
+        .where(*syarat)
         .group_by(payment_incoming_table.c.salesInvoiceID)
         .subquery()
     )
