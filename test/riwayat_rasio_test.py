@@ -156,11 +156,35 @@ def sumber(monkeypatch):
     _pasang("arus_setahun", "arus")
     _pasang("konsentrasi_piutang", "konsentrasi")
 
+    # --- Versi BANYAK-TANGGAL ---
+    #
+    # Empat sumber kini diambil SEKALI untuk seluruh bulan. Tiruannya
+    # mencatat tanggal yang diterima dengan kunci yang sama seperti versi
+    # satu-tanggal, sehingga uji "tiap sumber menerima tanggalnya" tetap
+    # menjaga hal yang sama — lewat jalur yang sekarang benar-benar dipakai.
+    batch: dict = {}
+
+    def _pasang_batch(nama_repo: str, kunci: str):
+        async def _f(tanggal):
+            # Dua hal DICATAT TERPISAH: tanggal mana yang diminta, dan
+            # BERAPA KALI perjalanan ke basis data dilakukan. Yang kedua
+            # itulah biayanya, dan ia tidak terbaca dari yang pertama.
+            batch[nama_repo] = batch.get(nama_repo, 0) + 1
+            dipanggil.setdefault(kunci, []).extend(tanggal)
+            return {t.isoformat(): keadaan[kunci](t) for t in tanggal}
+
+        monkeypatch.setattr(R, nama_repo, staticmethod(_f))
+
+    _pasang_batch("kas_per_bulan", "kas")
+    _pasang_batch("aset_per_tanggal", "aset")
+    _pasang_batch("pinjaman_per_tanggal", "pinjaman")
+    _pasang_batch("arus_per_tanggal", "arus")
+
     async def _ambang():
         return dict(R_AMBANG)
 
     monkeypatch.setattr(R, "ambang", staticmethod(_ambang))
-    return {"keadaan": keadaan, "dipanggil": dipanggil}
+    return {"keadaan": keadaan, "dipanggil": dipanggil, "batch": batch}
 
 
 @pytest.mark.asyncio
@@ -176,19 +200,35 @@ async def test_setiap_sumber_menerima_tanggal_titiknya(sumber):
     tanggal_titik = [date.fromisoformat(t["tanggal"]) for t in hasil["titik"]]
 
     for kunci in (
-        "kas",
         "piutang",
         "utang",
-        "pinjaman",
         "lain",
-        "aset",
-        "arus",
         "konsentrasi",
+        "aset",
+        "pinjaman",
+        "arus",
     ):
         assert kunci in sumber["dipanggil"], f"{kunci} tidak pernah dipanggil"
         diterima = sumber["dipanggil"][kunci]
         assert None not in diterima, f"{kunci} dipanggil tanpa tanggal"
-        assert diterima == tanggal_titik, f"{kunci} menerima tanggal yang salah"
+        assert sorted(diterima) == sorted(
+            tanggal_titik
+        ), f"{kunci} menerima tanggal yang salah"
+
+    # KAS punya bentuk yang BERBEDA, dan bedanya disengaja.
+    #
+    # Bulan-bulan lampau disusun ulang dari mutasi lewat `kas_per_bulan`;
+    # titik TERAKHIR memakai saldo TERCATAT (`total_kas()` tanpa tanggal),
+    # supaya ia sama persis dengan angka besar di kepala halaman. Dua angka
+    # berbeda untuk hari yang sama, di layar yang sama, tidak dapat
+    # dijelaskan kepada siapa pun yang menanyakannya.
+    kas_diterima = sumber["dipanggil"]["kas"]
+    assert sorted(x for x in kas_diterima if x is not None) == sorted(
+        tanggal_titik[:-1]
+    ), "bulan lampau tidak seluruhnya diminta ke `kas_per_bulan`"
+    assert (
+        None in kas_diterima
+    ), "titik terakhir tidak memakai saldo tercatat"
 
 
 @pytest.mark.asyncio
@@ -434,3 +474,66 @@ async def test_kas_nol_yang_MEMANG_nol_tetap_digambar_sebagai_nol(sumber):
     assert t["kasTidakTerbaca"] is False
     assert t["kas"] == 0.0
     assert t["quickRatio"] is not None
+
+
+# --------------------------------------------------------------------------
+# Biaya: berapa kali basis data disentuh
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sumber_mahal_diambil_SEKALI_untuk_seluruh_bulan(sumber):
+    """
+    INI PENJAGA KECEPATANNYA, dan ia menjaga hal yang tidak terlihat.
+
+    Riwayat dua belas bulan dulu memanggil setiap sumber dua belas kali.
+    Untuk kebanyakan sumber itu hanya boros; untuk `total_kas` itu fatal:
+    ia memindai VIEW `mutation` lewat kunci yang DIHITUNG
+    (`CONCAT(date, LPAD(sortorder), LPAD(tiebreaker))`), yang tidak dapat
+    memakai indeks apa pun. Dua belas panggilan berarti dua belas kali
+    menyusun ulang seluruh riwayat transaksi perusahaan.
+
+    Yang membuatnya berbahaya: mengembalikannya ke bentuk lama TIDAK
+    menghasilkan galat, tidak mengubah satu angka pun, dan tidak membuat satu
+    uji pun merah. Yang berubah hanya halaman yang menggantung — dan
+    halaman yang menggantung akan berhenti dibuka orang.
+
+    Karena itu yang dihitung di sini bukan hasilnya melainkan BERAPA KALI
+    sumbernya dipanggil.
+    """
+    hasil = await FS.riwayat(12)
+    assert len(hasil["titik"]) == 12
+
+    # `total_kas` per tanggal TIDAK boleh dipanggil sama sekali untuk bulan
+    # lampau; yang dipakai `kas_per_bulan`, satu kali untuk semuanya.
+    kas = sumber["dipanggil"]["kas"]
+    assert kas.count(None) == 1, "saldo tercatat diambil lebih dari sekali"
+
+    # Empat sumber di bawah diambil sekali untuk seluruh bulan. Panggilan
+    # tiruannya mencatat dua belas TANGGAL, tetapi lewat SATU panggilan —
+    # yang dijaga di sini jumlah perjalanan ke basis data.
+    assert sumber["batch"]["kas_per_bulan"] == 1
+    assert sumber["batch"]["aset_per_tanggal"] == 1
+    assert sumber["batch"]["pinjaman_per_tanggal"] == 1
+    assert sumber["batch"]["arus_per_tanggal"] == 1
+
+
+@pytest.mark.asyncio
+async def test_potret_tetap_benar_bila_dipanggil_sendirian(sumber):
+    """
+    `_potret` harus tetap dapat berdiri sendiri.
+
+    Sumber yang sudah diambil diteruskan pemanggil; yang TIDAK diteruskan
+    harus diambil sendiri. Tanpa jalan mundur ini, memanggil `_potret`
+    langsung — dari uji, dari kode baru — menghasilkan potret dengan empat
+    sumber kosong dan tidak ada apa pun yang menandainya.
+    """
+    from datetime import date as d
+
+    t = await FS._potret(d(2026, 8, 31))
+    assert t["tanggal"] == "2026-08-31"
+    assert t["quickRatio"] is not None
+    assert t["dso"] is not None
+    # Sumbernya diambil sendiri, dengan tanggal yang benar.
+    assert d(2026, 8, 31) in sumber["dipanggil"]["aset"]
+    assert d(2026, 8, 31) in sumber["dipanggil"]["pinjaman"]

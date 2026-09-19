@@ -360,8 +360,13 @@ def test_utang_usaha_menyaring_pembelian_internal():
     jalur = os.path.join(akar, "repository", "finance_status_repository.py")
     sumber = open(jalur, encoding="utf-8").read()
 
-    awal = sumber.index("async def utang_usaha")
-    akhir = sumber.index("async def pinjaman")
+    # Penanda memakai KURUNG BUKA, bukan nama telanjang.
+    #
+    # "async def pinjaman" juga cocok dengan `pinjaman_per_tanggal`, yang
+    # letaknya di ATAS `utang_usaha` — potongannya lalu terbalik dan kosong,
+    # dan uji ini berubah menjadi hijau yang tidak memeriksa apa pun.
+    awal = sumber.index("async def utang_usaha(")
+    akhir = sumber.index("async def pinjaman(", awal)
     badan = sumber[awal:akhir]
 
     assert "isInternal == False" in badan, (

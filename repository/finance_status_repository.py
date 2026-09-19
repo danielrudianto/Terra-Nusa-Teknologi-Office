@@ -260,6 +260,348 @@ class FinanceStatusRepository:
             }
 
     @staticmethod
+    async def kas_per_bulan(tanggal: list) -> Dict[str, Dict[str, Any]]:
+        """
+        Saldo kas pada BANYAK tanggal sekaligus — SATU kueri, bukan satu per
+        tanggal.
+
+        KENAPA INI ADA
+
+        `total_kas(pada)` memanggil `Mutation._saldo_awal_sebelum`, dan kueri
+        itu MAHAL dengan cara yang tidak terlihat dari bentuknya: ia
+        menggabungkan `mutation` dengan dirinya sendiri lewat kunci yang
+        DIHITUNG — `CONCAT(date, LPAD(sortorder), LPAD(tiebreaker))`. Kunci
+        hitung tidak dapat memakai indeks apa pun, jadi setiap panggilan
+        memindai seluruh riwayat transaksi perusahaan, dua kali.
+
+        Riwayat rasio memanggilnya DUA BELAS KALI. Dan `mutation` bukan tabel
+        melainkan VIEW: setiap pemindaian menyusun ulang isinya dari tabel
+        pembayaran di baliknya. Itulah sebab utama halaman riwayat terasa
+        menggantung, dan bukan jumlah kuerinya — melainkan biaya satu di
+        antaranya, dikalikan dua belas.
+
+        CARA KERJA YANG BARU
+
+        Satu pemindaian, dikelompokkan per rekening DAN per bulan, mengambil
+        saldo baris TERAKHIR tiap bulan. Kunci urutnya sama persis dengan yang
+        dipakai `_saldo_awal_sebelum` — tanggal, `sortorder`, `tiebreaker`,
+        berlapis nol — sehingga "terakhir" di sini berarti hal yang sama.
+        Saldonya dititipkan di ekor kunci lalu dipotong kembali, karena MySQL
+        tidak punya "ambil kolom lain dari baris yang MAX-nya".
+
+        Bulan TANPA mutasi tidak muncul di hasilnya, dan itu benar: saldonya
+        sama dengan bulan terakhir yang ada. Pengisian mundur itu dilakukan di
+        Python, di bawah.
+
+        SETIAP TANGGAL HARUS AKHIR BULAN. Pengelompokan per bulan tidak dapat
+        menjawab tanggal di tengah bulan — ia akan memberi saldo AKHIR bulan
+        itu, yaitu masa depan bagi tanggal yang diminta. Pemanggil yang
+        membutuhkan tanggal tengah bulan memakai `total_kas(pada)` seperti
+        biasa; riwayat tidak, karena titik terakhirnya memakai saldo tercatat.
+        """
+        hasil: Dict[str, Dict[str, Any]] = {}
+        if not tanggal:
+            return hasil
+        try:
+            from models.mutation_model import Mutation  # noqa: F401  (lihat total_kas)
+
+            sampai = max(tanggal)
+            baris = await database.fetch_all(
+                """
+                SELECT bankaccountid,
+                       DATE_FORMAT(date, '%Y-%m') AS bulan,
+                       SUBSTRING_INDEX(
+                         MAX(CONCAT(date, '-',
+                                    LPAD(sortorder, 2, '0'), '-',
+                                    LPAD(tiebreaker, 10, '0'), '|',
+                                    CAST(balance AS CHAR))),
+                         '|', -1) AS saldo
+                FROM mutation
+                WHERE date <= :sampai
+                GROUP BY bankaccountid, DATE_FORMAT(date, '%Y-%m')
+                """,
+                {"sampai": sampai},
+            )
+
+            rekening = await database.fetch_all(
+                "SELECT id, excludeFromCalendar FROM bank_accounts "
+                "WHERE isDelete = 0"
+            )
+            dikecualikan_id = {
+                r["id"] for r in rekening
+                if bool(getattr(r, "excludeFromCalendar", False))
+            }
+            semua_id = {r["id"] for r in rekening}
+
+            # {rekening: [(bulan, saldo), ...]} urut menaik.
+            per_akun: Dict[int, list] = {}
+            for b in baris:
+                per_akun.setdefault(int(b["bankaccountid"]), []).append(
+                    (str(b["bulan"]), float(b["saldo"] or 0))
+                )
+            for v in per_akun.values():
+                v.sort()
+
+            for t in tanggal:
+                kunci_bulan = f"{t.year:04d}-{t.month:02d}"
+                total = 0.0
+                dikecualikan = 0.0
+                for akun in semua_id:
+                    saldo = 0.0
+                    # Bulan TERAKHIR yang tidak melampaui bulan potretnya.
+                    for bulan, nilai in per_akun.get(akun, []):
+                        if bulan > kunci_bulan:
+                            break
+                        saldo = nilai
+                    if akun in dikecualikan_id:
+                        dikecualikan += saldo
+                    else:
+                        total += saldo
+                hasil[t.isoformat()] = {
+                    "total": total,
+                    "dikecualikan": dikecualikan,
+                    "jumlahDikecualikan": len(dikecualikan_id),
+                }
+            return hasil
+        except Exception as e:
+            log_error(f"Error menghitung kas per bulan: {str(e)}")
+            # Penanda `gagal` pada SETIAP tanggal — bukan hasil kosong.
+            # Hasil kosong membuat pemanggil jatuh ke nol diam-diam, dan nol
+            # pada kas berarti "tidak ada uang", bukan "tidak terbaca".
+            return {
+                t.isoformat(): {
+                    "total": 0.0,
+                    "dikecualikan": 0.0,
+                    "jumlahDikecualikan": 0,
+                    "gagal": True,
+                }
+                for t in tanggal
+            }
+
+    # ------------------------------------------------------------------
+    # Versi BANYAK-TANGGAL sekaligus — untuk riwayat rasio
+    # ------------------------------------------------------------------
+    #
+    # KENAPA ADA DUA VERSI DARI FUNGSI YANG SAMA
+    #
+    # Halaman posisi keuangan menanyakan SATU tanggal; riwayat rasio
+    # menanyakan dua belas. Dijawab dengan memanggil versi satu-tanggal dua
+    # belas kali, yang terjadi bukan sekadar dua belas kali lebih banyak
+    # pekerjaan di basis data — melainkan dua belas kali perjalanan
+    # bolak-balik jaringan untuk setiap sumber. Pada basis data yang berada
+    # di mesin lain, waktu tunggu itulah yang mendominasi, bukan waktu
+    # hitungnya, dan ia tidak terlihat sama sekali dari rencana kueri.
+    #
+    # Yang dilakukan di bawah selalu bentuk yang sama: AMBIL barisnya sekali
+    # tanpa batas tanggal per titik, lalu susun kedua belas potretnya di
+    # Python. Rumusnya disalin apa adanya dari versi satu-tanggal, dan
+    # `test/riwayat_batch_test.py` membandingkan keduanya baris demi baris —
+    # salinan yang menyimpang seujung pun akan membuat grafik menyebut angka
+    # yang berbeda dari kartu di atasnya, untuk hari yang sama.
+
+    @staticmethod
+    async def aset_per_tanggal(tanggal: list) -> Dict[str, Dict[str, Any]]:
+        """Nilai buku aset pada banyak tanggal — SATU kueri."""
+        if not tanggal:
+            return {}
+        try:
+            batas = max(tanggal)
+            rows = await database.fetch_all(
+                select(
+                    asset_table.c.value,
+                    asset_table.c.depreciation,
+                    asset_table.c.purchaseDate,
+                    asset_table.c.soldDate,
+                ).where(asset_table.c.purchaseDate <= batas)
+            )
+            hasil: Dict[str, Dict[str, Any]] = {}
+            for t in tanggal:
+                perolehan = 0.0
+                nilai_buku = 0.0
+                jumlah = 0
+                idx_kini = t.year * 12 + t.month
+                for r in rows:
+                    if r["soldDate"] is not None:
+                        continue
+                    pd_ = r["purchaseDate"]
+                    # Batas tanggal ada di kueri untuk `max(tanggal)`; tiap
+                    # titik menyaring lagi di sini. Tanpa ini, aset yang
+                    # dibeli Agustus ikut dihitung pada potret Oktober tahun
+                    # lalu — dan neraca masa lalu membesar tanpa sebab.
+                    if pd_ is None or pd_ > t:
+                        continue
+                    nilai = float(r["value"] or 0)
+                    tahun = int(r["depreciation"] or 0)
+                    if nilai <= 0:
+                        continue
+                    jumlah += 1
+                    perolehan += nilai
+                    if tahun <= 0:
+                        nilai_buku += nilai
+                        continue
+                    bulan_jalan = idx_kini - (pd_.year * 12 + pd_.month) + 1
+                    bulan_jalan = max(0, min(bulan_jalan, tahun * 12))
+                    akumulasi = nilai / (tahun * 12) * bulan_jalan
+                    nilai_buku += max(0.0, nilai - akumulasi)
+                hasil[t.isoformat()] = {
+                    "nilaiBuku": round(nilai_buku, 2),
+                    "perolehan": round(perolehan, 2),
+                    "akumulasiPenyusutan": round(perolehan - nilai_buku, 2),
+                    "jumlahAset": jumlah,
+                }
+            return hasil
+        except Exception as e:
+            log_error(f"Error menghitung aset per tanggal: {str(e)}")
+            return {
+                t.isoformat(): {
+                    "nilaiBuku": 0.0, "perolehan": 0.0,
+                    "akumulasiPenyusutan": 0.0, "jumlahAset": 0,
+                    "error": ErrorCode.INTERNAL,
+                }
+                for t in tanggal
+            }
+
+    @staticmethod
+    async def pinjaman_per_tanggal(tanggal: list) -> Dict[str, Dict[str, Any]]:
+        """Sisa pinjaman pada banyak tanggal — DUA kueri."""
+        if not tanggal:
+            return {}
+        try:
+            batas = max(tanggal)
+            pinjam = await database.fetch_all(
+                select(loans_table.c.id, loans_table.c.debt, loans_table.c.date)
+            )
+            angsur = await database.fetch_all(
+                select(
+                    payments_outgoing_table.c.loanID.label("loan_id"),
+                    payments_outgoing_table.c.date,
+                    payments_outgoing_table.c.amount,
+                ).where(
+                    and_(
+                        payments_outgoing_table.c.isDelete == False,  # noqa: E712
+                        payments_outgoing_table.c.isApprove == True,  # noqa: E712
+                        payments_outgoing_table.c.loanID != None,  # noqa: E711
+                        payments_outgoing_table.c.date <= batas,
+                    )
+                )
+            )
+            bayar: Dict[int, list] = {}
+            for a in angsur:
+                bayar.setdefault(int(a["loan_id"]), []).append(
+                    (a["date"], float(a["amount"] or 0))
+                )
+
+            hasil: Dict[str, Dict[str, Any]] = {}
+            for t in tanggal:
+                total = 0.0
+                jumlah = 0
+                for p in pinjam:
+                    # PINJAMAN YANG BELUM ADA TIDAK DIHITUNG.
+                    #
+                    # Versi satu-tanggal tidak menyaring ini, dan pada
+                    # halaman "hari ini" itu tidak pernah terlihat: seluruh
+                    # pinjaman memang sudah ada. Pada riwayat ia terlihat —
+                    # pinjaman yang baru diambil bulan lalu muncul sebagai
+                    # utang setahun yang lalu, membuat ekuitas masa lalu
+                    # lebih buruk daripada keadaannya.
+                    tgl = p["date"]
+                    if tgl is not None and tgl > t:
+                        continue
+                    sisa = float(p["debt"] or 0) - sum(
+                        n for tg, n in bayar.get(int(p["id"]), []) if tg <= t
+                    )
+                    if sisa > TOLERANSI_LUNAS:
+                        total += sisa
+                        jumlah += 1
+                hasil[t.isoformat()] = {"total": total, "jumlahPinjaman": jumlah}
+            return hasil
+        except Exception as e:
+            log_error(f"Error menghitung pinjaman per tanggal: {str(e)}")
+            return {
+                t.isoformat(): {
+                    "total": 0.0, "jumlahPinjaman": 0,
+                    "error": ErrorCode.INTERNAL,
+                }
+                for t in tanggal
+            }
+
+    @staticmethod
+    async def arus_per_tanggal(tanggal: list) -> Dict[str, Dict[str, Any]]:
+        """
+        Pendapatan & pembelian 12 bulan terakhir pada banyak tanggal — DUA
+        kueri.
+
+        Dijumlah PER HARI, bukan per bulan. Jendelanya 365 hari ke belakang
+        dari tiap titik, dan batas bawahnya jatuh di tengah bulan — ember
+        bulanan akan memberi angka yang MIRIP tetapi tidak sama, dan angka
+        yang mirip tetapi tidak sama adalah yang paling sulit dijelaskan.
+        Jumlah hari berbeda dalam empat tahun hanya seribu limaratusan baris.
+        """
+        if not tanggal:
+            return {}
+        try:
+            batas = max(tanggal)
+            awal = min(tanggal) - timedelta(days=365)
+
+            pendapatan_rows = await database.fetch_all(
+                select(
+                    sales_invoice_tables.c.date,
+                    func.sum(nilai_faktur_sql()).label("total"),
+                )
+                .where(
+                    and_(
+                        sales_invoice_tables.c.isDelete == False,  # noqa: E712
+                        sales_invoice_tables.c.isApprove == True,  # noqa: E712
+                        sales_invoice_tables.c.date >= awal,
+                        sales_invoice_tables.c.date <= batas,
+                    )
+                )
+                .group_by(sales_invoice_tables.c.date)
+            )
+            pembelian_rows = await database.fetch_all(
+                select(
+                    purchases_table.c.date,
+                    func.sum(nilai_pembelian_sql()).label("total"),
+                )
+                .where(
+                    and_(
+                        purchases_table.c.isDelete == False,  # noqa: E712
+                        purchases_table.c.isInternal == False,  # noqa: E712
+                        purchases_table.c.date >= awal,
+                        purchases_table.c.date <= batas,
+                    )
+                )
+                .group_by(purchases_table.c.date)
+            )
+
+            def jumlah(rows, dari, sampai) -> float:
+                return sum(
+                    float(r["total"] or 0)
+                    for r in rows
+                    if dari <= r["date"] <= sampai
+                )
+
+            hasil: Dict[str, Dict[str, Any]] = {}
+            for t in tanggal:
+                dari = t - timedelta(days=365)
+                hasil[t.isoformat()] = {
+                    "pendapatan": jumlah(pendapatan_rows, dari, t),
+                    "pembelian": jumlah(pembelian_rows, dari, t),
+                    "hari": 365,
+                    "sejak": dari.isoformat(),
+                }
+            return hasil
+        except Exception as e:
+            log_error(f"Error menghitung arus per tanggal: {str(e)}")
+            return {
+                t.isoformat(): {
+                    "pendapatan": 0.0, "pembelian": 0.0, "hari": 365,
+                    "error": ErrorCode.INTERNAL,
+                }
+                for t in tanggal
+            }
+
+    @staticmethod
     async def piutang(pada: d | None = None) -> Dict[str, Any]:
         """
         Faktur penjualan yang belum lunas, dikelompokkan menurut umurnya.
@@ -575,7 +917,20 @@ class FinanceStatusRepository:
                 .select_from(
                     loans_table.outerjoin(bayar, bayar.c.loan_id == loans_table.c.id)
                 )
-                .where(sisa > TOLERANSI_LUNAS)
+                .where(
+                    and_(
+                        sisa > TOLERANSI_LUNAS,
+                        # PINJAMAN YANG BELUM DIAMBIL BUKAN UTANG.
+                        #
+                        # Angsurannya sudah dibatasi tanggal, pokoknya belum.
+                        # Pada halaman "hari ini" itu tidak pernah terlihat —
+                        # semua pinjaman memang sudah ada. Pada riwayat ia
+                        # terlihat: pinjaman yang baru diambil bulan lalu
+                        # muncul sebagai utang setahun yang lalu, dan ekuitas
+                        # masa lalu tergambar lebih buruk daripada keadaannya.
+                        loans_table.c.date <= (pada or d.today()),
+                    )
+                )
             )
 
             total = sum(float(r["sisa"] or 0) for r in rows)

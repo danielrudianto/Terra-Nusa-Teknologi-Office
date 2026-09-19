@@ -86,6 +86,15 @@ class FinanceStatusController:
     #: pemindaian seluruh riwayat.
     MAKS_MUNDUR = 12
 
+    #: Berapa bulan riwayat dihitung berbarengan.
+    #:
+    #: Tiap bulan melepas tujuh kueri. Empat bulan = dua puluh delapan kueri
+    #: beredar — cukup untuk membuat kolam koneksi sibuk, belum cukup untuk
+    #: membuatnya mengantre. Dinaikkan lagi, yang bertambah bukan kecepatan
+    #: melainkan waktu tunggu di dalam kolam, dan pada kolam yang kecil ia
+    #: berubah menjadi timeout yang tampak sebagai halaman gagal dimuat.
+    BULAN_SERENTAK = 4
+
     @staticmethod
     async def get_status(user_level: int = 1) -> Dict[str, Any]:
         """
@@ -654,7 +663,9 @@ class FinanceStatusController:
         return titik
 
     @staticmethod
-    async def _potret(pada: d) -> Dict[str, Any]:
+    async def _potret(
+        pada: d, siap: Dict[str, Any] | None = None
+    ) -> Dict[str, Any]:
         """
         Rasio likuiditas dan penagihan PADA satu tanggal.
 
@@ -664,25 +675,52 @@ class FinanceStatusController:
         tercetak di atasnya — dan yang melihatnya akan mengira salah satunya
         rusak tanpa tahu yang mana.
         """
-        (
-            kas,
-            piutang,
-            utang,
-            pinjaman,
-            lain,
-            aset_tetap,
-            arus,
-            konsentrasi,
-        ) = await asyncio.gather(
-            FinanceStatusRepository.total_kas(pada),
-            FinanceStatusRepository.piutang(pada),
-            FinanceStatusRepository.utang_usaha(pada),
-            FinanceStatusRepository.pinjaman(pada),
-            FinanceStatusRepository.kewajiban_lain(pada),
-            FinanceStatusRepository.nilai_buku_aset(pada),
-            FinanceStatusRepository.arus_setahun(pada),
-            FinanceStatusRepository.konsentrasi_piutang(pada),
-        )
+        # KAS DIAMBIL DI LUAR, sekali untuk seluruh bulan.
+        #
+        # `total_kas(pada)` memindai view `mutation` dengan kunci hitung yang
+        # tidak dapat memakai indeks; memanggilnya per bulan berarti dua belas
+        # pemindaian penuh atas seluruh riwayat transaksi perusahaan. Lihat
+        # `kas_per_bulan` untuk rinciannya. Bila pemanggil tidak menyediakan,
+        # jalur lama tetap dipakai — supaya fungsi ini tetap benar sendirian.
+        # SUMBER YANG SUDAH DIAMBIL SEKALIGUS diteruskan pemanggil.
+        #
+        # Empat di antaranya — kas, aset, pinjaman, arus — diambil SEKALI
+        # untuk seluruh bulan lalu disusun di Python. Lihat catatan pada
+        # `kas_per_bulan` dan `aset_per_tanggal` di repositori: yang mahal
+        # bukan hitungannya melainkan perjalanan bolak-baliknya, dan
+        # perjalanan itu dikali dua belas.
+        #
+        # Yang TIDAK disediakan pemanggil tetap diambil sendiri, supaya
+        # fungsi ini tetap benar bila dipanggil sendirian.
+        siap = siap or {}
+        kas = siap.get("kas")
+        if kas is None:
+            kas = await FinanceStatusRepository.total_kas(pada)
+
+        perlu = []
+        aset_siap = siap.get("aset")
+        pinjaman_siap = siap.get("pinjaman")
+        arus_siap = siap.get("arus")
+
+        perlu.append(FinanceStatusRepository.piutang(pada))
+        perlu.append(FinanceStatusRepository.utang_usaha(pada))
+        perlu.append(FinanceStatusRepository.kewajiban_lain(pada))
+        perlu.append(FinanceStatusRepository.konsentrasi_piutang(pada))
+        if aset_siap is None:
+            perlu.append(FinanceStatusRepository.nilai_buku_aset(pada))
+        if pinjaman_siap is None:
+            perlu.append(FinanceStatusRepository.pinjaman(pada))
+        if arus_siap is None:
+            perlu.append(FinanceStatusRepository.arus_setahun(pada))
+
+        hasil = list(await asyncio.gather(*perlu))
+        piutang = hasil.pop(0)
+        utang = hasil.pop(0)
+        lain = hasil.pop(0)
+        konsentrasi = hasil.pop(0)
+        aset_tetap = aset_siap if aset_siap is not None else hasil.pop(0)
+        pinjaman = pinjaman_siap if pinjaman_siap is not None else hasil.pop(0)
+        arus = arus_siap if arus_siap is not None else hasil.pop(0)
 
         # KAS YANG TIDAK TERBACA BUKAN KAS NOL.
         #
@@ -794,18 +832,77 @@ class FinanceStatusController:
         try:
             mundur = max(1, min(int(mundur), FinanceStatusController.MAKS_MUNDUR))
 
-            # BERURUTAN per bulan, bukan seluruhnya sekaligus.
-            #
-            # `gather` atas 12 bulan sekaligus berarti 96 kueri dilepas
-            # bersamaan ke kolam koneksi yang jauh lebih kecil dari itu;
-            # yang terjadi bukan lebih cepat melainkan antrean dan
-            # kemungkinan timeout. Di dalam satu bulan barulah kedelapannya
-            # berbarengan.
-            titik = []
-            for tanggal in FinanceStatusController._titik_bulan(mundur):
-                titik.append(await FinanceStatusController._potret(tanggal))
+            tanggal = FinanceStatusController._titik_bulan(mundur)
 
-            ambang = await FinanceStatusRepository.ambang()
+            # ---- KAS: SATU kueri untuk seluruh bulan ----
+            #
+            # Inilah perbaikan yang paling terasa. `total_kas(pada)` memindai
+            # view `mutation` lewat kunci hitung yang tidak dapat memakai
+            # indeks; dipanggil per bulan, ia dua belas kali menyusun ulang
+            # seluruh riwayat transaksi perusahaan. Halaman riwayat terasa
+            # menggantung bukan karena banyaknya kueri, melainkan karena
+            # biaya SATU di antaranya dikalikan dua belas.
+            #
+            # Titik TERAKHIR dikecualikan dan memakai saldo TERCATAT, bukan
+            # rekonstruksi. Dua alasan, dan keduanya penting:
+            #
+            #   1. Ia tanggal hari ini, bukan akhir bulan — pengelompokan per
+            #      bulan akan memberinya saldo akhir bulan yang belum terjadi.
+            #   2. Titik terakhir itulah yang sejajar dengan angka besar di
+            #      kepala halaman. Menyusunnya ulang dari mutasi berarti dua
+            #      angka untuk hari yang sama, dan selisih sekecil apa pun di
+            #      antara keduanya tidak akan dapat dijelaskan kepada siapa
+            #      pun yang menanyakannya.
+            #
+            # Catatan dokumentasi sebelumnya sudah menjanjikan perilaku ini;
+            # kodenya yang belum mengikutinya.
+            bulan_penuh = tanggal[:-1]
+            (
+                kas_terakhir,
+                kas_bulanan,
+                peta_aset,
+                peta_pinjaman,
+                peta_arus,
+            ) = await asyncio.gather(
+                FinanceStatusRepository.total_kas(),
+                FinanceStatusRepository.kas_per_bulan(bulan_penuh),
+                FinanceStatusRepository.aset_per_tanggal(tanggal),
+                FinanceStatusRepository.pinjaman_per_tanggal(tanggal),
+                FinanceStatusRepository.arus_per_tanggal(tanggal),
+            )
+            peta_kas = dict(kas_bulanan)
+            peta_kas[tanggal[-1].isoformat()] = kas_terakhir
+
+            # ---- Bulan dikerjakan BERBARENGAN, tetapi dibatasi ----
+            #
+            # Sebelumnya berurutan: dua belas perjalanan bolak-balik yang
+            # saling menunggu padahal tidak saling bergantung. Sekaligus
+            # semuanya juga salah — tujuh kueri kali dua belas bulan dilepas
+            # serentak ke kolam koneksi yang jauh lebih kecil, dan yang
+            # terjadi bukan lebih cepat melainkan antrean, lalu timeout.
+            #
+            # Empat bulan sekaligus: dua puluh delapan kueri beredar, cukup
+            # untuk membuat kolam sibuk tanpa membuatnya mengantre.
+            batas = asyncio.Semaphore(FinanceStatusController.BULAN_SERENTAK)
+
+            async def satu(t: d) -> Dict[str, Any]:
+                async with batas:
+                    k = t.isoformat()
+                    return await FinanceStatusController._potret(
+                        t,
+                        {
+                            "kas": peta_kas.get(k),
+                            "aset": peta_aset.get(k),
+                            "pinjaman": peta_pinjaman.get(k),
+                            "arus": peta_arus.get(k),
+                        },
+                    )
+
+            titik, ambang = await asyncio.gather(
+                asyncio.gather(*(satu(t) for t in tanggal)),
+                FinanceStatusRepository.ambang(),
+            )
+            titik = list(titik)
 
             return {
                 "mundur": mundur,
