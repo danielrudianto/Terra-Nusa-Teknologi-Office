@@ -5,10 +5,12 @@ Soalnya esai dan dinilai orang; tidak ada kunci jawaban di sini. Yang disimpan
 hanya pertanyaan, catatan, lampiran, dan nilai maksimalnya.
 """
 
+import hashlib
+import random
 import secrets
 from datetime import datetime as dt, timedelta
 
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import func, insert, or_, select, update
 
 from models.hr_recruitment_model import (
     hr_answers_table,
@@ -16,8 +18,73 @@ from models.hr_recruitment_model import (
     hr_questions_table,
     hr_tests_table,
 )
+from models.user_model import users_table
 from utils.database import database
+from utils.errors import ErrorCode, app_error
 from utils.logger_utils import log_error
+
+
+#: Panjang kode peserta.
+#:
+#: Enam cukup: kodenya hanya perlu unik di antara pelamar satu gelombang
+#: (puluhan, bukan jutaan), dan yang mengetiknya di subjek surel adalah
+#: pelamar, dari ponsel.
+PANJANG_KODE = 6
+
+
+def kode_peserta(token: str) -> str:
+    """
+    Kode pendek untuk MENYORTIR, diturunkan dari token — bukan tokennya.
+
+    KENAPA BUKAN TOKENNYA LANGSUNG. Token adalah kunci ujian itu: selama
+    pelamar belum mengirim jawabannya, siapa pun yang memegangnya dapat
+    membuka lembar itu dan mengubah isinya. Subjek surel adalah tempat yang
+    paling mudah diteruskan, dikutip, dan dibaca orang lain — menaruh kunci
+    di sana meniadakan seluruh gunanya token yang diacak.
+
+    Hash SATU ARAH, jadi kode ini tidak dapat dikembalikan menjadi token.
+    Ia juga tidak perlu disimpan: HR menghitungnya dari token yang sudah ada
+    di barisnya, pelamar membacanya dari layar ujiannya, dan keduanya selalu
+    mendapat kode yang sama.
+    """
+    if not token:
+        return ""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()[
+        :PANJANG_KODE
+    ].upper()
+
+
+def urutan_acak(soal: list, token: str) -> list:
+    """
+    Acak urutan soal — TETAP SAMA untuk pelamar yang sama.
+
+    KENAPA DIACAK. Sebelum ini setiap pelamar menerima soal yang sama persis
+    dalam urutan yang sama persis. Dikerjakan serentak di satu ruangan, nomor
+    soal menjadi bahasa bersama: "nomor 7 jawabannya apa" cukup untuk
+    menyontek tanpa melihat layar orang lain.
+
+    KENAPA HARUS STABIL. Pengacakan yang berubah tiap panggilan jauh lebih
+    buruk daripada tidak mengacak sama sekali: pelamar yang memuat ulang
+    halamannya — atau yang autosave-nya memicu pemuatan ulang — mendapat
+    urutan baru, dan soal yang sedang ia kerjakan berpindah tempat di tengah
+    kalimat. Benihnya karena itu diambil dari TOKEN pelamar, yang tidak
+    berubah sepanjang hidup lembar itu.
+
+    URUTAN ASLINYA TIDAK HILANG. `sortOrder` ikut dikembalikan, dan lembar
+    penilaian HR membacanya dengan `ORDER BY sortOrder` — yang memeriksa
+    selalu melihat urutan yang sama untuk semua pelamar, apa pun urutan yang
+    mereka kerjakan.
+    """
+    if not token or len(soal) < 2:
+        return list(soal)
+    # Benih diturunkan dari token lewat hash, bukan `hash()` bawaan Python:
+    # `hash()` untuk `str` diacak per proses (PYTHONHASHSEED), jadi urutannya
+    # akan berbeda setelah server di-restart — persis kegagalan yang hendak
+    # dicegah, hanya lebih jarang terlihat.
+    benih = int(hashlib.sha256(token.encode("utf-8")).hexdigest()[:16], 16)
+    hasil = list(soal)
+    random.Random(benih).shuffle(hasil)
+    return hasil
 
 
 class HrRecruitmentRepository:
@@ -175,7 +242,15 @@ class HrRecruitmentRepository:
                 # jawaban disimpan.
                 "sisaDetik": max(sisa, 0),
                 "durationMinutes": durasi,
-                "questions": [dict(r) for r in soal],
+                # Urutannya DIACAK per pelamar, stabil sepanjang lembar
+                # itu — lihat `urutan_acak`. Urutan aslinya tetap terbawa
+                # sebagai `sortOrder`, dan lembar penilaian HR memakai itu.
+                # Tokennya diambil dari PARAMETER, bukan dari `baris`:
+                # kueri di atas tidak memilih kolom `token`, dan
+                # `Record["token"]` untuk kolom yang tidak dipilih melempar
+                # KeyError — galatnya tertelan `except` dan seluruh ujian
+                # gagal dimuat dengan pesan 500 yang tidak menyebut sebabnya.
+                "questions": urutan_acak([dict(r) for r in soal], token),
                 "answers": {
                     str(r["questionID"]): r["answer"] for r in jawaban
                 },
@@ -226,6 +301,22 @@ class HrRecruitmentRepository:
         timernya habis — yang menentukan adalah jam server.
         """
         try:
+            # KEDALUWARSA TAUTAN MENENTUKAN BOLEH-TIDAKNYA **MULAI**,
+            # bukan boleh-tidaknya melanjutkan.
+            #
+            # Sebelumnya syaratnya `expiresAt > now` polos, sama seperti pada
+            # pintu masuknya. Akibatnya pelamar yang mulai sepuluh menit
+            # sebelum tautannya kedaluwarsa tetap melihat sisa 90 menit di
+            # layarnya — lalu SETIAP autosave sesudah menit kesepuluh dijawab
+            # 404, dan tidak satu pun jawabannya tersimpan lagi. Ia terus
+            # mengetik selama 80 menit ke dalam kekosongan.
+            #
+            # Lebih jauh: lima kegagalan beruntun memicu pembatas laju, jadi
+            # IP-nya ikut terkunci lima belas menit. Dengan autosave berkala,
+            # lima kegagalan itu tercapai dalam waktu di bawah satu menit.
+            #
+            # Yang membatasi lamanya mengerjakan adalah `durationMinutes`,
+            # dan itu sudah diperiksa di bawah lewat `sisa_waktu`.
             pelamar = await database.fetch_one(
                 select(
                     hr_candidates_table.c.id,
@@ -234,7 +325,12 @@ class HrRecruitmentRepository:
                 )
                 .where(hr_candidates_table.c.token == token)
                 .where(hr_candidates_table.c.isDelete == False)  # noqa: E712
-                .where(hr_candidates_table.c.expiresAt > dt.now())
+                .where(
+                    or_(
+                        hr_candidates_table.c.expiresAt > dt.now(),
+                        hr_candidates_table.c.startedAt.isnot(None),
+                    )
+                )
             )
             if pelamar is None:
                 return None
@@ -440,6 +536,273 @@ class HrRecruitmentRepository:
             log_error(f"Error listing candidates: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
 
+
+    @staticmethod
+    async def lembar_jawaban(candidate_id: int):
+        """
+        Seluruh soal paket ini beserta jawaban dan nilai pelamarnya.
+
+        SOAL DULU, JAWABAN MENYUSUL — bukan sebaliknya.
+
+        Kalau yang dibaca daftar `hr_answers`, soal yang TIDAK DIJAWAB hilang
+        dari lembar penilaian; yang memeriksa lalu memberi nilai atas 18 soal
+        dan mengira itu seluruhnya, padahal paketnya 24. Soal kosong justru
+        keterangan: ia berarti pelamarnya tidak sempat atau tidak bisa.
+
+        Nilai `None` DIPERTAHANKAN apa adanya, tidak diubah jadi nol. Nol
+        adalah keputusan bahwa jawabannya salah; belum diperiksa adalah
+        keadaan lain, dan keduanya tidak boleh tertukar saat menghitung yang
+        masih harus dikerjakan.
+        """
+        try:
+            pelamar = await database.fetch_one(
+                select(
+                    hr_candidates_table.c.id,
+                    hr_candidates_table.c.testID,
+                    hr_candidates_table.c.name,
+                    hr_candidates_table.c.gender,
+                    hr_candidates_table.c.token,
+                    hr_candidates_table.c.status,
+                    hr_candidates_table.c.startedAt,
+                    hr_candidates_table.c.submittedAt,
+                    hr_tests_table.c.name.label("testName"),
+                    hr_tests_table.c.durationMinutes,
+                )
+                .select_from(
+                    hr_candidates_table.join(
+                        hr_tests_table,
+                        hr_candidates_table.c.testID == hr_tests_table.c.id,
+                    )
+                )
+                .where(hr_candidates_table.c.id == candidate_id)
+                .where(hr_candidates_table.c.isDelete == False)  # noqa: E712
+            )
+            if not pelamar:
+                return app_error(
+                    ErrorCode.NOT_FOUND, "Pelamar tidak ditemukan.", 404
+                )
+
+            soal = await database.fetch_all(
+                select(
+                    hr_questions_table.c.id,
+                    hr_questions_table.c.question,
+                    hr_questions_table.c.notes,
+                    hr_questions_table.c.attachment,
+                    hr_questions_table.c.category,
+                    hr_questions_table.c.maxScore,
+                    hr_questions_table.c.allowsUpload,
+                    hr_questions_table.c.sortOrder,
+                )
+                .where(hr_questions_table.c.testID == pelamar["testID"])
+                .where(hr_questions_table.c.isDelete == False)  # noqa: E712
+                .order_by(hr_questions_table.c.sortOrder)
+            )
+
+            jawaban = await database.fetch_all(
+                select(
+                    hr_answers_table.c.id,
+                    hr_answers_table.c.questionID,
+                    hr_answers_table.c.answer,
+                    hr_answers_table.c.score,
+                    hr_answers_table.c.checkerNote,
+                    hr_answers_table.c.checkedAt,
+                    hr_answers_table.c.checkedBy,
+                    users_table.c.name.label("checkedByName"),
+                )
+                .select_from(
+                    hr_answers_table.outerjoin(
+                        users_table,
+                        hr_answers_table.c.checkedBy == users_table.c.id,
+                    )
+                )
+                .where(hr_answers_table.c.candidateID == candidate_id)
+            )
+            peta = {int(r["questionID"]): r for r in jawaban}
+
+            baris = []
+            total_nilai = 0
+            total_maks = 0
+            belum_dinilai = 0
+            for q in soal:
+                j = peta.get(int(q["id"]))
+                nilai = j["score"] if j is not None else None
+                maks = int(q["maxScore"] or 0)
+                total_maks += maks
+                if nilai is None:
+                    belum_dinilai += 1
+                else:
+                    total_nilai += int(nilai)
+                baris.append(
+                    {
+                        "questionID": int(q["id"]),
+                        "question": q["question"],
+                        "notes": q["notes"],
+                        "attachment": q["attachment"],
+                        "category": q["category"],
+                        "maxScore": maks,
+                        "allowsUpload": bool(q["allowsUpload"]),
+                        "answerID": (j["id"] if j is not None else None),
+                        # Dibedakan dari string kosong: tidak ada baris
+                        # jawaban sama sekali berarti soal ini tidak pernah
+                        # disentuh, dan itu bukan hal yang sama dengan
+                        # dijawab lalu dikosongkan.
+                        "answer": (j["answer"] if j is not None else None),
+                        "score": nilai,
+                        "checkerNote": (
+                            j["checkerNote"] if j is not None else None
+                        ),
+                        "checkedAt": (j["checkedAt"] if j is not None else None),
+                        "checkedByName": (
+                            j["checkedByName"] if j is not None else None
+                        ),
+                    }
+                )
+
+            return {
+                "pelamar": {
+                    "id": int(pelamar["id"]),
+                    "name": pelamar["name"],
+                    "gender": pelamar["gender"],
+                    "kodePeserta": kode_peserta(pelamar["token"]),
+                    "status": pelamar["status"],
+                    "startedAt": pelamar["startedAt"],
+                    "submittedAt": pelamar["submittedAt"],
+                    "testName": pelamar["testName"],
+                    "durationMinutes": pelamar["durationMinutes"],
+                },
+                "soal": baris,
+                "rekap": {
+                    "jumlahSoal": len(baris),
+                    "belumDinilai": belum_dinilai,
+                    "totalNilai": total_nilai,
+                    "totalMaks": total_maks,
+                },
+            }
+        except Exception as e:  # noqa: BLE001
+            log_error(f"Error reading answer sheet: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def nilai_jawaban(
+        candidate_id: int, nilai: list, user_id: int
+    ):
+        """
+        Simpan nilai & catatan pemeriksa untuk beberapa soal sekaligus.
+
+        SEKALIGUS, bukan satu per satu: yang memeriksa membaca 24 jawaban lalu
+        menekan Simpan satu kali. Menyimpan per soal berarti 24 permintaan,
+        dan bila yang kesepuluh gagal, lembar itu separuh dinilai tanpa ada
+        yang tahu bagian mana.
+
+        Nilai `None` MENGHAPUS penilaian, bukan menyimpan nol — itu cara
+        membatalkan penilaian yang terlanjur keliru. Nol tetap tersimpan
+        sebagai nol: ia keputusan bahwa jawabannya salah.
+
+        Baris jawaban DIBUAT bila belum ada. Soal yang tidak dijawab tetap
+        harus dapat dinilai — nol untuk yang dikosongkan adalah penilaian
+        yang sah, dan tanpa ini soal itu tidak dapat dinilai sama sekali.
+        """
+        try:
+            pelamar = await database.fetch_one(
+                select(
+                    hr_candidates_table.c.id,
+                    hr_candidates_table.c.testID,
+                )
+                .where(hr_candidates_table.c.id == candidate_id)
+                .where(hr_candidates_table.c.isDelete == False)  # noqa: E712
+            )
+            if not pelamar:
+                return app_error(
+                    ErrorCode.NOT_FOUND, "Pelamar tidak ditemukan.", 404
+                )
+
+            # Soal yang SAH untuk pelamar ini — dan nilai maksimumnya.
+            #
+            # Dibaca dari basis data, tidak dipercaya dari muatan: tanpa ini,
+            # permintaan yang disusun sendiri dapat memberi nilai pada soal
+            # milik paket lain, atau nilai 999 pada soal bernilai maksimum 5.
+            soal = await database.fetch_all(
+                select(
+                    hr_questions_table.c.id,
+                    hr_questions_table.c.maxScore,
+                )
+                .where(hr_questions_table.c.testID == pelamar["testID"])
+                .where(hr_questions_table.c.isDelete == False)  # noqa: E712
+            )
+            maks = {int(r["id"]): int(r["maxScore"] or 0) for r in soal}
+
+            sekarang = dt.now()
+            tersimpan = 0
+            ditolak = []
+
+            for item in nilai or []:
+                try:
+                    qid = int(item.get("questionID"))
+                except (TypeError, ValueError):
+                    continue
+                if qid not in maks:
+                    ditolak.append(qid)
+                    continue
+
+                skor = item.get("score", None)
+                if skor is not None:
+                    try:
+                        skor = int(skor)
+                    except (TypeError, ValueError):
+                        ditolak.append(qid)
+                        continue
+                    if skor < 0 or skor > maks[qid]:
+                        ditolak.append(qid)
+                        continue
+
+                catatan = item.get("checkerNote")
+                if catatan is not None:
+                    catatan = str(catatan)[:500]
+
+                isi = {
+                    "score": skor,
+                    "checkerNote": catatan,
+                    # Jejak pemeriksaannya ikut DICABUT saat nilainya
+                    # dihapus: "diperiksa oleh X" pada baris tanpa nilai
+                    # menyatakan pemeriksaan yang hasilnya tidak ada.
+                    "checkedAt": (sekarang if skor is not None else None),
+                    "checkedBy": (user_id if skor is not None else None),
+                }
+
+                ada = await database.fetch_val(
+                    select(hr_answers_table.c.id)
+                    .where(hr_answers_table.c.candidateID == candidate_id)
+                    .where(hr_answers_table.c.questionID == qid)
+                )
+                if ada:
+                    await database.execute(
+                        update(hr_answers_table)
+                        .where(hr_answers_table.c.id == ada)
+                        .values(**isi)
+                    )
+                else:
+                    await database.execute(
+                        insert(hr_answers_table).values(
+                            candidateID=candidate_id,
+                            questionID=qid,
+                            answer=None,
+                            # `hr_answers` TIDAK punya `createdAt` — hanya
+                            # `updatedAt`. Menyebut kolom yang tidak ada
+                            # membuat SQLAlchemy menolak seluruh pernyataan
+                            # dengan "Unconsumed column names", galatnya
+                            # tertelan `except`, dan jawabannya 500 tanpa
+                            # menyebut sebabnya. Persis cacat yang sudah ada
+                            # di `expense_repository.approve`.
+                            updatedAt=sekarang,
+                            **isi,
+                        )
+                    )
+                tersimpan += 1
+
+            return {"tersimpan": tersimpan, "ditolak": ditolak}
+        except Exception as e:  # noqa: BLE001
+            log_error(f"Error scoring answers: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def daftar_ujian():

@@ -63,3 +63,30 @@ class PelamarBatch(BaseModel):
     orang: list[PelamarBaru] = Field(..., min_length=1, max_length=200)
     # Masa berlaku tautan, dalam hari.
     berlakuHari: Optional[int] = Field(7, ge=1, le=30)
+
+
+class NilaiSoal(BaseModel):
+    """
+    Nilai satu soal.
+
+    `score` boleh `None`, dan itu BUKAN nol: `None` membatalkan penilaian
+    yang terlanjur keliru, nol adalah keputusan bahwa jawabannya salah.
+    Batas atasnya tidak ditulis di sini — `maxScore` berbeda per soal dan
+    dibaca dari basis data, bukan dipercaya dari muatan.
+    """
+
+    questionID: int
+    score: Optional[int] = Field(None, ge=0)
+    checkerNote: Optional[str] = Field(None, max_length=500)
+
+
+class PenilaianBatch(BaseModel):
+    """
+    Penilaian beberapa soal sekaligus.
+
+    Yang memeriksa membaca seluruh lembar lalu menekan Simpan satu kali.
+    Batas 200 sejalan dengan batas pendaftaran pelamar; paket ujian terpanjang
+    di sistem ini puluhan soal, bukan ratusan.
+    """
+
+    nilai: list[NilaiSoal] = Field(..., min_length=1, max_length=200)

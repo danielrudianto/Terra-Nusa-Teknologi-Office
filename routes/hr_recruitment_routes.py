@@ -19,6 +19,7 @@ from schemas.hr_recruitment_schema import (
     PelamarBatch,
     SoalCreate,
     SoalUpdate,
+    PenilaianBatch,
 )
 from utils.auth_utils import User
 from utils.errors import error_detail
@@ -136,6 +137,50 @@ async def daftar_pelamar(
     return _periksa(
         await HrRecruitmentController.daftar_pelamar(
             test_id, (status or "").strip() or None
+        )
+    )
+
+
+@router.get("/candidates/{candidate_id}/lembar")
+async def lembar_jawaban(
+    candidate_id: int,
+    user: Annotated[User, Depends(require("hr_recruitment", "read"))],
+):
+    """
+    Lembar jawaban satu pelamar: seluruh soal, jawabannya, dan nilainya.
+
+    Sebelum ini TIDAK ADA satu pun jalan membaca jawaban pelamar lewat
+    aplikasi — kolom `score` ada di tabelnya sejak awal tetapi tidak pernah
+    ditulis maupun dibaca di mana pun. Jawaban ujian hanya dapat dilihat
+    lewat SQL langsung.
+
+    Dijaga `read`, bukan `update`: membaca lembar jawaban adalah pekerjaan
+    yang sama dengan membuka daftar pelamarnya.
+    """
+    return _periksa(
+        await HrRecruitmentController.lembar_jawaban(candidate_id)
+    )
+
+
+@router.put("/candidates/{candidate_id}/nilai")
+async def nilai_jawaban(
+    candidate_id: int,
+    payload: PenilaianBatch,
+    user: Annotated[User, Depends(require("hr_recruitment", "update"))],
+):
+    """
+    Simpan nilai & catatan pemeriksa untuk beberapa soal sekaligus.
+
+    `update`, bukan `approve`: modul ini memang tidak punya aksi `approve`
+    (`hr_recruitment` bernilai 0 pada kolom itu), dan memeriksa jawaban
+    adalah pekerjaan orang yang sama yang mengundang pelamarnya — lihat
+    keterangan pada matriks izin.
+    """
+    return _periksa(
+        await HrRecruitmentController.nilai_jawaban(
+            candidate_id,
+            [x.model_dump() for x in payload.nilai],
+            user["id"],
         )
     )
 
