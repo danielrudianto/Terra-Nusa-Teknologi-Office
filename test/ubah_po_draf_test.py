@@ -79,7 +79,15 @@ def test_revisi_dinaikkan():
     yang membedakan mana yang lebih baru.
     """
     b = _blok("repository/purchase_order_repository.py", "update")
-    assert "revision=purchase_orders_table.c.revision + 1" in b
+    # Bentuknya berubah saat penyimpanannya dipindah ke `perbarui_terkunci`:
+    # dulu argumen `values(...)`, sekarang kunci di dalam `nilai`. Yang
+    # dijaga pengujian ini TETAP sama — bahwa revisinya dinaikkan — jadi
+    # keduanya diterima, dan yang membuatnya merah hanya hilangnya kenaikan
+    # itu sendiri.
+    assert (
+        "revision=purchase_orders_table.c.revision + 1" in b
+        or '"revision": purchase_orders_table.c.revision + 1' in b
+    )
 
 
 def test_ada_rutenya():

@@ -82,6 +82,20 @@ def fake_db(monkeypatch):
         for path in module_paths:
             module = __import__(path, fromlist=["database"])
             monkeypatch.setattr(module, "database", db, raising=False)
+
+        # `utils.database` IKUT diganti, selalu.
+        #
+        # Sebagian penolong bersama — `utils/kunci_optimistik.py` yang
+        # paling jelas — sengaja membaca `utils.database.database` pada saat
+        # DIPANGGIL, bukan meng-import-nya ke ruang namanya sendiri. Tanpa
+        # baris ini, repository yang memakai penolong itu tetap menyentuh
+        # objek database yang sungguhan di tengah pengujian tanpa basis
+        # data: sambungannya tidak ada, galatnya tertelan `except` di dalam
+        # repository, dan yang terlihat hanya "Internal server error" —
+        # jalur tulisnya tidak pernah benar-benar diuji.
+        import utils.database
+
+        monkeypatch.setattr(utils.database, "database", db, raising=False)
         return db
 
     return _install

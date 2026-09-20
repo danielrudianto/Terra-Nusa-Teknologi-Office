@@ -94,6 +94,21 @@ class ErrorCode:
     # bukan meminta haknya dinaikkan.
     PO_DELETE_APPROVED_FORBIDDEN = "PO_DELETE_APPROVED_FORBIDDEN"
 
+    # Tahap yang SUDAH dilewati, dikerjakan ulang.
+    #
+    # Bukan `VALIDATION` dan bukan `FORBIDDEN`: permintaannya benar bentuknya
+    # dan orangnya memang berhak — yang sudah berubah keadaan dokumennya,
+    # biasanya karena orang lain mendahului sementara daftar di layar ini
+    # belum dimuat ulang. Karena itu 409, dan karena itu pula frontend
+    # menanganinya dengan MEMUAT ULANG barisnya, bukan menampilkan "terjadi
+    # kesalahan".
+    #
+    # Dulu tidak ada kode untuk ini karena tidak ada penolakannya sama
+    # sekali: pemeriksaan kedua diterima diam-diam dan menimpa nama pemeriksa
+    # yang pertama.
+    PO_ALREADY_CHECKED = "PO_ALREADY_CHECKED"
+    PO_ALREADY_APPROVED = "PO_ALREADY_APPROVED"
+
     # ---- data induk ----
     BANK_ACCOUNT_EXISTS = "BANK_ACCOUNT_EXISTS"
     EMPLOYEE_DELETED = "EMPLOYEE_DELETED"

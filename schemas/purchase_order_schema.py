@@ -84,6 +84,15 @@ class PurchaseOrderUpdate(BaseModel):
     billing_requirements: Optional[Dict[str, Any]] = None
     payment_term: Optional[str] = None
     note: Optional[str] = None
+    # Versi baris yang DIBACA layar saat membuka dokumennya.
+    #
+    # Dikirim kembali bersama penyimpanan, dan penyimpanannya hanya berlaku
+    # bila versi itu masih yang terbaru. Lihat `utils/kunci_optimistik.py`.
+    #
+    # Opsional dengan sengaja: backend dan frontend tidak dapat dinyalakan
+    # pada detik yang sama, dan permintaan tanpa versi harus tetap tersimpan
+    # selama jeda deploy — bukan gagal semuanya.
+    rowVersion: Optional[int] = None
 
 
 class PurchaseOrderResponse(BaseModel):
@@ -105,6 +114,11 @@ class PurchaseOrderResponse(BaseModel):
     payment_term: Optional[str] = None
     note: Optional[str] = None
     revision: Optional[int] = 0
+    # HARUS tercantum di sini. FastAPI menyaring jawaban terhadap model ini,
+    # jadi tanpa baris ini `rowVersion` dibuang sebelum sampai ke layar —
+    # layar tidak punya apa pun untuk dikirim balik, dan penguncian
+    # optimistiknya diam-diam tidak pernah menyala.
+    rowVersion: Optional[int] = 0
     isApproved: Optional[bool] = False
     approvedBy: Optional[int] = None
     approvedAt: Optional[datetime] = None

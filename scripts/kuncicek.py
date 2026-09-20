@@ -50,10 +50,33 @@ TABEL = {
     "tenders": ("repository/tender_repository.py",),
 }
 
-# Yang SUDAH tersambung. Menambah nama ke sini adalah cara menyatakan
-# "dokumen ini selesai" — dan sejak saat itu pemeriksanya menjaga agar tidak
-# mundur lagi.
+# Yang SUDAH tersambung, BACKEND DAN LAYARNYA. Menambah nama ke sini adalah
+# cara menyatakan "dokumen ini selesai" — dan sejak saat itu pemeriksanya
+# menjaga agar tidak mundur lagi.
 SUDAH = {"certificate_of_payments", "expenses"}
+
+# Keadaan KETIGA, dan sebab ia ada.
+#
+# Backendnya memanggil `perbarui_terkunci`, tetapi layarnya belum mengirim
+# `rowVersion` sama sekali. Helper-nya memperlakukan versi yang tidak
+# disebutkan sebagai "simpan tanpa penjagaan" — disengaja, supaya jeda antara
+# kedua deploy tidak menghentikan seluruh penyuntingan — sehingga pada keadaan
+# ini perlindungannya BELUM menyala walaupun kodenya sudah terpasang.
+#
+# Tanpa keadaan ini pemeriksanya hanya punya dua kotak, dan begitu backendnya
+# tersambung ia mencetak "tambahkan ke SUDAH" — mendorong yang membacanya
+# menyatakan selesai untuk sesuatu yang belum melindungi apa pun. Pemeriksa
+# yang memaksa orang berbohong lebih buruk daripada tidak ada pemeriksa.
+#
+# Nilainya menyebut APA yang masih kurang, supaya yang meneruskan tahu persis
+# di mana pekerjaannya berhenti.
+SEPARUH = {
+    "purchase_orders": (
+        "16 ragam formulir di src/app/pages/purchase-order/"
+        "purchase-order-create/ belum satu pun membaca `rowVersion` saat "
+        "memuat dan mengirimkannya kembali saat menyimpan"
+    ),
+}
 
 
 def _memakai_kunci(berkas: pathlib.Path) -> bool:
@@ -63,9 +86,10 @@ def _memakai_kunci(berkas: pathlib.Path) -> bool:
     return "perbarui_terkunci" in isi or "klaim_versi" in isi
 
 
-def periksa() -> tuple[list[str], list[str]]:
+def periksa() -> tuple[list[str], list[str], list[str]]:
     masalah: list[str] = []
     belum: list[str] = []
+    separuh: list[str] = []
 
     sql = AKAR / "sql" / "kunci-optimistik.sql"
     isi_sql = sql.read_text(encoding="utf-8") if sql.exists() else ""
@@ -87,21 +111,42 @@ def periksa() -> tuple[list[str], list[str]]:
                 f"sementara kolomnya tetap ada, jadi tidak ada yang terlihat "
                 f"berubah"
             )
-        elif tabel not in SUDAH and not tersambung:
+        elif tabel in SEPARUH and not tersambung:
+            # Kemunduran juga, dengan bentuk yang berbeda: backendnya pernah
+            # tersambung lalu panggilannya hilang.
+            masalah.append(
+                f"{tabel}: DINYATAKAN separuh tersambung, tetapi tidak satu "
+                f"pun dari {', '.join(berkas_terkait)} memanggil "
+                f"`perbarui_terkunci`/`klaim_versi` lagi"
+            )
+        elif tabel in SUDAH:
+            # Tersambung dan dinyatakan selesai: tidak ada yang perlu
+            # dilaporkan.
+            continue
+        elif tabel in SEPARUH:
+            separuh.append(f"{tabel}: {SEPARUH[tabel]}")
+        elif not tersambung:
             belum.append(tabel)
-        elif tabel not in SUDAH and tersambung:
+        else:
             belum.append(f"{tabel}  (sudah tersambung — tambahkan ke SUDAH)")
 
-    return masalah, belum
+    return masalah, belum, separuh
 
 
 if __name__ == "__main__":
-    h, belum = periksa()
+    h, belum, separuh = periksa()
 
     print(f"kunci optimistik: {len(h)}")
     print()
     for x in h:
         print(f"  {x}")
+
+    if separuh:
+        print()
+        print("  Backendnya tersambung, LAYARNYA BELUM — jadi penjagaannya")
+        print("  belum menyala sama sekali:")
+        for x in separuh:
+            print(f"    - {x}")
 
     if belum:
         print()

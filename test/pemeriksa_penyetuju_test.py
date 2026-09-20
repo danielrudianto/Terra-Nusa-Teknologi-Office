@@ -39,7 +39,11 @@ def _siapkan(fake_db, *, checked_by, is_checked=1, pembuat=PEMBUAT):
     db.queue("fetch_val", pembuat)  # createdBy
     db.queue(
         "fetch_one",
-        {"isChecked": is_checked, "checkedBy": checked_by},
+        # `isApproved` IKUT disebut. Baris tiruan yang tidak memuatnya
+        # membuat penjaga "sudah disetujui" tidak pernah tersentuh, dan
+        # pengujian di berkas ini lulus atas dokumen yang di produksi tidak
+        # akan pernah ada bentuknya.
+        {"isChecked": is_checked, "checkedBy": checked_by, "isApproved": 0},
     )
     db.queue("fetch_one", {"id": 9, "status": "draft"})  # keadaan sebelum
     return db

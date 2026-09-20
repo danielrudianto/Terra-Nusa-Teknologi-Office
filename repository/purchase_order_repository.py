@@ -8,6 +8,7 @@ from utils.errors import app_error, ErrorCode
 from sqlalchemy import and_, insert, select, func, update, or_
 from sqlalchemy.exc import IntegrityError
 from utils.database import database
+from utils.kunci_optimistik import jawaban_konflik, perbarui_terkunci
 from models.purchase_order_model import purchase_orders_table
 from models.purchase_order_item_model import urut_baris
 from models.supplier_model import suppliers_table
@@ -1026,18 +1027,33 @@ class PurchaseOrderRepository:
 
             sudah_diperiksa = bool(getattr(sebelum, "isChecked", 0))
 
-            query = (
-                update(purchase_orders_table)
-                .where(purchase_orders_table.c.id == purchase_order_id)
-                .values(
-                    revision=purchase_orders_table.c.revision + 1,
-                    isChecked=False,
-                    checkedBy=None,
-                    checkedAt=None,
-                    **fields,
-                )
+            # Penyimpanan dijaga VERSI barisnya.
+            #
+            # Dua orang membuka purchase order yang sama; yang pertama
+            # menyimpan, lalu yang kedua menyimpan formulir yang ia buka
+            # SEBELUM perubahan pertama ada. Yang kedua menang, dan pekerjaan
+            # yang pertama hilang tanpa galat apa pun.
+            #
+            # Versinya diambil dari muatan yang dikirim layar penyuntingnya,
+            # sehingga tidak ada parameter baru yang harus dirambatkan lewat
+            # route dan controller.
+            versi = fields.pop("rowVersion", None)
+            nilai = {
+                "revision": purchase_orders_table.c.revision + 1,
+                "isChecked": False,
+                "checkedBy": None,
+                "checkedAt": None,
+                **fields,
+            }
+            hasil_kunci = await perbarui_terkunci(
+                purchase_orders_table, purchase_order_id, nilai, versi
             )
-            await database.execute(query)
+            if hasil_kunci == "hilang":
+                return app_error(
+                    ErrorCode.NOT_FOUND, "Purchase order tidak ditemukan.", 404
+                )
+            if hasil_kunci == "konflik":
+                return jawaban_konflik("Purchase order")
 
             # Baris barang DIGANTI seluruhnya, bukan dicocokkan satu per satu.
             #
@@ -1118,6 +1134,32 @@ class PurchaseOrderRepository:
             boleh_mencabut_pemeriksaan,
         )
 
+        # Keadaan dokumennya dibaca SEKALI, di awal, dan SELURUH penjagaan di
+        # bawah membaca potret yang sama.
+        #
+        # Sebelumnya cabang `checked=True` tidak membaca keadaannya sama
+        # sekali — hanya `createdBy` — sehingga dokumen yang SUDAH diperiksa
+        # tetap dapat diperiksa lagi. Tidak ada galat: `checkedBy` dan
+        # `checkedAt` pemeriksa pertama langsung tertimpa, dan pada dokumen
+        # yang sudah disetujui hasilnya `checkedAt` yang lebih baru daripada
+        # `approvedAt` — jejak yang menyatakan dokumen diperiksa SESUDAH
+        # disetujui.
+        _sebelum = _normalize_row(
+            await database.fetch_one(
+                select(purchase_orders_table).where(
+                    purchase_orders_table.c.id == purchase_order_id
+                )
+            )
+        )
+        if _sebelum is None:
+            return app_error(
+                ErrorCode.NOT_FOUND, "Purchase order tidak ditemukan.", 404
+            )
+
+        _sudah_diperiksa = bool(_sebelum.get("isChecked"))
+        _pemeriksa_kini = _sebelum.get("checkedBy")
+        _sudah_disetujui = bool(_sebelum.get("isApproved"))
+
         if not checked:
             # MENCABUT pemeriksaan bukan kebalikan sederhana dari memberinya.
             #
@@ -1131,14 +1173,8 @@ class PurchaseOrderRepository:
             # diperiksa tidak punya apa pun untuk dicabut, dan menolaknya
             # hanya menghasilkan galat pada tombol yang tidak melakukan
             # apa-apa.
-            _keadaan = await database.fetch_one(
-                select(
-                    purchase_orders_table.c.isChecked,
-                    purchase_orders_table.c.checkedBy,
-                ).where(purchase_orders_table.c.id == purchase_order_id)
-            )
-            if _keadaan is not None and bool(_keadaan["isChecked"]):
-                _pemeriksa = _keadaan["checkedBy"]
+            if _sudah_diperiksa:
+                _pemeriksa = _pemeriksa_kini
                 _adalah_pemeriksa = (
                     _pemeriksa is not None and int(_pemeriksa) == int(user_id)
                 )
@@ -1174,11 +1210,7 @@ class PurchaseOrderRepository:
             # membiarkan pembuatnya memeriksa sendiri membuat tahap ini hanya
             # menambah satu klik tanpa menambah apa pun.
             if not boleh_memeriksa_sendiri(user_level):
-                pembuat = await database.fetch_val(
-                    select(purchase_orders_table.c.createdBy).where(
-                        purchase_orders_table.c.id == purchase_order_id
-                    )
-                )
+                pembuat = _sebelum.get("createdBy")
                 if pembuat is not None and int(pembuat) == int(user_id):
                     return app_error(
                         ErrorCode.SELF_APPROVAL_FORBIDDEN,
@@ -1187,13 +1219,46 @@ class PurchaseOrderRepository:
                         403,
                     )
 
-        try:
-            _sebelum = await database.fetch_one(
-                select(purchase_orders_table).where(
-                    purchase_orders_table.c.id == purchase_order_id
+            # Dokumen yang SUDAH diperiksa tidak diperiksa ulang.
+            #
+            # Ini dijawab lebih dulu di sini semata-mata supaya pesannya
+            # dapat menyebut siapa pemeriksanya; yang benar-benar
+            # menjaganya syarat
+            # pada UPDATE di bawah, karena dua permintaan berbarengan
+            # sama-sama lolos pembacaan ini.
+            if _sudah_disetujui:
+                return app_error(
+                    ErrorCode.PO_ALREADY_APPROVED,
+                    "Purchase order ini sudah disetujui, jadi pemeriksaannya "
+                    "tidak dapat diulang. Muat ulang daftarnya untuk melihat "
+                    "keadaan terbarunya.",
+                    409,
                 )
-            )
+            if _sudah_diperiksa:
+                # Nama pemeriksanya ikut disebut, dan namanya dibaca HANYA di
+                # jalur penolakan ini — pemeriksaan yang berhasil tidak
+                # membayar satu kueri pun untuknya.
+                #
+                # "Sudah diperiksa" saja tidak memberi tahu langkah
+                # berikutnya. Yang membacanya perlu tahu kepada siapa ia
+                # bertanya kalau menurutnya pemeriksaan itu keliru.
+                _nama = None
+                if _pemeriksa_kini is not None:
+                    _nama = await database.fetch_val(
+                        select(users_table.c.name).where(
+                            users_table.c.id == _pemeriksa_kini
+                        )
+                    )
+                return app_error(
+                    ErrorCode.PO_ALREADY_CHECKED,
+                    "Purchase order ini sudah diperiksa"
+                    + (f" oleh {_nama}" if _nama else "")
+                    + ". Muat ulang daftarnya untuk melihat keadaan "
+                    "terbarunya.",
+                    409,
+                )
 
+        try:
             nilai = (
                 {
                     "isChecked": True,
@@ -1219,11 +1284,47 @@ class PurchaseOrderRepository:
                 }
             )
 
-            await database.execute(
+            # PENJAGA YANG SEBENARNYA ADA DI SINI, bukan pada pembacaan di
+            # atas.
+            #
+            # Dua permintaan yang datang berbarengan sama-sama membaca
+            # `isChecked = 0` dan sama-sama lolos penjagaan di atas. Yang
+            # memisahkan keduanya hanya syarat pada UPDATE ini: basis data
+            # menerapkannya satu per satu, jadi yang kedua tidak menemukan
+            # baris yang cocok dan tidak menulis apa pun.
+            #
+            # KENAPA JUMLAH BARISNYA DAPAT DIPERCAYA DI SINI. MySQL melaporkan
+            # baris yang BERUBAH, bukan yang cocok, sehingga penjaga yang
+            # menghitung baris biasanya rapuh. Yang membuatnya sahih pada
+            # transisi ini adalah `isChecked` yang pasti berbalik nilainya
+            # bila syaratnya cocok — 0 karena itu hanya punya satu arti.
+            # `rowVersion` juga dinaikkan, supaya formulir sunting yang
+            # terlanjur dibuka tahu barisnya sudah bergerak.
+            syarat = [purchase_orders_table.c.id == purchase_order_id]
+            if checked:
+                syarat.append(purchase_orders_table.c.isChecked == False)  # noqa: E712
+                syarat.append(purchase_orders_table.c.isApproved == False)  # noqa: E712
+
+            terpengaruh = await database.execute(
                 update(purchase_orders_table)
-                .where(purchase_orders_table.c.id == purchase_order_id)
-                .values(**nilai)
+                .where(*syarat)
+                .values(
+                    **nilai,
+                    rowVersion=purchase_orders_table.c.rowVersion + 1,
+                )
             )
+
+            # Pencabutan TIDAK dijaga dengan cara ini: syaratnya tidak
+            # dipersempit di atas, jadi mencabut dokumen yang memang belum
+            # diperiksa menulis nilai yang sama dan menghasilkan nol baris
+            # berubah — tidak dapat dibedakan dari "didahului orang lain".
+            if checked and not terpengaruh:
+                return app_error(
+                    ErrorCode.PO_ALREADY_CHECKED,
+                    "Purchase order ini baru saja diperiksa orang lain. Muat "
+                    "ulang daftarnya untuk melihat keadaan terbarunya.",
+                    409,
+                )
 
             from repository.audit_log_repository import AuditLogRepository
 
@@ -1233,7 +1334,7 @@ class PurchaseOrderRepository:
                 action="set_checked",
                 userID=user_id,
                 changes=AuditLogRepository.diff(
-                    dict(_sebelum) if _sebelum else {},
+                    _sebelum or {},
                     dict(
                         await database.fetch_one(
                             select(purchase_orders_table).where(
@@ -1296,13 +1397,37 @@ class PurchaseOrderRepository:
             # Dua perjalanan terpisah membuka jeda yang di dalamnya
             # pemeriksaannya dapat dicabut, dan persetujuannya lolos atas
             # keadaan yang sudah tidak berlaku.
-            periksa = await database.fetch_one(
-                select(
-                    purchase_orders_table.c.isChecked,
-                    purchase_orders_table.c.checkedBy,
-                ).where(purchase_orders_table.c.id == purchase_order_id)
+            # `_normalize_row` supaya bidangnya dibaca lewat `.get()`.
+            #
+            # `databases` mengembalikan `Row`, dan `Row["kolom"]` melempar
+            # `KeyError` bila kolomnya tidak ada — bukan mengembalikan None.
+            # Kueri di bawah memang menyebut ketiganya, tetapi galat itu
+            # keluar sebagai 500 tanpa menyebut sebabnya, dan itu harga yang
+            # tidak perlu dibayar untuk pembacaan yang sifatnya menjaga.
+            periksa = _normalize_row(
+                await database.fetch_one(
+                    select(
+                        purchase_orders_table.c.isChecked,
+                        purchase_orders_table.c.checkedBy,
+                        purchase_orders_table.c.isApproved,
+                    ).where(purchase_orders_table.c.id == purchase_order_id)
+                )
             )
-            if not periksa or not periksa["isChecked"]:
+            if periksa and periksa.get("isApproved"):
+                # Dokumen yang sudah disetujui tidak disetujui lagi.
+                #
+                # Tanpa ini, persetujuan kedua menimpa `approvedBy` dan
+                # `approvedAt` milik penyetuju pertama — dan tidak ada galat
+                # apa pun yang menyebutkannya. Yang memicunya biasanya bukan
+                # niat buruk melainkan daftar di layar yang belum dimuat
+                # ulang sejak orang lain menyetujui.
+                return app_error(
+                    ErrorCode.PO_ALREADY_APPROVED,
+                    "Purchase order ini sudah disetujui. Muat ulang "
+                    "daftarnya untuk melihat keadaan terbarunya.",
+                    409,
+                )
+            if not periksa or not periksa.get("isChecked"):
                 return app_error(
                     ErrorCode.VALIDATION,
                     "Dokumen belum diperiksa. Mintakan pemeriksaan lebih "
@@ -1324,7 +1449,7 @@ class PurchaseOrderRepository:
             # sebelum tahap pemeriksaan ada tidak pernah mencatat
             # pemeriksanya; menolaknya berarti menuduh orang yang memang
             # tidak diketahui.
-            pemeriksa = periksa["checkedBy"]
+            pemeriksa = periksa.get("checkedBy")
             if (
                 pemeriksa is not None
                 and int(pemeriksa) == int(user_id)
@@ -1369,12 +1494,34 @@ class PurchaseOrderRepository:
                     approvedAt=None,
                 )
 
+            # Syarat keadaan ikut masuk ke WHERE, sama seperti pada
+            # `set_checked` — lihat keterangan panjang di sana soal kenapa
+            # jumlah barisnya dapat dipercaya untuk transisi ini.
+            #
+            # Hanya untuk persetujuan. Membatalkan dan mengembalikan ke draf
+            # tidak dipersempit: keduanya boleh dijalankan berulang, dan
+            # menulis nilai yang sama menghasilkan nol baris berubah yang
+            # tidak dapat dibedakan dari "didahului orang lain".
+            syarat = [purchase_orders_table.c.id == purchase_order_id]
+            if status == "approved":
+                syarat.append(purchase_orders_table.c.isApproved == False)  # noqa: E712
+
             query = (
                 update(purchase_orders_table)
-                .where(purchase_orders_table.c.id == purchase_order_id)
-                .values(**nilai)
+                .where(*syarat)
+                .values(
+                    **nilai,
+                    rowVersion=purchase_orders_table.c.rowVersion + 1,
+                )
             )
-            await database.execute(query)
+            terpengaruh = await database.execute(query)
+            if status == "approved" and not terpengaruh:
+                return app_error(
+                    ErrorCode.PO_ALREADY_APPROVED,
+                    "Purchase order ini baru saja disetujui orang lain. Muat "
+                    "ulang daftarnya untuk melihat keadaan terbarunya.",
+                    409,
+                )
             from repository.audit_log_repository import AuditLogRepository
             
             await AuditLogRepository.record(

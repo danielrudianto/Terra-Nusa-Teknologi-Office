@@ -62,4 +62,10 @@ def test_baris_diganti_seluruhnya():
 
 def test_revisi_tetap_naik():
     b = _blok('update')
-    assert 'revision=purchase_orders_table.c.revision + 1' in b
+    # Dua bentuk diterima: penyimpanannya kini lewat `perbarui_terkunci`,
+    # jadi kenaikan revisinya menjadi kunci di dalam `nilai` alih-alih
+    # argumen `values(...)`. Yang dijaga tetap kenaikannya sendiri.
+    assert (
+        'revision=purchase_orders_table.c.revision + 1' in b
+        or '"revision": purchase_orders_table.c.revision + 1' in b
+    )
