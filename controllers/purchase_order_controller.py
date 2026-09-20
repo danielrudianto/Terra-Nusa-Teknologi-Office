@@ -270,6 +270,11 @@ class PurchaseOrderController:
             return str(int(dt.now().timestamp()))[-3:], 0
 
     @staticmethod
+    async def kode_proyek() -> list[str]:
+        """Kode proyek yang punya purchase order — pilihan penyaring."""
+        return await PurchaseOrderRepository.kode_proyek()
+
+    @staticmethod
     async def rantai_dokumen(purchase_order_id: int) -> list[int]:
         """Id induk beserta adendum sampai dokumen ini, urut terbitnya."""
         return await PurchaseOrderRepository.rantai_dokumen(purchase_order_id)

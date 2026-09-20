@@ -77,6 +77,22 @@ async def pemeriksaan_sebelum_terbit(
     )
 
 
+@router.get("/proyek")
+async def daftar_kode_proyek(
+    # Izin yang SAMA dengan daftarnya: isinya kode proyek yang muncul di
+    # daftar itu juga, jadi pintu yang lebih longgar di sini tidak masuk akal.
+    current_user: Annotated[User, Depends(require("purchase_order", "read"))],
+):
+    """
+    Kode proyek untuk pilihan penyaring.
+
+    Ditaruh SEBELUM `/{purchase_order_id}` — FastAPI mencocokkan berurutan,
+    dan "proyek" akan tertangkap sebagai id bila rutenya di bawah, lalu gagal
+    dengan galat konversi yang tidak menyebut sebab sebenarnya.
+    """
+    return await PurchaseOrderController.kode_proyek()
+
+
 @router.get("/rekap")
 async def rekap_proyek(
     proyek: str,

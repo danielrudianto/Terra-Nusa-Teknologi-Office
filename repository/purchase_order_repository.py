@@ -5,7 +5,7 @@ from utils.permission import (
     boleh_menyetujui_yang_diperiksanya,
 )
 from utils.errors import app_error, ErrorCode
-from sqlalchemy import insert, select, func, update, or_
+from sqlalchemy import and_, insert, select, func, update, or_
 from sqlalchemy.exc import IntegrityError
 from utils.database import database
 from models.purchase_order_model import purchase_orders_table
@@ -270,6 +270,51 @@ class PurchaseOrderRepository:
                     f"{nama}: pengurangan {abs(v):g} melebihi sisa {tersedia:g}"
                 )
         return masalah
+
+    @staticmethod
+    async def kode_proyek() -> list[str]:
+        """
+        Seluruh kode proyek yang PERNAH dipakai purchase order — untuk
+        pilihan penyaring.
+
+        KENAPA INI ADA
+
+        Layar daftar dulu menyusun pilihan proyeknya dari baris yang sedang
+        TAMPIL — satu halaman, sepuluh dokumen. Akibatnya proyek yang
+        dokumennya ada di halaman berikutnya, atau yang seluruh dokumennya
+        berstatus lain, TIDAK PERNAH muncul sebagai pilihan. Yang mencarinya
+        harus lebih dulu mengubah penyaring lain sampai dokumennya kebetulan
+        ikut termuat — dan tidak ada apa pun di layar yang menyebutkan itu.
+        Tampilannya persis seperti proyek yang tidak punya dokumen sama
+        sekali.
+
+        Diambil dari PURCHASE ORDER, bukan dari tabel proyek: yang berguna
+        sebagai penyaring hanya proyek yang benar-benar punya dokumen.
+        Proyek tanpa satu pun purchase order akan menghasilkan daftar kosong
+        kalau dipilih, dan pilihan yang pasti kosong lebih buruk daripada
+        tidak ada pilihannya.
+
+        Dokumen yang dihapus tidak ikut — sama dengan daftarnya.
+        """
+        try:
+            rows = await database.fetch_all(
+                select(purchase_orders_table.c.projectName)
+                .where(
+                    and_(
+                        purchase_orders_table.c.isDelete == False,  # noqa: E712
+                        purchase_orders_table.c.projectName != None,  # noqa: E711
+                        purchase_orders_table.c.projectName != "",
+                    )
+                )
+                .distinct()
+                .order_by(purchase_orders_table.c.projectName)
+            )
+            return [str(r["projectName"]) for r in rows]
+        except Exception as e:
+            log_error(f"Error membaca kode proyek purchase order: {str(e)}")
+            # Daftar KOSONG, bukan galat: penyaring yang pilihannya gagal
+            # dimuat tidak boleh menjatuhkan seluruh halaman daftarnya.
+            return []
 
     @staticmethod
     async def rantai_dokumen(purchase_order_id: int) -> list[int]:
