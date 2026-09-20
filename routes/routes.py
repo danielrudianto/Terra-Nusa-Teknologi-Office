@@ -36,6 +36,7 @@ from routes.project_routes import router as project_router
 from routes.tender_routes import router as tender_router
 from routes.payment_plan_routes import router as payment_plan_router
 from routes.finance_status_routes import router as finance_status_router
+from routes.kpi_routes import router as kpi_router
 from routes.user_avatar_routes import router as user_avatar_router
 from routes.audit_log_routes import router as audit_log_router
 from routes.push_routes import router as push_router
@@ -91,6 +92,7 @@ router.include_router(user_router, prefix="/users", tags=["Users"])
 router.include_router(agenda_router, prefix="/agenda", tags=["Agenda"])
 router.include_router(project_router, prefix="/projects", tags=["Projects"])
 router.include_router(finance_status_router, prefix="/finance-status", tags=["Finance Status"])
+router.include_router(kpi_router, prefix="/kpi", tags=["KPI"])
 router.include_router(loan_router, prefix="/loans", tags=["Loan"])
 router.include_router(purchase_order_router, prefix="/purchase-orders", tags=["Purchase Orders"])
 router.include_router(
