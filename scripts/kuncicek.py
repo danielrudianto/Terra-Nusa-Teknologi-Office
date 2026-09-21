@@ -53,7 +53,7 @@ TABEL = {
 # Yang SUDAH tersambung, BACKEND DAN LAYARNYA. Menambah nama ke sini adalah
 # cara menyatakan "dokumen ini selesai" — dan sejak saat itu pemeriksanya
 # menjaga agar tidak mundur lagi.
-SUDAH = {"certificate_of_payments", "expenses"}
+SUDAH = {"certificate_of_payments", "expenses", "purchase_orders"}
 
 # Keadaan KETIGA, dan sebab ia ada.
 #
@@ -70,13 +70,13 @@ SUDAH = {"certificate_of_payments", "expenses"}
 #
 # Nilainya menyebut APA yang masih kurang, supaya yang meneruskan tahu persis
 # di mana pekerjaannya berhenti.
-SEPARUH = {
-    "purchase_orders": (
-        "16 ragam formulir di src/app/pages/purchase-order/"
-        "purchase-order-create/ belum satu pun membaca `rowVersion` saat "
-        "memuat dan mengirimkannya kembali saat menyimpan"
-    ),
-}
+#
+# `purchase_orders` pernah di sini ("16 ragam formulir belum mengirim
+# `rowVersion`"). Keenam belasnya kini mengirim versinya lewat
+# `AdendumService.denganVersi()`, dan yang menjaga agar formulir ketujuh
+# belas tidak lupa adalah `scripts/pemeriksa/versipocek.py` di repo frontend
+# — pemeriksa di sini tidak dapat melihat berkas layar.
+SEPARUH: dict[str, str] = {}
 
 
 def _memakai_kunci(berkas: pathlib.Path) -> bool:
