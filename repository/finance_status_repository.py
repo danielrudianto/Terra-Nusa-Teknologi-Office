@@ -1279,8 +1279,7 @@ class FinanceStatusRepository:
             hari_ini = pada or d.today()
             hasil: Dict[str, Any] = {}
 
-            # --- Beban: DPP + PBBKB - PPh. PPN TIDAK ikut (disetor
-            #     terpisah), sama seperti `nilai_beban`.
+            # --- Beban: DPP + PPN + PBBKB - PPh, sama seperti `nilai_beban`.
             e = expenses_table.c
             bayar_beban = (
                 select(
@@ -1299,6 +1298,7 @@ class FinanceStatusRepository:
             )
             nilai_beban = (
                 func.coalesce(e.dpp, 0)
+                + func.coalesce(e.ppn, 0) * func.coalesce(e.dpp, 0) / 100
                 + func.coalesce(e.pbbkb, 0)
                 - func.coalesce(e.pphPercentage, 0) * func.coalesce(e.dpp, 0) / 100
             )

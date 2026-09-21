@@ -187,11 +187,15 @@ def nilai_pembelian(pembelian) -> float:
 
 def nilai_beban(beban) -> float:
     """
-    Nilai tagihan sebuah beban: DPP ditambah PBBKB, dikurangi PPh terpotong.
+    Nilai tagihan sebuah beban: DPP + PPN + PBBKB, dikurangi PPh terpotong —
+    SAMA dengan `purchases`.
 
-    PPN sengaja TIDAK ikut, berbeda dari `purchases`: yang dibayarkan atas
-    beban adalah nilai bersih setelah pemotongan, dan PPN-nya disetor
-    terpisah.
+    PPN dulu sengaja dikeluarkan dengan alasan "disetor terpisah". Itu keliru
+    untuk beban yang ditagih pemasok PKP (mis. jasa KAP): PPN-nya DIBAYAR ke
+    pemasok bersama DPP — pemasoklah yang menyetornya — sedangkan PPh-lah
+    yang dipotong dan disetor sendiri. Akibatnya layar Lihat Beban
+    menampilkan PPN tetapi layar Bayar tidak memuatnya, dan penjaga kelebihan
+    bayar menolak pembayaran penuh yang benar. PPN tersimpan sebagai PERSEN.
 
     Rumusnya ditaruh di satu tempat karena dipakai baik saat MENANDAI lunas
     (persetujuan pembayaran) maupun saat MENCABUTNYA (penghapusan). Ditulis
@@ -200,9 +204,13 @@ def nilai_beban(beban) -> float:
     pernah dapat dicabut oleh rumus yang lain.
     """
     dpp = float(beban["dpp"] or 0)
+    try:
+        ppn = float(beban["ppn"] or 0)
+    except (KeyError, TypeError):
+        ppn = 0.0
     pbbkb = float(beban["pbbkb"] or 0)
     pph = float(beban["pphPercentage"] or 0)
-    return round(dpp + pbbkb - (pph * dpp / 100), 2)
+    return round(dpp + (ppn * dpp / 100) + pbbkb - (pph * dpp / 100), 2)
 
 
 def nilai_slip(slip, tunjangan, potongan) -> float:
