@@ -50,7 +50,14 @@ tenders_table = Table(
     #
     # `number` tetap ada sebagai URUTAN DALAM TAHUN itu; `documentNumber`
     # bentuk tampilnya.
-    Column("documentNumber", String(32), nullable=True, index=True),
+    #
+    # UNIK — sama dengan basis datanya. Basis data sudah memaksa UNIQUE sejak
+    # awal, sementara model hanya menyatakan `index=True`; `cek_skema`
+    # melaporkannya sebagai "UNIK ASING" di setiap deploy. Kode yang tidak
+    # tahu kolom ini unik akan mencoba menyimpan nomor kembar dan baru
+    # tahu dari galat basis data. NULL tetap boleh berulang (tender lama
+    # yang belum bernomor).
+    Column("documentNumber", String(32), nullable=True, unique=True, index=True),
     Column("name", String(255), nullable=False),
     Column("date", Date, nullable=False),
     # `barang` atau `jasa`.

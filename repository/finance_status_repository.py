@@ -49,6 +49,62 @@ dibayarkan. Tidak ada asumsi akuntansi di dalamnya.
 # selamanya di daftar piutang dan menutupi yang benar-benar menunggak.
 TOLERANSI_LUNAS = 5
 
+
+def _tambah_bulan(t: d, n: int) -> d:
+    """`t` digeser `n` bulan; tanggal 31 menjadi akhir bulan tujuan."""
+    b = t.month - 1 + n
+    th, bl = t.year + b // 12, b % 12 + 1
+    akhir = [31, 29 if (th % 4 == 0 and (th % 100 != 0 or th % 400 == 0)) else 28,
+             31, 30, 31, 30, 31, 31, 30, 31, 30, 31][bl - 1]
+    return d(th, bl, min(t.day, akhir))
+
+
+def porsi_lancar(
+    sisa: float,
+    utang: float,
+    tenor: int | None,
+    pertama: d | None,
+    tanggal_pinjam: d | None,
+    pada: d,
+) -> float | None:
+    """
+    Bagian sisa pinjaman yang jatuh tempo dalam 12 bulan sesudah `pada`.
+
+    `None` bila pinjamannya TIDAK berjadwal (tanpa tenor) — porsinya memang
+    tidak dapat diketahui, dan pinjaman itu tetap di luar quick ratio seperti
+    sebelumnya. Menebaknya menghasilkan rasio yang tampak pasti padahal
+    dasarnya karangan.
+
+    ANGGAPANNYA, disebut terang-terangan: angsuran BULANAN dan RATA,
+    sebesar `utang / tenor`. Itu bentuk leasing dan kredit bank pada umumnya.
+
+        jatuh tempo s/d `pada`  = jadwal yang tanggalnya <= `pada`
+        sisa jadwal             = tenor - jatuh tempo s/d `pada`
+        bukan lancar            = angsuran x (sisa jadwal - 12), bila positif
+        lancar                  = sisa - bukan lancar, dibatasi 0..sisa
+
+    Dihitung dari yang BUKAN lancar, bukan langsung "12 angsuran": angsuran
+    yang TERTUNGGAK ikut masuk sisa utang, dan tunggakan itu jatuh tempo
+    sekarang — bukan kelak. Pinjaman yang sudah lewat tenornya dengan sisa
+    utang seluruhnya lancar.
+    """
+    if not tenor or tenor <= 0 or sisa <= 0:
+        return None if not tenor or tenor <= 0 else 0.0
+    mulai = pertama or (
+        _tambah_bulan(tanggal_pinjam, 1) if tanggal_pinjam else None
+    )
+    if mulai is None:
+        return None
+
+    lewat = 0
+    while lewat < tenor and _tambah_bulan(mulai, lewat) <= pada:
+        lewat += 1
+    sisa_jadwal = tenor - lewat
+
+    angsuran = float(utang or 0) / tenor
+    bukan_lancar = angsuran * max(0, sisa_jadwal - 12)
+    return max(0.0, min(float(sisa), float(sisa) - bukan_lancar))
+
 # Berapa dokumen yang ikut dikirim bersama ringkasannya.
 #
 # Layar ini menjawab "siapa yang belum bayar", dan itu tidak terjawab oleh
@@ -477,7 +533,13 @@ class FinanceStatusRepository:
         try:
             batas = max(tanggal)
             pinjam = await database.fetch_all(
-                select(loans_table.c.id, loans_table.c.debt, loans_table.c.date)
+                select(
+                    loans_table.c.id,
+                    loans_table.c.debt,
+                    loans_table.c.date,
+                    loans_table.c.tenorMonths,
+                    loans_table.c.firstInstallmentDate,
+                )
             )
             angsur = await database.fetch_all(
                 select(
@@ -503,6 +565,8 @@ class FinanceStatusRepository:
             for t in tanggal:
                 total = 0.0
                 jumlah = 0
+                lancar = 0.0
+                tanpa_tenor = 0.0
                 for p in pinjam:
                     # PINJAMAN YANG BELUM ADA TIDAK DIHITUNG.
                     #
@@ -521,7 +585,20 @@ class FinanceStatusRepository:
                     if sisa > TOLERANSI_LUNAS:
                         total += sisa
                         jumlah += 1
-                hasil[t.isoformat()] = {"total": total, "jumlahPinjaman": jumlah}
+                        porsi = porsi_lancar(
+                            sisa, float(p["debt"] or 0), p["tenorMonths"],
+                            p["firstInstallmentDate"], p["date"], t,
+                        )
+                        if porsi is None:
+                            tanpa_tenor += sisa
+                        else:
+                            lancar += porsi
+                hasil[t.isoformat()] = {
+                    "total": total,
+                    "jumlahPinjaman": jumlah,
+                    "lancar": lancar,
+                    "tanpaTenor": tanpa_tenor,
+                }
             return hasil
         except Exception as e:
             log_error(f"Error menghitung pinjaman per tanggal: {str(e)}")
@@ -921,7 +998,14 @@ class FinanceStatusRepository:
 
             sisa = loans_table.c.debt - func.coalesce(bayar.c.total_paid, 0)
             rows = await database.fetch_all(
-                select(loans_table.c.id, sisa.label("sisa"))
+                select(
+                    loans_table.c.id,
+                    sisa.label("sisa"),
+                    loans_table.c.debt,
+                    loans_table.c.date,
+                    loans_table.c.tenorMonths,
+                    loans_table.c.firstInstallmentDate,
+                )
                 .select_from(
                     loans_table.outerjoin(bayar, bayar.c.loan_id == loans_table.c.id)
                 )
@@ -942,7 +1026,27 @@ class FinanceStatusRepository:
             )
 
             total = sum(float(r["sisa"] or 0) for r in rows)
-            return {"total": total, "jumlahPinjaman": len(rows)}
+            acuan = pada or d.today()
+            lancar = 0.0
+            tanpa_tenor = 0.0
+            for r in rows:
+                porsi = porsi_lancar(
+                    float(r["sisa"] or 0), float(r["debt"] or 0),
+                    r["tenorMonths"], r["firstInstallmentDate"], r["date"], acuan,
+                )
+                if porsi is None:
+                    tanpa_tenor += float(r["sisa"] or 0)
+                else:
+                    lancar += porsi
+            # `lancar`: porsi pinjaman berjadwal yang jatuh tempo dalam 12
+            # bulan — masuk kewajiban lancar. `tanpaTenor`: sisa pinjaman
+            # tanpa jadwal — tetap di luar quick ratio.
+            return {
+                "total": total,
+                "jumlahPinjaman": len(rows),
+                "lancar": lancar,
+                "tanpaTenor": tanpa_tenor,
+            }
         except Exception as e:
             log_error(f"Error menghitung pinjaman: {str(e)}")
             return {"total": 0.0, "jumlahPinjaman": 0,

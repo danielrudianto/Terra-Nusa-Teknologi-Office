@@ -134,18 +134,14 @@ async def delete_expense(expense_id: int, current_user: Annotated[User, Depends(
     except HTTPException as e:
         raise e
 
-@router.put("/{expense_id}/approve")
-async def approve_expense_by_id(expense_id: int, current_user: Annotated[User, Depends(require("expenses", "approve"))]):
-    """
-    Approve an expense by ID.
-    """
-    userID = current_user.id
-    result = await ExpenseController.approve_expense_by_id(expense_id, userID, int(current_user["authenticationLevel"] or 1))
-    if "error" in result:
-        raise HTTPException(
-            status_code=result["status"], detail=error_detail(result)
-        )
-    return result
+# `PUT /{expense_id}/approve` DIBUANG (Sep 2026).
+#
+# Rute itu tidak pernah dapat berhasil: ia menulis `isApprove`, `approvedBy`,
+# dan `approvedAt` — tiga kolom yang tidak ada di tabel `expenses` — sehingga
+# setiap panggilan berakhir `CompileError` yang ditelan menjadi 500. Tidak ada
+# layar yang memanggilnya. Beban di sistem ini tidak punya tahap persetujuan;
+# bila kelak diperlukan, ia dibangun lengkap (kolom, layar, jejak), bukan
+# dihidupkan dari sisa ini.
 
 @router.get("/{expense_id}/payments")
 async def get_payments_by_expense_id(

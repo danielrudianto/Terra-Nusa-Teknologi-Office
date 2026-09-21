@@ -87,7 +87,9 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     # tambahan di dalam rute.
     "finance_status": (4, 0, 5, 0, 0),
     "expense_opponent": (1, 3, 3, 4, 0),
-    "expenses": (1, 1, 1, 2, 3),
+    # approve 0: beban tidak punya tahap persetujuan. Rute `approve` yang
+    # dulu ada tidak pernah dapat berhasil dan sudah dibuang (Sep 2026).
+    "expenses": (1, 1, 1, 2, 0),
     "income": (1, 3, 3, 4, 3),
     "interpayment": (3, 3, 3, 3, 3),
     "loan": (3, 5, 5, 5, 5),

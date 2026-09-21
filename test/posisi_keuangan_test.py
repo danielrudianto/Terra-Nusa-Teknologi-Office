@@ -879,3 +879,59 @@ class TestHitunganDapatDicek:
         assert beban["pembilang"]["rincian"][0]["kategori"] == "gaji"
         # Dan tetap dinilai terhadap pitanya.
         assert hasil["penilaian"]["rasioOverhead"]["posisi"] == "diatas"
+
+
+class TestPinjamanBertenor:
+    """
+    Porsi lancar pinjaman berjadwal masuk kewajiban lancar — tanpa ikut
+    terhitung dua kali di total kewajiban.
+
+    Keadaan dasar: kas 100, piutang 60, utang 50. Pinjaman 500, di antaranya
+    120 porsi lancar (berjadwal) dan 200 tanpa jadwal.
+    """
+
+    @pytest.mark.asyncio
+    async def test_porsi_lancar_masuk_quick_ratio(self, repo):
+        repo["pinjaman"] = {
+            "total": 500.0, "jumlahPinjaman": 2, "lancar": 120.0, "tanpaTenor": 200.0,
+        }
+        hasil = await FS.get_status()
+        # (100 + 60) / (50 + 120) = 0,941
+        assert hasil["quickRatio"] == pytest.approx(160 / 170)
+        assert hasil["kewajibanLancar"] == pytest.approx(170.0)
+
+    @pytest.mark.asyncio
+    async def test_total_kewajiban_tidak_menghitung_dua_kali(self, repo):
+        repo["pinjaman"] = {
+            "total": 500.0, "jumlahPinjaman": 2, "lancar": 120.0, "tanpaTenor": 200.0,
+        }
+        hasil = await FS.get_status()
+        # utang 50 + pinjaman 500 — porsi lancar TIDAK ditambahkan lagi.
+        assert hasil["neraca"]["kewajiban"]["total"] == pytest.approx(550.0)
+        assert hasil["hitungan"]["debtToEquity"]["pembilang"]["nilai"] == pytest.approx(550.0)
+
+    @pytest.mark.asyncio
+    async def test_rincian_penyebut_menyebut_porsi_pinjaman(self, repo):
+        repo["pinjaman"] = {
+            "total": 500.0, "jumlahPinjaman": 2, "lancar": 120.0, "tanpaTenor": 200.0,
+        }
+        hasil = await FS.get_status()
+        rincian = hasil["hitungan"]["quickRatio"]["penyebut"]["rincian"]
+        assert {"kategori": "pinjamanLancar", "nilai": 120.0} in rincian
+        assert sum(r["nilai"] for r in rincian) == pytest.approx(170.0)
+
+    @pytest.mark.asyncio
+    async def test_hanya_yang_tanpa_tenor_disebut_di_luar_rasio(self, repo):
+        repo["pinjaman"] = {
+            "total": 120.0, "jumlahPinjaman": 1, "lancar": 120.0, "tanpaTenor": 0.0,
+        }
+        hasil = await FS.get_status()
+        assert hasil["catatan"]["pinjamanDiluarRasio"] is False
+
+    @pytest.mark.asyncio
+    async def test_tanpa_penanda_porsi_perilaku_lama(self, repo):
+        """Jalur galat repository tidak membawa `lancar`: rasio seperti dulu."""
+        repo["pinjaman"] = {"total": 500.0, "jumlahPinjaman": 1}
+        hasil = await FS.get_status()
+        assert hasil["quickRatio"] == pytest.approx(160 / 50)
+        assert hasil["catatan"]["pinjamanDiluarRasio"] is True

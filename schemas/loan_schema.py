@@ -23,6 +23,10 @@ class LoanBase(BaseModel):
     bankName: str
     # rekening perusahaan tujuan penerimaan dana (dari bank_accounts)
     bankAccountID: Optional[int] = None
+    # Jadwal angsuran — OPSIONAL. Kosong untuk pinjaman tanpa jadwal
+    # (pinjaman pribadi); diisi untuk leasing dan kredit bank.
+    tenorMonths: Optional[int] = Field(default=None, ge=1, le=360)
+    firstInstallmentDate: Optional[date] = None
 
 class LoanCreate(LoanBase):
     """
@@ -83,6 +87,10 @@ class LoanUpdate(BaseModel):
     # sudah dibayarkan — diperiksa di controller.
     received: Optional[float] = Field(default=None, ge=0)
     debt: Optional[float] = Field(default=None, ge=0)
+    # Jadwal angsuran. `tenorMonths: null` yang DIKIRIM berarti "hapus
+    # jadwalnya" — dibedakan dari tidak dikirim lewat `model_fields_set`.
+    tenorMonths: Optional[int] = Field(default=None, ge=1, le=360)
+    firstInstallmentDate: Optional[date] = None
 
 
 class UpdateLoanResponse(BaseModel):

@@ -5,6 +5,7 @@ from typing import Any, Dict
 from controllers import kesimpulan_keuangan
 from repository.finance_status_repository import (
     AMBANG_BAWAAN,
+    TOLERANSI_LUNAS,
     FinanceStatusRepository,
 )
 from utils.logger_utils import log_error
@@ -138,6 +139,14 @@ class FinanceStatusController:
             total_piutang = float(piutang.get("total") or 0)
             total_utang = float(utang.get("total") or 0)
             total_pinjaman = float(pinjaman.get("total") or 0)
+            # Porsi pinjaman BERJADWAL yang jatuh tempo dalam 12 bulan, dan
+            # sisa pinjaman TANPA jadwal. Bila penanda porsinya tidak ada
+            # (jalur galat repository), seluruh pinjaman dianggap tanpa
+            # jadwal — perilaku lama, bukan nol yang membuat rasio membaik.
+            pinjaman_lancar = float(pinjaman.get("lancar") or 0)
+            pinjaman_tanpa_tenor = float(
+                pinjaman.get("tanpaTenor", total_pinjaman) or 0
+            )
             total_lain = float(lain.get("total") or 0)
             nilai_buku = float(aset_tetap.get("nilaiBuku") or 0)
 
@@ -148,10 +157,10 @@ class FinanceStatusController:
             # yang dihitung, gaji bulan berjalan yang belum cair tidak muncul
             # sebagai kewajiban sama sekali — dan rasio yang disusun di atasnya
             # tampak lebih baik daripada keadaannya.
-            kewajiban_lancar = total_utang + total_lain
+            kewajiban_lancar = total_utang + total_lain + pinjaman_lancar
 
             """
-            Quick ratio = (kas + piutang usaha) / utang usaha.
+            Quick ratio = (kas + piutang usaha) / kewajiban lancar.
 
             Persediaan tidak dikurangkan karena memang tidak ada: master item
             hanya katalog, tanpa kuantitas maupun nilai stok. Untuk perusahaan
@@ -159,16 +168,16 @@ class FinanceStatusController:
             dan itu justru membuat angkanya tidak mengandung penilaian
             tentang seberapa cepat stok dapat dicairkan.
 
-            Pinjaman TIDAK masuk penyebut. `loans` tidak menyimpan tenor
-            maupun jadwal angsuran, sehingga porsi yang jatuh tempo dalam
-            setahun tidak dapat dipisahkan dari yang jangka panjang. Menebak
-            pemisahannya menghasilkan rasio yang tampak pasti padahal
-            dasarnya karangan.
+            Pinjaman BERJADWAL (bertenor) masuk penyebut sebesar porsi yang
+            jatuh tempo dalam 12 bulan — lihat `porsi_lancar()`. Pinjaman
+            TANPA jadwal (mis. pinjaman pribadi) tetap di luar: porsinya tidak
+            dapat dipisahkan, dan menebaknya menghasilkan rasio yang tampak
+            pasti padahal dasarnya karangan.
 
-            Konsekuensinya disebutkan apa adanya: bila ada pinjaman yang
-            jatuh tempo dalam waktu dekat, rasio ini lebih baik daripada
-            keadaan sebenarnya. Karena itu saldo pinjaman dikembalikan juga
-            dan ditampilkan di sisi rasionya.
+            Konsekuensinya disebutkan apa adanya: bila pinjaman tanpa jadwal
+            itu jatuh tempo dalam waktu dekat, rasio ini lebih baik daripada
+            keadaan sebenarnya. Karena itu sisanya dikembalikan juga dan
+            ditampilkan di sisi rasionya.
             """
             if kewajiban_lancar > 0:
                 quick_ratio = (kas_dipakai + total_piutang) / kewajiban_lancar
@@ -234,7 +243,9 @@ class FinanceStatusController:
             # dokumen seperti itu asetnya muncul di neraca ini SEKALIGUS sudah
             # membebani laba rugi.
             total_aset = kas_dipakai + total_piutang + nilai_buku
-            total_kewajiban = kewajiban_lancar + total_pinjaman
+            # Porsi lancar pinjaman SUDAH ada di `kewajiban_lancar`; yang
+            # ditambahkan di sini hanya sisanya, supaya tidak terhitung dua kali.
+            total_kewajiban = kewajiban_lancar + (total_pinjaman - pinjaman_lancar)
             ekuitas = total_aset - total_kewajiban
 
             # Debt to equity. `None` bila ekuitasnya nol atau minus — bukan
@@ -319,13 +330,18 @@ class FinanceStatusController:
                         "rincian": [
                             {"kategori": "utangUsaha", "nilai": total_utang},
                             {"kategori": "kewajibanLain", "nilai": total_lain},
-                        ],
+                        ]
+                        + (
+                            [{"kategori": "pinjamanLancar", "nilai": pinjaman_lancar}]
+                            if pinjaman_lancar > 0
+                            else []
+                        ),
                     },
                 },
                 "debtToEquity": {
                     "pembilang": {
                         "label": "totalKewajiban",
-                        "nilai": kewajiban_lancar + total_pinjaman,
+                        "nilai": total_kewajiban,
                         "rincian": [
                             {"kategori": "utangUsaha", "nilai": total_utang},
                             {"kategori": "kewajibanLain", "nilai": total_lain},
@@ -448,7 +464,10 @@ class FinanceStatusController:
                 penilaian,
                 ambang,
                 ekuitas=ekuitas,
-                pinjaman=total_pinjaman,
+                # Hanya yang TANPA jadwal: pinjaman berjadwal sudah masuk
+                # quick ratio lewat porsi lancarnya, jadi peringatan "rasio
+                # belum memuat angsuran" tidak berlaku untuknya.
+                pinjaman=pinjaman_tanpa_tenor,
                 boleh_laba=boleh_melihat_laba(user_level),
             )
 
@@ -478,7 +497,9 @@ class FinanceStatusController:
                 # berisiko berbeda dari yang dihitung di sini.
                 "rumus": "(kas + piutang usaha) / kewajiban lancar",
                 "catatan": {
-                    "pinjamanDiluarRasio": total_pinjaman > 0,
+                    # Hanya pinjaman TANPA jadwal yang di luar rasio; yang
+                    # berjadwal sudah masuk lewat porsi lancarnya.
+                    "pinjamanDiluarRasio": pinjaman_tanpa_tenor > TOLERANSI_LUNAS,
                     "piutangDiumurkanDariTanggalFaktur": True,
                     # Layar harus dapat MENGATAKAN kenapa piutang tidak ikut
                     # ditambahkan pada likuiditas 30 hari. Batasan yang hanya
@@ -499,7 +520,7 @@ class FinanceStatusController:
                 "selisihVersiLama": {
                     "utangUsahaSaja": total_utang,
                     "kewajibanLancarSekarang": kewajiban_lancar,
-                    "tambahan": total_lain,
+                    "tambahan": total_lain + pinjaman_lancar,
                     "quickRatioVersiLama": (
                         (kas_dipakai + total_piutang) / total_utang
                         if total_utang > 0
@@ -762,12 +783,15 @@ class FinanceStatusController:
         total_piutang = float(piutang.get("total") or 0)
         total_utang = float(utang.get("total") or 0)
         total_pinjaman = float(pinjaman.get("total") or 0)
+        # SAMA dengan halaman "hari ini" — riwayat dan titik terakhirnya
+        # harus menyebut angka yang sama (`integrasi_riwayat_setara_test`).
+        pinjaman_lancar = float(pinjaman.get("lancar") or 0)
         total_lain = float(lain.get("total") or 0)
         nilai_buku = float(aset_tetap.get("nilaiBuku") or 0)
 
-        kewajiban_lancar = total_utang + total_lain
+        kewajiban_lancar = total_utang + total_lain + pinjaman_lancar
         total_aset = kas_dipakai + total_piutang + nilai_buku
-        total_kewajiban = kewajiban_lancar + total_pinjaman
+        total_kewajiban = kewajiban_lancar + (total_pinjaman - pinjaman_lancar)
         ekuitas = total_aset - total_kewajiban
 
         quick = (

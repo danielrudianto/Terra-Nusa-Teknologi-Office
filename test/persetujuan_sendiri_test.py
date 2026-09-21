@@ -19,7 +19,6 @@ AKAR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #: Modul yang persetujuannya harus dijaga, beserta fungsi pintunya.
 PINTU = {
     "purchase_order_repository.py": "update_status",
-    "expense_repository.py": "approve_by_id",
     "reimbursement_repository.py": "approve_reimbursement_by_id",
     "sales_invoice_repository.py": "approve",
 }
@@ -88,7 +87,6 @@ def test_rute_meneruskan_level():
     """Level dibaca dari pengguna yang sedang masuk, bukan dari muatan."""
     peta = {
         "purchase_order_routes.py": "update_purchase_order_status",
-        "expenses_routes.py": "approve_expense_by_id",
         "reimbursement_routes.py": "approve_reimbursement",
         "sales_invoice_routes.py": "approve_sales_invoice",
     }

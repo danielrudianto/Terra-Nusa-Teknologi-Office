@@ -17,6 +17,15 @@ loans_table = Table(
     Column("description", String(500), nullable=False, default=""),
     Column("received", Float, nullable=False, default=0),
     Column("debt", Float, nullable=False, default=0),
+    # Jadwal angsuran — OPSIONAL (`sql/pinjaman-tenor.sql`).
+    #
+    # Diisi untuk pinjaman berjadwal (leasing, kredit bank); kosong untuk
+    # pinjaman tanpa jadwal seperti pinjaman pribadi. Dipakai Status Keuangan
+    # untuk memisahkan porsi yang jatuh tempo dalam 12 bulan — lihat
+    # `porsi_lancar()` di `repository/finance_status_repository.py`.
+    Column("tenorMonths", Integer, nullable=True, default=None),
+    # Kosong padahal tenornya ada: dianggap sebulan sesudah `date`.
+    Column("firstInstallmentDate", Date, nullable=True, default=None),
     Column("bankAccountName", String(100), nullable=False),
     Column("bankAccountNumber", String(100), nullable=False),
     Column("bankName", String(100), nullable=False),

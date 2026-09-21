@@ -208,7 +208,7 @@ def require(module: str, action: str):
     Mengembalikan objek pengguna yang sama seperti `get_current_user`, sehingga
     isi rute tidak perlu diubah — cukup menukar isi `Depends`.
 
-        async def approve(id: int, current_user = Depends(require("expenses", "approve"))):
+        async def approve(id: int, current_user = Depends(require("purchase_order", "approve"))):
     """
 
     async def _cek(current_user: Annotated[dict, Depends(get_current_user)]):

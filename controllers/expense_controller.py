@@ -140,36 +140,6 @@ class ExpenseController:
             return internal_error()
 
     @staticmethod
-    async def approve_expense_by_id(expense_id: int, userID: int, user_level: int | None = None):
-        """
-        Approve an expense by ID.
-        """
-        try:
-            # First check if expense exists
-            expense = await ExpenseRepository.get_by_id(expense_id)
-            if "error" in expense:
-                log_error(f"Error fetching expense for expense ID {expense_id}: {expense['error']}")
-                raise HTTPException(status_code=expense["status"], detail=expense["error"])
-            
-            if expense.get("isDelete") is True:
-                return {"error": "Expense not found", "status": 404}
-
-            result = await ExpenseRepository.approve_by_id(expense_id, userID, user_level)
-            if "error" in result:
-                log_error(f"Error approving expense: {result['error']}")
-                raise HTTPException(status_code=result["status"], detail=result["error"])
-            
-            return {
-                "message": "Successfully approved expense",
-                "expense_id": expense_id
-            }
-        except HTTPException:
-            raise
-        except Exception as e:
-            log_error(f"Error approving expense: {str(e)}")
-            return internal_error()
-
-    @staticmethod
     async def update_expense(expense_id: int, expense_data: dict, userID: int):
         """
         Update an expense.

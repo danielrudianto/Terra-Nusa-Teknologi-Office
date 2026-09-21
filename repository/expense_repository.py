@@ -1,6 +1,5 @@
 from sqlalchemy import select, func, or_, insert, update
-from utils.permission import boleh_menyetujui_sendiri
-from utils.errors import ErrorCode, app_error, internal_error
+from utils.errors import internal_error
 from utils.database import database
 from utils.logger_utils import log_error
 from models.expense_model import expenses_table
@@ -400,61 +399,6 @@ class ExpenseRepository:
             return dict(expense)
         except Exception as e:
             log_error(f"Error fetching expense by ID: {str(e)}")
-            return internal_error()
-
-    @staticmethod
-    async def approve_by_id(
-        id: int, userID: int, user_level: int | None = None
-    ):
-        """
-        Update expense status to approved.
-        """
-        try:
-            # Yang membuat dokumen tidak boleh menyetujuinya sendiri.
-            #
-            # Dikecualikan untuk level 4 ke atas: keduanya memang berwenang
-            # atas seluruh dokumen, dan kerap merekalah satu-satunya yang
-            # hadir untuk menyetujui. Pengecualian itu tetap tercatat pada
-            # jejak aktivitas.
-            if not boleh_menyetujui_sendiri(user_level):
-                pembuat = await database.fetch_val(
-                    select(expenses_table.c.createdBy).where(
-                        expenses_table.c.id == id
-                    )
-                )
-                if pembuat is not None and int(pembuat) == int(userID):
-                    return app_error(
-                        ErrorCode.SELF_APPROVAL_FORBIDDEN,
-                        "Dokumen tidak dapat disetujui oleh pembuatnya "
-                        "sendiri. Mintakan persetujuan kepada pengguna lain.",
-                        403,
-                    )
-
-            query = (
-                expenses_table.update()
-                .where(expenses_table.c.id == id)
-                .values(
-                    isApprove=True,
-                    approvedBy=userID,
-                    approvedAt=dt.now()
-                )
-            )
-            result = await database.execute(query)
-            if result == 0:
-                return {"error": "Expense not found", "status": 404}
-            from repository.audit_log_repository import AuditLogRepository
-            
-            await AuditLogRepository.record(
-                entity="expenses",
-                # entityID adalah id biaya; userID adalah pelaku persetujuan.
-            entityID=id,
-                action="approve",
-                userID=userID,
-            )
-            
-            return {"message": "Expense approved successfully"}
-        except Exception as e:
-            log_error(f"Error approving expense: {str(e)}")
             return internal_error()
 
     @staticmethod

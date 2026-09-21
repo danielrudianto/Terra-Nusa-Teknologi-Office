@@ -104,6 +104,9 @@ class LoanRepository:
         "bankAccountID",
         "received",
         "debt",
+        # Jadwal angsuran; `null` yang dikirim menghapus jadwalnya.
+        "tenorMonths",
+        "firstInstallmentDate",
     }
 
     @staticmethod
