@@ -33,8 +33,14 @@ class HrRecruitmentController:
         )
 
     @staticmethod
-    async def daftar_pelamar(test_id=None, status=None):
-        return await HrRecruitmentRepository.daftar_pelamar(test_id, status)
+    async def daftar_pelamar(test_id=None, status=None, ember=None, cari=None):
+        return await HrRecruitmentRepository.daftar_pelamar(
+            test_id, status, ember, cari
+        )
+
+    @staticmethod
+    async def ringkasan_pelamar(test_id=None):
+        return await HrRecruitmentRepository.ringkasan_pelamar(test_id)
 
     @staticmethod
     async def ubah_status_pelamar(candidate_id: int, status: str, user_id: int):

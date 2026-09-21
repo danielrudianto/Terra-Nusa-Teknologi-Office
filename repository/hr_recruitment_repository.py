@@ -10,7 +10,7 @@ import random
 import secrets
 from datetime import datetime as dt, timedelta
 
-from sqlalchemy import func, insert, or_, select, update
+from sqlalchemy import and_, case, func, insert, or_, select, update
 
 from models.hr_recruitment_model import (
     hr_answers_table,
@@ -67,6 +67,50 @@ STATUS_DINILAI = "dinilai"
 
 #: Status sesudah mengirim, sebelum dinilai penuh.
 STATUS_SELESAI = "selesai"
+
+
+#: EMBER DAFTAR PELAMAR — enam kelompok di menu samping.
+#:
+#: Bukan sekadar nama lain untuk `status`. Tangganya punya tujuh anak
+#: tangga, dan menampilkan tujuh angka kepada yang bertanya "sudah sampai
+#: mana rekrutmen ini" bukan jawaban, melainkan pekerjaan menjumlahkan yang
+#: dilimpahkan kepadanya.
+#:
+#: `terbit` adalah SELURUH pelamar yang tautannya sudah terbit — ia
+#: TUMPANG TINDIH dengan yang lain dengan sengaja, sebagai penyebut. Lima
+#: sisanya SALING LEPAS: satu pelamar hanya dapat berada di satu ember.
+#: Tanpa sifat itu, lencana-lencananya dijumlahkan orang dan hasilnya
+#: melebihi jumlah pelamarnya sendiri.
+#:
+#: `submit` sengaja BERHENTI sebelum keputusan: yang sudah diwawancarai,
+#: diterima, atau ditolak tentu sudah mengirim juga, tetapi memasukkannya
+#: ke sini membuat angkanya tidak pernah turun dan karena itu tidak pernah
+#: berguna. Yang ditanyakan sebenarnya "berapa yang menunggu ditangani".
+EMBER = ("terbit", "submit", "wawancara", "diterima", "ditolak", "dihapus")
+
+
+def _syarat_ember(ember: str):
+    """Syarat SQL untuk satu ember; `None` bila namanya tidak dikenal."""
+    aktif = hr_candidates_table.c.isDelete == False  # noqa: E712
+    st = hr_candidates_table.c.status
+
+    if ember == "terbit":
+        return [aktif]
+    if ember == "submit":
+        return [
+            aktif,
+            hr_candidates_table.c.submittedAt.isnot(None),
+            st.in_((STATUS_SELESAI, STATUS_DINILAI)),
+        ]
+    if ember == "wawancara":
+        return [aktif, st == "diwawancara"]
+    if ember == "diterima":
+        return [aktif, st == "diterima"]
+    if ember == "ditolak":
+        return [aktif, st == "ditolak"]
+    if ember == "dihapus":
+        return [hr_candidates_table.c.isDelete == True]  # noqa: E712
+    return None
 
 
 def urutan_acak(soal: list, token: str) -> list:
@@ -529,14 +573,65 @@ class HrRecruitmentRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
-    async def daftar_pelamar(test_id: int = None, status: str = None):
-        """Pelamar beserta paket ujiannya."""
+    async def daftar_pelamar(
+        test_id: int = None,
+        status: str = None,
+        ember: str = None,
+        cari: str = None,
+    ):
+        """
+        Pelamar beserta paket ujiannya.
+
+        `ember` memilih kelompok menu samping; `status` yang lama tetap
+        diterima supaya pemanggil lain tidak ikut berubah. Bila keduanya
+        diberikan, keduanya berlaku — penyaring saling mempersempit, tidak
+        saling membatalkan.
+
+        TANPA `ember`, yang dihapus TIDAK ikut: itu perilaku lama, dan
+        satu-satunya cara melihatnya adalah meminta embernya sendiri.
+        """
         try:
-            syarat = [hr_candidates_table.c.isDelete == False]  # noqa: E712
+            syarat_ember = _syarat_ember(ember) if ember else None
+            if ember and syarat_ember is None:
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "Kelompok tidak dikenal: " + ", ".join(EMBER),
+                    400,
+                )
+            syarat = list(
+                syarat_ember
+                if syarat_ember is not None
+                else [hr_candidates_table.c.isDelete == False]  # noqa: E712
+            )
             if test_id:
                 syarat.append(hr_candidates_table.c.testID == test_id)
             if status:
                 syarat.append(hr_candidates_table.c.status == status)
+
+            kata = (cari or "").strip()
+            if kata:
+                # `%` dan `_` DILARIKAN. Tanpa ini, mengetik "_" di kotak
+                # pencarian mencocokkan aksara apa pun, dan yang mencari
+                # nomor telepon dengan garis bawah mendapat seluruh daftar
+                # tanpa satu pun tanda bahwa pencariannya tidak dijalankan.
+                aman = kata.replace("\\", "\\\\").replace("%", "\\%")
+                aman = aman.replace("_", "\\_")
+                pola = f"%{aman}%"
+                syarat.append(
+                    or_(
+                        # `escape` DISEBUT: tanpa itu aksara pelarian
+                        # bergantung pada mesin basis datanya, dan
+                        # pelariannya di atas menjadi sia-sia diam-diam.
+                        hr_candidates_table.c.name.like(pola, escape="\\"),
+                        hr_candidates_table.c.nickName.like(pola, escape="\\"),
+                        hr_candidates_table.c.email.like(pola, escape="\\"),
+                        hr_candidates_table.c.phoneNumber.like(
+                            pola, escape="\\"
+                        ),
+                        hr_candidates_table.c.city.like(pola, escape="\\"),
+                        hr_tests_table.c.name.like(pola, escape="\\"),
+                    )
+                )
 
             baris = await database.fetch_all(
                 select(
@@ -551,6 +646,7 @@ class HrRecruitmentRepository:
                     hr_candidates_table.c.startedAt,
                     hr_candidates_table.c.submittedAt,
                     hr_candidates_table.c.status,
+                    hr_candidates_table.c.isDelete,
                     hr_candidates_table.c.createdAt,
                     hr_tests_table.c.name.label("testName"),
                 )
@@ -568,6 +664,37 @@ class HrRecruitmentRepository:
             log_error(f"Error listing candidates: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
 
+
+    @staticmethod
+    async def ringkasan_pelamar(test_id: int = None):
+        """
+        Jumlah pelamar per ember, dalam SATU pertanyaan ke basis data.
+
+        Enam hitungan berarti enam perjalanan bolak-balik bila ditanyakan
+        satu per satu, dan angkanya lalu berasal dari enam saat yang
+        berbeda: pelamar yang statusnya berubah di antara dua hitungan
+        muncul di dua ember sekaligus, atau lenyap dari keduanya.
+
+        Penjumlahan bersyarat menjawabnya sekali, dari satu pembacaan.
+        """
+        try:
+            def _hitung(nama: str):
+                syarat = _syarat_ember(nama)
+                return func.sum(
+                    case((and_(*syarat), 1), else_=0)
+                ).label(nama)
+
+            q = select(*[_hitung(n) for n in EMBER])
+            if test_id:
+                q = q.where(hr_candidates_table.c.testID == test_id)
+
+            baris = await database.fetch_one(q)
+            if baris is None:
+                return {n: 0 for n in EMBER}
+            return {n: int(baris[n] or 0) for n in EMBER}
+        except Exception as e:
+            log_error(f"Error summarising candidates: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
     async def _selaraskan_status_nilai(candidate_id: int, test_id: int):
@@ -1043,9 +1170,15 @@ class HrRecruitmentRepository:
         "diisi sendiri lewat tautan" — dan tidak pernah ada satu pun
         formulir yang mengisinya. Seluruhnya tetap NULL.
 
-        Diisi SEBELUM menekan Mulai, jadi tidak memakan waktu ujian. Tetap
-        boleh diubah selama belum mengirim: pelamar yang salah ketik nomor
-        teleponnya di menit pertama tidak perlu mengulang ujiannya.
+        Diisi SEBELUM menekan Mulai, jadi tidak memakan waktu ujian. Setelah
+        itu formulirnya tidak ditampilkan lagi — layar pengerjaan tidak
+        memuatnya — sehingga penjagaan kedaluwarsa di sini menutup jendela
+        yang sama dengan tombol Mulai, bukan jendela yang lebih sempit.
+
+        Tidak ada kolom BARU untuk ini: keenam kolomnya sudah ada di
+        `hr_candidates` sejak tabelnya dibuat, dengan keterangan "diisi
+        sendiri lewat tautan", dan selama ini tidak pernah ada formulir yang
+        mengisinya.
 
         Nama TIDAK ikut diubah di sini. Ia dimasukkan HR saat mendaftarkan,
         dan dipakai mencocokkan lembar dengan orangnya; membiarkan pelamar

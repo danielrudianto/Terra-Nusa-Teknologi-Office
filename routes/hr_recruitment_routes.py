@@ -164,21 +164,48 @@ async def hapus_soal(
 # ---------------------------------------------------------------------------
 
 
+def _test_id(testID: Optional[str]) -> Optional[int]:
+    """`testID` dari query; None bila kosong atau bukan angka."""
+    try:
+        return int(testID) if testID not in (None, "") else None
+    except ValueError:
+        return None
+
+
+@router.get("/candidates/ringkasan")
+async def ringkasan_pelamar(
+    user: Annotated[User, Depends(require("hr_recruitment", "read"))],
+    testID: Optional[str] = Query(None, description="Saring per paket ujian"),
+):
+    """
+    Jumlah pelamar per kelompok, untuk lencana di menu samping.
+
+    DIDAFTARKAN SEBELUM `/candidates/{candidate_id}/...` bukan tanpa sebab:
+    rute FastAPI dicocokkan menurut urutan pendaftaran, dan alamat yang
+    lebih khusus harus berada di depan alamat berparameter.
+    """
+    return _periksa(
+        await HrRecruitmentController.ringkasan_pelamar(_test_id(testID))
+    )
+
+
 @router.get("/candidates")
 async def daftar_pelamar(
     user: Annotated[User, Depends(require("hr_recruitment", "read"))],
     testID: Optional[str] = Query(None, description="Saring per paket ujian"),
     status: Optional[str] = Query(None, description="baru | selesai | ..."),
+    ember: Optional[str] = Query(
+        None, description="terbit | submit | wawancara | diterima | ditolak | dihapus"
+    ),
+    cari: Optional[str] = Query(None, description="Nama, surel, telepon, kota, paket"),
 ):
     """Pelamar beserta paket ujian dan keadaan pengerjaannya."""
-    try:
-        test_id = int(testID) if testID not in (None, "") else None
-    except ValueError:
-        test_id = None
-
     return _periksa(
         await HrRecruitmentController.daftar_pelamar(
-            test_id, (status or "").strip() or None
+            _test_id(testID),
+            (status or "").strip() or None,
+            (ember or "").strip() or None,
+            (cari or "").strip() or None,
         )
     )
 
