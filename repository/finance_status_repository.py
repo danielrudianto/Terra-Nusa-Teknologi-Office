@@ -105,6 +105,40 @@ def porsi_lancar(
     bukan_lancar = angsuran * max(0, sisa_jadwal - 12)
     return max(0.0, min(float(sisa), float(sisa) - bukan_lancar))
 
+def porsi_jatuh_tempo(
+    sisa: float,
+    utang: float,
+    tenor: int | None,
+    pertama: d | None,
+    tanggal_pinjam: d | None,
+    sampai: d,
+) -> float | None:
+    """
+    Bagian sisa pinjaman yang jatuh tempo PALING LAMBAT `sampai` — untuk
+    likuiditas 30 hari. Anggapan sama dengan `porsi_lancar`: angsuran
+    bulanan rata `utang / tenor`; tunggakan ikut jatuh tempo sekarang.
+
+        belum jatuh tempo = angsuran x jadwal yang tanggalnya > `sampai`
+        jatuh tempo       = sisa - belum jatuh tempo, dibatasi 0..sisa
+
+    `None` bila tanpa tenor (jadwalnya tidak diketahui).
+    """
+    if not tenor or tenor <= 0:
+        return None
+    if sisa <= 0:
+        return 0.0
+    mulai = pertama or (
+        _tambah_bulan(tanggal_pinjam, 1) if tanggal_pinjam else None
+    )
+    if mulai is None:
+        return None
+    sudah = 0
+    while sudah < tenor and _tambah_bulan(mulai, sudah) <= sampai:
+        sudah += 1
+    belum = float(utang or 0) / tenor * (tenor - sudah)
+    return max(0.0, min(float(sisa), float(sisa) - belum))
+
+
 # Berapa dokumen yang ikut dikirim bersama ringkasannya.
 #
 # Layar ini menjawab "siapa yang belum bayar", dan itu tidak terjawab oleh
@@ -1029,7 +1063,15 @@ class FinanceStatusRepository:
             acuan = pada or d.today()
             lancar = 0.0
             tanpa_tenor = 0.0
+            jatuh_30 = 0.0
             for r in rows:
+                j = porsi_jatuh_tempo(
+                    float(r["sisa"] or 0), float(r["debt"] or 0),
+                    r["tenorMonths"], r["firstInstallmentDate"], r["date"],
+                    acuan + timedelta(days=30),
+                )
+                if j is not None:
+                    jatuh_30 += j
                 porsi = porsi_lancar(
                     float(r["sisa"] or 0), float(r["debt"] or 0),
                     r["tenorMonths"], r["firstInstallmentDate"], r["date"], acuan,
@@ -1046,6 +1088,8 @@ class FinanceStatusRepository:
                 "jumlahPinjaman": len(rows),
                 "lancar": lancar,
                 "tanpaTenor": tanpa_tenor,
+                # Angsuran (termasuk tunggakan) yang jatuh tempo <= 30 hari.
+                "jatuhTempo30": jatuh_30,
             }
         except Exception as e:
             log_error(f"Error menghitung pinjaman: {str(e)}")

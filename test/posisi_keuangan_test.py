@@ -929,6 +929,18 @@ class TestPinjamanBertenor:
         assert hasil["catatan"]["pinjamanDiluarRasio"] is False
 
     @pytest.mark.asyncio
+    async def test_angsuran_30_hari_mengurangi_likuiditas(self, repo):
+        repo["pinjaman"] = {
+            "total": 500.0, "jumlahPinjaman": 2, "lancar": 120.0,
+            "tanpaTenor": 200.0, "jatuhTempo30": 10.0,
+        }
+        hasil = await FS.get_status()
+        lk = hasil["likuiditas30"]
+        assert lk["angsuranPinjaman30"] == pytest.approx(10.0)
+        assert lk["kewajiban30"] == pytest.approx(lk["utang30"] + 10.0)
+        assert lk["setelahKewajiban"] == pytest.approx(lk["kas"] - lk["kewajiban30"])
+
+    @pytest.mark.asyncio
     async def test_tanpa_penanda_porsi_perilaku_lama(self, repo):
         """Jalur galat repository tidak membawa `lancar`: rasio seperti dulu."""
         repo["pinjaman"] = {"total": 500.0, "jumlahPinjaman": 1}

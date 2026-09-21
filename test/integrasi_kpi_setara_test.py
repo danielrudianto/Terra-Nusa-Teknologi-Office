@@ -197,3 +197,35 @@ async def test_jumlah_kueri_tidak_tumbuh_mengikuti_bulan():
     finally:
         if not sudah_tersambung:
             await database.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_pendapatan_hanya_faktur_disetujui():
+    """Laba rugi (dan KPI, lewat uji di atas) = DPP faktur DISETUJUI saja,
+    sama dengan penyebut DSO. Faktur yang belum disetujui tidak ikut."""
+    from repository.laba_rugi_repository import LabaRugiRepository
+    from utils.database import database
+
+    sudah_tersambung = database.is_connected
+    if not sudah_tersambung:
+        await database.connect()
+    try:
+        hari_ini = d.today()
+        y, m = hari_ini.year, hari_ini.month
+        for _ in range(BULAN_DIPERIKSA):
+            acuan = await database.fetch_val(
+                "SELECT COALESCE(SUM(dpp), 0) FROM sales_invoices "
+                "WHERE isDelete = 0 AND isApprove = 1 "
+                "AND YEAR(date) = :y AND MONTH(date) = :m",
+                {"y": y, "m": m},
+            )
+            lr = await LabaRugiRepository.laba_rugi(m, y)
+            assert round(float(lr["bulan"]["pendapatan"]), 2) == round(
+                float(acuan), 2
+            ), f"{y}-{m:02d}: pendapatan memuat faktur yang belum disetujui"
+            m -= 1
+            if m == 0:
+                y, m = y - 1, 12
+    finally:
+        if not sudah_tersambung:
+            await database.disconnect()

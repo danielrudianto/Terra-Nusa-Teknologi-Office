@@ -385,14 +385,24 @@ class TenderRepository:
         nilai: dict,
         baris: Optional[List[dict]],
         user_id: int,
+        versi: Optional[int] = None,
     ) -> Dict[str, Any]:
         try:
-            if nilai:
-                await database.execute(
-                    update(tenders_table)
-                    .where(tenders_table.c.id == tender_id)
-                    .values(**nilai, updatedAt=dt.now(), updatedBy=user_id)
-                )
+            # Dijaga versi barisnya, SELALU — juga bila yang berubah hanya
+            # baris permintaan: versinya tetap naik, jadi penyimpanan kedua
+            # dari formulir lama ditolak (409), bukan menimpa diam-diam.
+            from utils.kunci_optimistik import jawaban_konflik, perbarui_terkunci
+
+            hasil_kunci = await perbarui_terkunci(
+                tenders_table,
+                tender_id,
+                {**(nilai or {}), "updatedAt": dt.now(), "updatedBy": user_id},
+                versi,
+            )
+            if hasil_kunci == "hilang":
+                return {"error": "Tender tidak ditemukan.", "status": 404}
+            if hasil_kunci == "konflik":
+                return jawaban_konflik("Tender")
             if baris is not None:
                 await TenderRepository._tulis_baris(tender_id, baris)
             from repository.audit_log_repository import AuditLogRepository

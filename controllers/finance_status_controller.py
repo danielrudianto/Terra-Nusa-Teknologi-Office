@@ -203,7 +203,8 @@ class FinanceStatusController:
             #
             # Yang dipakai di sini hanya yang dapat ditelusuri ke dokumennya:
             # saldo rekening, dikurangi tagihan pemasok yang tenggatnya jatuh
-            # dalam 30 hari — termasuk yang sudah lewat.
+            # dalam 30 hari — termasuk yang sudah lewat — dan angsuran
+            # pinjaman bertenor yang jatuh tempo dalam 30 hari.
             #
             # PIUTANG TIDAK DITAMBAHKAN. `sales_invoices` tidak menyimpan
             # jatuh tempo, jadi tidak ada dasar untuk mengatakan sebuah faktur
@@ -211,7 +212,12 @@ class FinanceStatusController:
             # KETERANGAN di sebelah angkanya, bukan sebagai suku penjumlahan.
             tempo = utang.get("tempo") or {}
             jatuh_tempo_lewat = float(tempo.get("lewat") or 0)
-            jatuh_tempo_30 = jatuh_tempo_lewat + float(tempo.get("0-30") or 0)
+            jatuh_tempo_utang_30 = jatuh_tempo_lewat + float(tempo.get("0-30") or 0)
+            # Angsuran pinjaman BERJADWAL yang jatuh tempo dalam 30 hari
+            # (termasuk tunggakan). Pinjaman tanpa tenor tidak ikut — jadwalnya
+            # tidak diketahui.
+            angsuran_30 = float(pinjaman.get("jatuhTempo30") or 0)
+            jatuh_tempo_30 = jatuh_tempo_utang_30 + angsuran_30
 
             umur = piutang.get("umur") or {}
             piutang_muda = float(umur.get("0-30") or 0)
@@ -220,6 +226,8 @@ class FinanceStatusController:
                 "kas": kas_dipakai,
                 "kewajiban30": jatuh_tempo_30,
                 "kewajibanLewat": jatuh_tempo_lewat,
+                "utang30": jatuh_tempo_utang_30,
+                "angsuranPinjaman30": angsuran_30,
                 "setelahKewajiban": kas_dipakai - jatuh_tempo_30,
                 # Keterangan, BUKAN suku. Lihat alasannya di atas.
                 "piutangTermuda": piutang_muda,

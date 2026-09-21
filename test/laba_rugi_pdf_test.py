@@ -241,7 +241,10 @@ def test_pdf_bulan_tanpa_penjualan_tidak_mencetak_nol_persen_palsu(tmp_path):
     teks = _teks_pdf(
         LabaRugiDocumentService.render(_contoh(pendapatan_bulan=0.0)), tmp_path
     )
-    baris_pendapatan = [b for b in teks.splitlines() if "Pendapatan" in b][0]
+    # Baris TABEL-nya (ber-%), bukan catatan kaki yang juga menyebut "Pendapatan".
+    baris_pendapatan = [
+        b for b in teks.splitlines() if "Pendapatan" in b and "%" in b
+    ][0]
     # Dibandingkan per TOKEN, bukan per untai: kolom YTD di baris yang sama
     # berisi "100,0%", dan "0,0%" adalah potongan darinya. Pemeriksaan untai
     # sempat gagal karena itu — gagal yang benar tentang hal yang salah.

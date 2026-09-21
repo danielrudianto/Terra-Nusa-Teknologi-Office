@@ -95,6 +95,8 @@ class TenderUpdate(BaseModel):
     dueDate: Optional[date] = None
     # Baris diganti seluruhnya bila disebutkan; kosong berarti tidak diubah.
     items: Optional[List[TenderItemBase]] = None
+    # Versi yang dibaca layar — lihat `utils/kunci_optimistik.py`.
+    rowVersion: Optional[int] = None
 
     @field_validator("tenderType")
     @classmethod

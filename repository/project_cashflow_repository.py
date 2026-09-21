@@ -65,7 +65,7 @@ menyimpulkan proyeknya lebih sehat daripada keadaannya.
 
 from typing import Any, Dict, List
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from models.payment_incoming_model import payment_incoming_table
 from models.payment_outgoing_model import payments_outgoing_table
@@ -113,6 +113,28 @@ class ProjectCashflowRepository:
                 purchases_table.c.projectName == project_name,
                 payments_outgoing_table.c.isDelete == False,  # noqa: E712
                 purchases_table.c.isDelete == False,  # noqa: E712
+                # Pembelian INTERNAL tidak lewat sini — lihat `internal`.
+                func.coalesce(purchases_table.c.isInternal, False) == False,  # noqa: E712
+            )
+
+            # PEMBELIAN INTERNAL: dianggap dibayar PADA TANGGAL PEMBELIANNYA,
+            # sebesar nilai tagihannya (permintaan Daniel, 21 Sep 2026).
+            # Umumnya tidak punya catatan pembayaran, jadi tanpa ini kasnya
+            # tidak pernah terlihat. Pembayaran yang kebetulan ada tidak
+            # dihitung lagi (saringan di atas) supaya tidak ganda. Layar
+            # menampilkannya hanya bila sakelar "sertakan internal" menyala.
+            internal = select(
+                purchases_table.c.date,
+                purchases_table.c.dpp,
+                purchases_table.c.ppn,
+                purchases_table.c.pbbkb,
+                purchases_table.c.otherValue,
+                purchases_table.c.pphPercentage,
+                purchases_table.c.invoiceName.label("acuan"),
+            ).where(
+                purchases_table.c.projectName == project_name,
+                purchases_table.c.isDelete == False,  # noqa: E712
+                purchases_table.c.isInternal == True,  # noqa: E712
             )
 
             reimburse = select(
@@ -136,6 +158,12 @@ class ProjectCashflowRepository:
                 for b in _baris(await database.fetch_all(kueri)):
                     b["jenis"] = jenis
                     hasil.append(b)
+
+            # Nilainya (`amount`) dihitung controller dengan `nilai_pembelian`
+            # — rumusnya hanya ada di satu tempat.
+            for b in _baris(await database.fetch_all(internal)):
+                b["jenis"] = "internal"
+                hasil.append(b)
 
             hasil.sort(key=lambda b: str(b["date"]))
             return hasil

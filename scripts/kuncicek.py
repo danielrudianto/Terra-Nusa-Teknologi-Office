@@ -53,7 +53,10 @@ TABEL = {
 # Yang SUDAH tersambung, BACKEND DAN LAYARNYA. Menambah nama ke sini adalah
 # cara menyatakan "dokumen ini selesai" — dan sejak saat itu pemeriksanya
 # menjaga agar tidak mundur lagi.
-SUDAH = {"certificate_of_payments", "expenses", "purchase_orders", "purchases"}
+SUDAH = {
+    "certificate_of_payments", "expenses", "purchase_orders", "purchases",
+    "tenders",
+}
 
 # Keadaan KETIGA, dan sebab ia ada.
 #

@@ -76,7 +76,10 @@ class TenderController:
             }
 
         baris = body.pop("items", None)
-        return await TenderRepository.ubah(tender_id, body, baris, user_id)
+        versi = body.pop("rowVersion", None)
+        return await TenderRepository.ubah(
+            tender_id, body, baris, user_id, versi=versi
+        )
 
     @staticmethod
     async def sebarkan(tender_id: int, user_id: int) -> Dict[str, Any]:

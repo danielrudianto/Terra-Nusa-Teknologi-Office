@@ -371,11 +371,14 @@ async def _gaji_rentang(a: d, b: d) -> float:
 async def _agregasi(a: d, b: d) -> dict:
     """Susun satu laba-rugi untuk rentang tanggal [a, b] (inklusif)."""
 
-    # Pendapatan usaha — DPP faktur penjualan yang belum dihapus.
+    # Pendapatan usaha — DPP faktur penjualan yang SUDAH DISETUJUI. Faktur
+    # yang belum disetujui belum tentu terbit; definisinya sama dengan
+    # penyebut DSO di Status Keuangan (keputusan Daniel, 21 Sep 2026).
     pendapatan = await database.fetch_val(
         select(func.coalesce(func.sum(sales_invoice_tables.c.dpp), 0)).where(
             and_(
                 sales_invoice_tables.c.isDelete == False,  # noqa: E712
+                sales_invoice_tables.c.isApprove == True,  # noqa: E712
                 sales_invoice_tables.c.date >= a,
                 sales_invoice_tables.c.date <= b,
             )

@@ -41,6 +41,21 @@ class ProjectCashflowController:
             log_error(f"Project cashflow: outflow failed for {project_name}")
             return keluar
 
+        # Pembelian internal: nilai tagihannya, pada tanggal pembeliannya.
+        from controllers.payment_outgoing_controller import nilai_pembelian
+
+        keluar = [
+            {
+                "date": b["date"],
+                "amount": nilai_pembelian(b),
+                "acuan": b["acuan"],
+                "jenis": "internal",
+            }
+            if b.get("jenis") == "internal"
+            else b
+            for b in keluar
+        ]
+
         masuk = await ProjectCashflowRepository.kas_masuk(project_name)
         if _gagal(masuk):
             log_error(f"Project cashflow: inflow failed for {project_name}")
@@ -55,5 +70,7 @@ class ProjectCashflowController:
             # keluar di sini adalah batas bawah. Menaruh keterangan itu di
             # template saja berarti pemakai berikutnya — berkas unduhan, layar
             # lain, integrasi — mewarisi angkanya tanpa mewarisi batasannya.
-            "cakupanKeluar": ["pembelian", "reimbursement"],
+            # `internal` = pembelian internal, dianggap dibayar pada tanggal
+            # pembeliannya; layar menyaringnya lewat sakelar internal.
+            "cakupanKeluar": ["pembelian", "reimbursement", "internal"],
         }

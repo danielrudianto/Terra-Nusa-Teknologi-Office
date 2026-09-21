@@ -70,3 +70,30 @@ def test_tambah_bulan_akhir_bulan():
     assert _tambah_bulan(d(2028, 1, 31), 1) == d(2028, 2, 29)
     assert _tambah_bulan(d(2026, 11, 30), 3) == d(2027, 2, 28)
     assert _tambah_bulan(d(2026, 12, 15), 1) == d(2027, 1, 15)
+
+
+# ---- Jatuh tempo 30 hari (likuiditas) ----
+
+from repository.finance_status_repository import porsi_jatuh_tempo  # noqa: E402
+
+SAMPAI = d(2026, 10, 21)  # PADA + 30 hari
+
+
+def test_30hari_tanpa_tenor_tidak_diketahui():
+    assert porsi_jatuh_tempo(10e6, 10e6, None, None, d(2026, 3, 1), SAMPAI) is None
+
+
+def test_30hari_sesuai_jadwal_satu_angsuran():
+    # 36 x 1 jt mulai 1 Feb, bayar 8: jadwal s/d 21 Okt = 9 -> belum 27 jt.
+    # Sisa 28 jt -> jatuh tempo 1 jt (angsuran 1 Okt).
+    assert porsi_jatuh_tempo(28e6, 36e6, 36, d(2026, 2, 1), d(2026, 1, 5), SAMPAI) == 1e6
+
+
+def test_30hari_tunggakan_ikut():
+    # Baru bayar 5: sisa 31 jt -> 3 tertunggak + 1 bulan ini = 4 jt.
+    assert porsi_jatuh_tempo(31e6, 36e6, 36, d(2026, 2, 1), d(2026, 1, 5), SAMPAI) == 4e6
+
+
+def test_30hari_sudah_bayar_di_muka_nol():
+    # Bayar 10 (lebih dari jadwal 9): sisa 26 jt < belum 27 jt -> 0.
+    assert porsi_jatuh_tempo(26e6, 36e6, 36, d(2026, 2, 1), d(2026, 1, 5), SAMPAI) == 0.0

@@ -91,7 +91,9 @@ async def test_kas_masuk_menyambung_ke_faktur_bukan_pembelian(tangkap):
 async def test_kas_keluar_punya_dua_sumber_yang_tersambung_sendiri(tangkap):
     await ProjectCashflowRepository.kas_keluar("R501")
 
-    assert len(tangkap.sql) == 2, "kas keluar harus dari pembelian DAN reimbursement"
+    assert len(tangkap.sql) == 3, (
+        "kas keluar: pembayaran pembelian, reimbursement, dan pembelian internal"
+    )
     gabung = " || ".join(tangkap.sql)
     assert "payment_outgoing.purchaseID = purchases.id" in gabung
     assert (
@@ -123,6 +125,8 @@ async def test_dokumen_induk_yang_terhapus_ikut_disaring(tangkap):
             if f"{induk}.projectName" not in sql:
                 continue
             assert f"{induk}.isDelete =" in sql, f"{induk} tidak disaring: {sql}"
+            if bayar not in sql:
+                continue  # pembelian internal: tanpa tabel pembayaran
             assert f"{bayar}.isDelete =" in sql, f"{bayar} tidak disaring: {sql}"
 
 
@@ -208,7 +212,7 @@ async def test_cakupan_keluar_disebut_di_jawabannya(monkeypatch):
     monkeypatch.setattr(ProjectCashflowRepository, "kas_masuk", kosong)
 
     hasil = await ProjectCashflowController.arus_kas("R501")
-    assert hasil["cakupanKeluar"] == ["pembelian", "reimbursement"]
+    assert hasil["cakupanKeluar"] == ["pembelian", "reimbursement", "internal"]
 
 
 async def test_nama_proyek_kosong_ditolak():
@@ -252,3 +256,40 @@ def test_payment_outgoing_memang_level_tiga():
     assert MATRIX["payment_outgoing"][0] == 3
     assert MATRIX["purchase"][0] == 1
     assert MATRIX["payment_incoming"][0] == 3
+
+
+# ----------------------------------------------------------------------
+# Pembelian internal — dianggap dibayar pada tanggal pembeliannya
+# ----------------------------------------------------------------------
+
+
+async def test_pembayaran_atas_pembelian_internal_tidak_dihitung_ganda(tangkap):
+    await ProjectCashflowRepository.kas_keluar("R501")
+    bayar = [q for q in tangkap.sql if "payment_outgoing.purchaseID" in q][0]
+    assert "isInternal" in bayar, "pembayaran pembelian internal ikut terhitung"
+
+
+async def test_pembelian_internal_muncul_di_tanggal_pembelian(monkeypatch):
+    from datetime import date as d
+
+    class _Db:
+        async def fetch_all(self, kueri):
+            sql = str(kueri)
+            if "payment_outgoing" in sql:
+                return []
+            return [{
+                "date": d(2026, 8, 3), "dpp": 1_000_000, "ppn": 11, "pbbkb": 0,
+                "otherValue": 0, "pphPercentage": 0, "acuan": "INT-01",
+            }]
+
+    monkeypatch.setattr(modul, "database", _Db())
+
+    async def kosong(_p):
+        return []
+
+    monkeypatch.setattr(ProjectCashflowRepository, "kas_masuk", kosong)
+    hasil = await ProjectCashflowController.arus_kas("R501")
+    assert hasil["outgoing"] == [{
+        "date": d(2026, 8, 3), "amount": 1_110_000.0,
+        "acuan": "INT-01", "jenis": "internal",
+    }]

@@ -28,11 +28,9 @@ Tiga hal menahannya:
   1. Seluruh aturan kategori DIIMPOR dari `laba_rugi_repository`, tidak
      disalin. Pemetaan kategori ke baris laporan cuma ada satu tempat, dan
      memindahkannya di sana ikut memindahkan yang di sini.
-  2. Penyaring tiap tabelnya ditulis persis sama, termasuk yang tampak
-     ganjil — `sales_invoices` di sini TIDAK menyaring `isApprove`, sama
-     seperti laba ruginya. (Itu keputusan lama yang berbeda dari penyebut DSO
-     di `finance_status_repository`; disamakan dengan laba rugi karena
-     berkas ini menyusun laba rugi, bukan rasio penagihan.)
+  2. Penyaring tiap tabelnya ditulis persis sama dengan laba ruginya —
+     termasuk `sales_invoices` yang hanya menghitung faktur DISETUJUI
+     (sejak 21 Sep 2026; sama dengan penyebut DSO).
   3. `test/integrasi_kpi_setara_test.py` menjalankan KEDUANYA atas basis data
      yang sama dan menuntut angkanya sama, bulan per bulan.
 
@@ -327,6 +325,7 @@ class KpiRepository:
                 .where(
                     and_(
                         sales_invoice_tables.c.isDelete == False,  # noqa: E712
+                        sales_invoice_tables.c.isApprove == True,  # noqa: E712
                         sales_invoice_tables.c.date >= awal,
                         sales_invoice_tables.c.date <= akhir,
                     )
