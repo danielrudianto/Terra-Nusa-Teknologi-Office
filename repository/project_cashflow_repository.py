@@ -35,23 +35,10 @@ TIGA HAL YANG MENENTUKAN ANGKANYA, DAN ALASANNYA
 
 3. JOIN-nya MENYEBUT KOLOMNYA SENDIRI (`onclause` eksplisit).
 
-   `payment_incoming.salesInvoiceID` dideklarasikan sebagai
-   `ForeignKey("purchases.id")` di modelnya — menunjuk tabel yang SALAH.
-
-   Akibatnya SQLAlchemy tidak mengenal satu pun hubungan antara
-   `payment_incoming` dan `sales_invoices`. `join(sales_invoice_tables)` tanpa
-   `onclause` karena itu GAGAL dengan `NoForeignKeysError`, bukan menyambung
-   diam-diam ke tabel yang salah — sudah dibuktikan dengan merusaknya sengaja.
-   (Saya sempat menulis sebaliknya di sini; keliru.)
-
-   Jadi `onclause` di bawah bukan kehati-hatian berlebih: tanpanya kuerinya
-   tidak terbentuk sama sekali. Yang perlu diingat adalah SEBABNYA, karena
-   pesan galatnya menunjuk ke "tidak ada FK" dan bukan ke "FK-nya salah
-   tabel" — dan yang membacanya akan mencari FK yang hilang, bukan FK yang
-   keliru arah.
-
-   Kolomnya tidak saya ubah dari sini: itu perubahan skema, dan
-   memperbaikinya menyentuh seluruh pembaca `payment_incoming`.
+   `payment_incoming.salesInvoiceID` dulu dideklarasikan sebagai FK ke
+   `purchases.id` — tabel yang SALAH (diperbaiki lewat
+   `sql/payment-incoming-fk-faktur.sql`). `onclause` tetap ditulis: sambungan
+   yang menyebut kolomnya sendiri tidak bergantung pada deklarasi FK.
 
 YANG TIDAK TERCAKUP, DAN HARUS DISEBUTKAN
 
@@ -182,8 +169,7 @@ class ProjectCashflowRepository:
             ).select_from(
                 payment_incoming_table.join(
                     sales_invoice_tables,
-                    # onclause EKSPLISIT. FK pada modelnya menunjuk
-                    # `purchases.id` — lihat catatan (3) di kepala berkas.
+                    # onclause EKSPLISIT — lihat catatan (3) di kepala berkas.
                     payment_incoming_table.c.salesInvoiceID
                     == sales_invoice_tables.c.id,
                 )

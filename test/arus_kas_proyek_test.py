@@ -6,7 +6,7 @@ KENAPA DIUJI LEWAT SQL YANG DIHASILKAN
 Kekeliruan yang paling mungkin di modul ini tidak menghasilkan galat apa pun.
 Ia menghasilkan ANGKA LAIN:
 
-  * `payment_incoming.salesInvoiceID` dideklarasikan `ForeignKey("purchases.id")`
+  * `payment_incoming.salesInvoiceID` DULU dideklarasikan `ForeignKey("purchases.id")`
     di modelnya — menunjuk tabel yang SALAH, sehingga SQLAlchemy tidak mengenal
     satu pun hubungan antara `payment_incoming` dan `sales_invoices`.
     Menyederhanakan join-nya menjadi `.join(sales_invoice_tables)` karena itu
@@ -31,6 +31,7 @@ import re
 import pytest
 
 from controllers.project_cashflow_controller import ProjectCashflowController
+from models.payment_incoming_model import payment_incoming_table
 from repository import project_cashflow_repository as modul
 from repository.project_cashflow_repository import ProjectCashflowRepository
 
@@ -68,7 +69,7 @@ def tangkap(monkeypatch):
 
 async def test_kas_masuk_menyambung_ke_faktur_bukan_pembelian(tangkap):
     """
-    FK pada modelnya menunjuk `purchases.id`; sambungannya harus ditulis sendiri.
+    FK pada modelnya DULU menunjuk `purchases.id`; sambungannya tetap ditulis sendiri.
 
     Tanpa `onclause`, SQLAlchemy tidak menemukan hubungan apa pun ke
     `sales_invoices` dan melempar — lalu repository menelannya menjadi 500.
@@ -293,3 +294,10 @@ async def test_pembelian_internal_muncul_di_tanggal_pembelian(monkeypatch):
         "date": d(2026, 8, 3), "amount": 1_110_000.0,
         "acuan": "INT-01", "jenis": "internal",
     }]
+
+
+def test_fk_penerimaan_menunjuk_faktur_bukan_pembelian():
+    """Deklarasi FK di model harus ke `sales_invoices`, bukan `purchases`."""
+    kolom = payment_incoming_table.c.salesInvoiceID
+    tujuan = {fk.column.table.name for fk in kolom.foreign_keys}
+    assert tujuan == {"sales_invoices"}, tujuan

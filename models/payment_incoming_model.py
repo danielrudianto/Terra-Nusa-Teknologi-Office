@@ -9,7 +9,8 @@ payment_incoming_table = Table(
     Column("id", Integer, primary_key=True, autoincrement=True),
     Column("date", Date(), nullable=False),
     Column("amount", Integer, nullable=False),
-    Column("salesInvoiceID", Integer, ForeignKey("purchases.id"), nullable=True),
+    # Dulu keliru menunjuk purchases.id — lihat sql/payment-incoming-fk-faktur.sql.
+    Column("salesInvoiceID", Integer, ForeignKey("sales_invoices.id"), nullable=True),
     Column("incomeID", Integer, ForeignKey('income.id'), nullable=True),
     Column("loanID", Integer, ForeignKey('loans.id'), nullable=True),
     Column("bankAccountID", Integer, ForeignKey("bank_accounts.id"), nullable=True),
