@@ -270,6 +270,40 @@ class _Antrean:
         "SELECT " + _UMUR.format(kolom="createdAt") + " FROM sales_invoices "
         "WHERE isDelete = 0 AND isApprove = 0"
     )
+    # ---- Tahap tambahan (21 Sep 2026) — tanpa lencana. ----
+    # Draf pembelian yang belum dikonversi jadi pembelian.
+    DRAF_PEMBELIAN = (
+        "SELECT " + _UMUR.format(kolom="createdAt") + " FROM purchase_draft "
+        "WHERE isDelete = 0 AND convertedAt IS NULL"
+    )
+    # Pembelian yang masih `draft` (belum `ready` untuk dibayar).
+    PEMBELIAN_DRAFT = (
+        "SELECT " + _UMUR.format(kolom="createdAt") + " FROM purchases "
+        "WHERE isDelete = 0 AND lastStatus = 'draft'"
+    )
+    # Tender sudah disebar, menunggu penawaran & pemenang. Umurnya sejak
+    # dibuat — tidak ada kolom tanggal sebar.
+    TENDER_BERJALAN = (
+        "SELECT " + _UMUR.format(kolom="createdAt") + " FROM tenders "
+        "WHERE isDelete = 0 AND status = 'berjalan'"
+    )
+    # Pelamar sudah selesai ujian, belum selesai dinilai.
+    HR_NILAI = (
+        "SELECT " + _UMUR.format(kolom="COALESCE(submittedAt, createdAt)")
+        + " FROM hr_candidates WHERE isDelete = 0 AND status = 'selesai'"
+    )
+    # Pelamar sudah dinilai, belum diputuskan diterima/ditolak.
+    HR_PUTUSKAN = (
+        "SELECT " + _UMUR.format(kolom="COALESCE(submittedAt, createdAt)")
+        + " FROM hr_candidates WHERE isDelete = 0 AND status = 'dinilai'"
+    )
+    # Undangan formulir karyawan yang belum diisi dan belum kedaluwarsa.
+    FORMULIR_KARYAWAN = (
+        "SELECT " + _UMUR.format(kolom="createdAt")
+        + " FROM employee_form_invites "
+        "WHERE isDelete = 0 AND usedAt IS NULL "
+        "AND (expiresAt IS NULL OR expiresAt > NOW())"
+    )
 
 
 class KpiRepository:
@@ -637,5 +671,21 @@ class KpiRepository:
             tahap.append(
                 await _antre("faktur", "sales_invoice", _Antrean.FAKTUR, {})
             )
+        # Tahap tambahan: izinnya = yang MENGERJAKAN langkah berikutnya.
+        tambahan = (
+            # Draf dikonversi saat pembelian DIBUAT.
+            ("drafPembelian", "purchase", "create", _Antrean.DRAF_PEMBELIAN),
+            ("pembelianDraft", "purchase", "update", _Antrean.PEMBELIAN_DRAFT),
+            ("tenderBerjalan", "tender", "approve", _Antrean.TENDER_BERJALAN),
+            ("hrNilai", "hr_recruitment", "update", _Antrean.HR_NILAI),
+            ("hrPutuskan", "hr_recruitment", "update", _Antrean.HR_PUTUSKAN),
+            (
+                "formulirKaryawan", "employee_form", "create",
+                _Antrean.FORMULIR_KARYAWAN,
+            ),
+        )
+        for kode, modul, aksi, sql in tambahan:
+            if await is_allowed(user, modul, aksi):
+                tahap.append(await _antre(kode, modul, sql, {}))
 
         return {"tahap": tahap}

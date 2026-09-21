@@ -167,6 +167,8 @@ def test_antrean_tidak_menghitung_dokumen_terhapus():
     for nama in (
         "PO_PERIKSA", "PO_SETUJUI", "REIMBURSEMENT", "COP_BAP",
         "COP_SETUJUI", "TENDER", "PEMBAYARAN", "FAKTUR",
+        "DRAF_PEMBELIAN", "PEMBELIAN_DRAFT", "TENDER_BERJALAN",
+        "HR_NILAI", "HR_PUTUSKAN", "FORMULIR_KARYAWAN",
     ):
         sql = _normal(getattr(_Antrean, nama))
         assert "isdelete = 0" in sql, (
@@ -376,3 +378,33 @@ async def test_hanya_tahap_yang_berizin_yang_dibaca(fake_db, monkeypatch):
     assert [t["kode"] for t in hasil["tahap"]] == ["poSetujui"]
     assert hasil["tahap"][0]["jumlah"] == 1
     assert db.executed("fetch_all") == 1
+
+
+@pytest.mark.asyncio
+async def test_tahap_tambahan_mengikuti_izin_langkah_berikutnya(fake_db, monkeypatch):
+    db = fake_db(MODUL)
+    db.queue("fetch_all", [{"umur": 1}], [{"umur": 9}, {"umur": 20}])
+
+    import utils.permission as izin
+
+    boleh = {("purchase", "create"), ("hr_recruitment", "update")}
+
+    async def _izin(user, modul, aksi):
+        return (modul, aksi) in boleh and modul != "purchase_order"
+
+    monkeypatch.setattr(izin, "is_allowed", _izin)
+    monkeypatch.setattr(izin, "boleh_memeriksa", lambda *a, **k: False)
+    monkeypatch.setattr(izin, "boleh_menyetujui_bap_cop", lambda *a: False)
+    monkeypatch.setattr(izin, "boleh_menyetujui_cop", lambda *a: False)
+
+    hasil = await KpiRepository.antrean({"id": 1}, 3, set())
+    assert [t["kode"] for t in hasil["tahap"]] == [
+        "drafPembelian", "hrNilai", "hrPutuskan",
+    ]
+    assert hasil["tahap"][0]["jumlah"] == 1
+
+
+def test_draf_pembelian_yang_sudah_dikonversi_tidak_dihitung():
+    from repository.kpi_repository import _Antrean
+
+    assert "convertedat is null" in _normal(_Antrean.DRAF_PEMBELIAN)

@@ -39,6 +39,11 @@ import models.purchase_order_model  # noqa: F401
 import models.purchase_order_item_model  # noqa: F401
 import models.project_model  # noqa: F401
 import models.finance_threshold_model  # noqa: F401
+import models.bank_model  # noqa: F401  (bank_accounts — dulu hanya lolos lewat urutan impor uji lain)
+import models.purchase_draft_model  # noqa: F401
+import models.tender_model  # noqa: F401
+import models.hr_recruitment_model  # noqa: F401
+import models.employee_form_model  # noqa: F401
 
 from utils.database import metadata
 
@@ -50,6 +55,9 @@ AKAR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #: akan dimatikan orang.
 BERKAS = [
     os.path.join(AKAR, "repository", "finance_status_repository.py"),
+    # Papan antrean KPI — `purchase_drafts` (keliru, tabelnya `purchase_draft`)
+    # sempat lolos di sini dan akan menjadi tahap yang selalu "gagal".
+    os.path.join(AKAR, "repository", "kpi_repository.py"),
 ]
 
 #: Tabel yang memang ADA di basis data tetapi tidak berupa model —
