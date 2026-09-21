@@ -755,11 +755,19 @@ class PurchaseRepository:
             nilai["updatedAt"] = dt.now()
             nilai["updatedBy"] = userID
 
-            await database.execute(
-                update(purchases_table)
-                .where(purchases_table.c.id == purchase_id)
-                .values(**nilai)
+            # Dijaga VERSI barisnya — dua orang yang membuka pembelian yang
+            # sama tidak lagi saling menimpa diam-diam. Versinya dari muatan
+            # layar; tanpa versi, tersimpan seperti sebelumnya (jeda deploy).
+            # Lihat `utils/kunci_optimistik.py`.
+            from utils.kunci_optimistik import jawaban_konflik, perbarui_terkunci
+
+            hasil_kunci = await perbarui_terkunci(
+                purchases_table, purchase_id, nilai, (data or {}).get("rowVersion")
             )
+            if hasil_kunci == "hilang":
+                return {"error": "Purchase not found", "status": 404}
+            if hasil_kunci == "konflik":
+                return jawaban_konflik("Pembelian")
 
             from repository.audit_log_repository import AuditLogRepository
 

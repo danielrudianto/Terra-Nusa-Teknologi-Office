@@ -58,22 +58,32 @@ class PurchaseDraft(BaseModel):
 
         conditions = []
 
-        or_conditions = []
-        if(keyword is not None and keyword != ""):
-            or_conditions.append(purchase_draft_table.c.purchaseOrderName.ilike(f"%{keyword}%"))
-            or_conditions.append(suppliers_table.c.name.ilike(f"%{keyword}%"))
-            or_conditions.append(purchase_draft_table.c.description.ilike(f"%{keyword}%"))
-        conditions.append(or_(*or_conditions))
+        # Pencarian dan penyaring keadaan adalah DUA kelompok terpisah, yang
+        # digabung dengan AND.
+        #
+        # Sebelumnya syarat keadaan (`isDelete`) ditambahkan ke daftar OR milik
+        # PENCARIAN. Tanpa kata kunci hasilnya kebetulan benar; dengan kata
+        # kunci, `isDelete = false` ter-OR-kan bersama kecocokan nama, dan
+        # draf yang SUDAH DIHAPUS ikut muncul di tab tertunda asal namanya
+        # cocok. Diperiksa dengan menyusun kuerinya:
+        #   (nama LIKE kw ...) AND (nama LIKE kw ... OR isDelete = false)
+        kata = (keyword or "").strip()
+        if kata:
+            conditions.append(
+                or_(
+                    purchase_draft_table.c.purchaseOrderName.ilike(f"%{kata}%"),
+                    suppliers_table.c.name.ilike(f"%{kata}%"),
+                    purchase_draft_table.c.description.ilike(f"%{kata}%"),
+                )
+            )
 
         status_conditions = []
         if isPending:
-            or_conditions.append(purchase_draft_table.c.isDelete == False)
-
+            status_conditions.append(purchase_draft_table.c.isDelete == False)  # noqa: E712
         if isApproved:
-            or_conditions.append(purchase_draft_table.c.isDelete == True)
-
-        conditions.append(or_(*or_conditions))
-        conditions.append(or_(*status_conditions))
+            status_conditions.append(purchase_draft_table.c.isDelete == True)  # noqa: E712
+        if status_conditions:
+            conditions.append(or_(*status_conditions))
 
         # Draft yang sudah menjadi pembelian tidak lagi menunggu apa pun,
         # jadi tidak ditampilkan di daftar tertunda. Tanpa ini, draft yang
