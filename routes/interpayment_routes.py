@@ -47,11 +47,16 @@ async def get_interpayments(
     user: Annotated[User, Depends(require("interpayment", "read"))],
     sortBy: str = "date",
     sortByDirection: str = "desc",
+    keyword: str = "",
+    bankAccountID: int | None = None,
 ):
     """
     Get a list of interpayments with pagination, filtering, and sorting.
+
+    `keyword` mencari di keterangan, nama & nomor rekening asal/tujuan.
+    `bankAccountID` = transfer yang MELIBATKAN rekening itu (asal ATAU tujuan).
     """
-    filterObject = {}
+    filterObject = {"keyword": keyword.strip(), "bankAccountID": bankAccountID}
     result = await InterpaymentController.get_interpayments(
         page, pageSize, start, end, filterObject, sortBy, sortByDirection
     )

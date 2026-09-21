@@ -157,6 +157,33 @@ class InterpaymentRepository:
             interpayment_table.c.date >= startDate, 
             interpayment_table.c.date <= endDate
         ]
+        filterObject = filterObject or {}
+        rekening = filterObject.get("bankAccountID")
+        if rekening:
+            conditions.append(or_(
+                interpayment_table.c.bankAccountIDOrigin == int(rekening),
+                interpayment_table.c.bankAccountIDDestination == int(rekening),
+            ))
+        kata = (filterObject.get("keyword") or "").strip()
+        if kata:
+            pola = f"%{kata}%"
+            conditions.append(or_(
+                interpayment_table.c.description.like(pola),
+                origin_bank_alias.c.bankAccountName.like(pola),
+                origin_bank_alias.c.bankAccountNumber.like(pola),
+                destination_bank_alias.c.bankAccountName.like(pola),
+                destination_bank_alias.c.bankAccountNumber.like(pola),
+            ))
+        # Kolom urut dibatasi; nama lain dulu jatuh ke getattr -> 500.
+        if sortBy not in ("date", "amount"):
+            sortBy = "date"
+        sambungan = interpayment_table.outerjoin(
+            origin_bank_alias,
+            interpayment_table.c.bankAccountIDOrigin == origin_bank_alias.c.id,
+        ).outerjoin(
+            destination_bank_alias,
+            interpayment_table.c.bankAccountIDDestination == destination_bank_alias.c.id,
+        )
         
         try:
             offset = (page - 1) * pageSize
@@ -179,8 +206,9 @@ class InterpaymentRepository:
             )
             result = await database.fetch_all(query)
 
-            # Count total records
-            count_query = select(func.count()).select_from(interpayment_table).where(and_(*conditions))
+            # Hitungan memakai sambungan yang SAMA — penyaring kata kunci
+            # menyebut kolom rekening.
+            count_query = select(func.count()).select_from(sambungan).where(and_(*conditions))
             total_count = await database.fetch_val(count_query)
             
             return {
