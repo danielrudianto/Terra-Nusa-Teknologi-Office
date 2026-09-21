@@ -37,6 +37,30 @@ class HrRecruitmentController:
         return await HrRecruitmentRepository.daftar_pelamar(test_id, status)
 
     @staticmethod
+    async def ubah_status_pelamar(candidate_id: int, status: str, user_id: int):
+        return await HrRecruitmentRepository.ubah_status_pelamar(
+            candidate_id, status, user_id
+        )
+
+    @staticmethod
+    async def hapus_hasil(candidate_id: int, user_id: int):
+        return await HrRecruitmentRepository.hapus_hasil(candidate_id, user_id)
+
+    @staticmethod
+    async def simpan_biodata(token: str, data: dict):
+        return await HrRecruitmentRepository.simpan_biodata(token, data)
+
+    @staticmethod
+    async def buat_ujian(data: dict, user_id: int):
+        return await HrRecruitmentRepository.buat_ujian(data, user_id)
+
+    @staticmethod
+    async def ubah_ujian(test_id: int, data: dict, user_id: int):
+        return await HrRecruitmentRepository.ubah_ujian(
+            test_id, data, user_id
+        )
+
+    @staticmethod
     async def lembar_jawaban(candidate_id: int):
         return await HrRecruitmentRepository.lembar_jawaban(candidate_id)
 

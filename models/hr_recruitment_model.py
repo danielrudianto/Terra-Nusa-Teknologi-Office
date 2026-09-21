@@ -112,7 +112,25 @@ hr_candidates_table = Table(
     # tidak menjawab".
     Column("startedAt", DateTime(), nullable=True),
     Column("submittedAt", DateTime(), nullable=True),
-    # baru | mengerjakan | selesai | diterima | ditolak
+    # TANGGA STATUS — sebagian otomatis, sebagian keputusan manusia.
+    #
+    #   baru          belum pernah membuka tautannya        [otomatis]
+    #   mengerjakan   sudah menekan Mulai, belum mengirim   [otomatis]
+    #   selesai       sudah mengirim jawabannya             [otomatis]
+    #   dinilai       SELURUH soalnya sudah punya nilai     [otomatis]
+    #   diwawancara   sudah diwawancarai                    [manual]
+    #   diterima      berhasil                              [manual]
+    #   ditolak       batal                                 [manual]
+    #
+    # `dinilai` sengaja OTOMATIS, bukan tombol. Tombol "tandai sudah
+    # dinilai" akan berbohong ke dua arah: yang selesai menilai lalu lupa
+    # menekannya membuat daftar menyatakan belum dinilai padahal sudah, dan
+    # yang menekannya lebih dulu membuat daftar menyatakan sudah padahal
+    # baru separuh. Keduanya hanya ketahuan dengan membuka lembarnya satu
+    # per satu — yang justru hendak dihindari daftar ini.
+    #
+    # Ia juga MUNDUR: mencabut nilai satu soal mengembalikannya ke
+    # `selesai`, karena pada saat itu memang ada yang belum dinilai.
     #
     # Berkas unggahan dihapus ketika status berpindah ke `diterima` atau
     # `ditolak` — setelah diputuskan, isinya tidak diperlukan lagi.

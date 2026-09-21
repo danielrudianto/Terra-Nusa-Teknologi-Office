@@ -20,6 +20,10 @@ from schemas.hr_recruitment_schema import (
     SoalCreate,
     SoalUpdate,
     PenilaianBatch,
+    UjianBaru,
+    UjianUbah,
+    BiodataPelamar,
+    StatusPelamar,
 )
 from utils.auth_utils import User
 from utils.errors import error_detail
@@ -43,6 +47,44 @@ async def daftar_ujian(
 ):
     """Paket ujian beserta jumlah soalnya."""
     return _periksa(await HrRecruitmentController.daftar_ujian())
+
+
+@router.post("/tests")
+async def buat_ujian(
+    payload: UjianBaru,
+    user: Annotated[User, Depends(require("hr_recruitment", "create"))],
+):
+    """
+    Paket ujian baru.
+
+    Sebelumnya `hr_tests` hanya punya rute BACA — paket ujian harus
+    dimasukkan lewat SQL langsung, dan tidak ada berkas seed di `sql/`.
+    """
+    return _periksa(
+        await HrRecruitmentController.buat_ujian(
+            payload.model_dump(), user["id"]
+        )
+    )
+
+
+@router.put("/tests/{test_id}")
+async def ubah_ujian(
+    test_id: int,
+    payload: UjianUbah,
+    user: Annotated[User, Depends(require("hr_recruitment", "update"))],
+):
+    """
+    Ubah paket ujian.
+
+    `exclude_unset=True`: bidang yang tidak dikirim tidak ikut ditimpa
+    menjadi kosong. Tanpa itu, mengubah satu nama akan menghapus
+    keterangannya.
+    """
+    return _periksa(
+        await HrRecruitmentController.ubah_ujian(
+            test_id, payload.model_dump(exclude_unset=True), user["id"]
+        )
+    )
 
 
 @router.get("/questions")
@@ -138,6 +180,45 @@ async def daftar_pelamar(
         await HrRecruitmentController.daftar_pelamar(
             test_id, (status or "").strip() or None
         )
+    )
+
+
+@router.put("/candidates/{candidate_id}/status")
+async def ubah_status_pelamar(
+    candidate_id: int,
+    payload: StatusPelamar,
+    user: Annotated[User, Depends(require("hr_recruitment", "update"))],
+):
+    """
+    Setel status yang diputuskan manusia: diwawancara, diterima, ditolak.
+
+    Status lainnya disimpulkan dari keadaan dokumennya — lihat tangga
+    statusnya di `models/hr_recruitment_model.py`.
+    """
+    return _periksa(
+        await HrRecruitmentController.ubah_status_pelamar(
+            candidate_id, payload.status, user["id"]
+        )
+    )
+
+
+@router.delete("/candidates/{candidate_id}/hasil")
+async def hapus_hasil(
+    candidate_id: int,
+    user: Annotated[User, Depends(require("hr_recruitment", "delete"))],
+):
+    """
+    Hapus hasil ujian pelamar ini dan kembalikan ke awal.
+
+    BUKAN menghapus pelamarnya: tautannya tetap sama dan dapat dipakai
+    mengerjakan lagi. Dipakai untuk mencoba alurnya berulang kali.
+
+    Dijaga `delete`, yang pada modul ini bernilai 5 — hanya pemilik usaha.
+    Ini satu-satunya tindakan di modul ini yang membuang pekerjaan orang
+    lain tanpa dapat dikembalikan, dan karena itu ikut dicatat jejak audit.
+    """
+    return _periksa(
+        await HrRecruitmentController.hapus_hasil(candidate_id, user["id"])
     )
 
 
@@ -285,6 +366,35 @@ def _jaga_laju(request: Request) -> str:
             detail="Terlalu banyak percobaan. Coba lagi beberapa saat.",
         )
     return ip
+
+
+@router.put("/exam/{token}/biodata")
+async def simpan_biodata(
+    token: str, payload: BiodataPelamar, request: Request
+):
+    """
+    Biodata yang diisi pelamar sendiri, SEBELUM menekan Mulai.
+
+    Kolomnya sudah ada di `hr_candidates` sejak awal dengan keterangan
+    "diisi sendiri lewat tautan", dan tidak pernah ada formulir yang
+    mengisinya — seluruhnya tetap NULL.
+
+    Tanpa `_batasi_muatan`: muatannya bukan `JawabanUjian`, dan tiap
+    bidangnya sudah dibatasi panjangnya oleh skema (`max_length`), sehingga
+    seluruh muatan ini paling besar sekitar satu kilobyte.
+    """
+    ip = _jaga_laju(request)
+
+    hasil = await HrRecruitmentController.simpan_biodata(
+        token, payload.model_dump(exclude_unset=True)
+    )
+    if hasil is None:
+        catat_gagal(f"exam:{ip}", ip)
+        raise HTTPException(
+            status_code=404,
+            detail="Token tidak berlaku atau sudah kedaluwarsa.",
+        )
+    return _periksa(hasil)
 
 
 @router.post("/exam/{token}/mulai")

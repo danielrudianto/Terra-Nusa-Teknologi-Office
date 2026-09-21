@@ -336,3 +336,138 @@ async def test_pelamar_tidak_ada_dijawab_404_saat_menilai(fake_db):
     )
 
     assert hasil["status"] == 404
+
+
+# ---------------------------------------------------------------------
+# Paket ujian: membuat & mengubah.
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_paket_baru_mengisi_createdAt_sendiri(fake_db):
+    """
+    Pustaka `databases` menjalankan kueri yang sudah TERKOMPILASI, jadi
+    bawaan sisi-Python (`default=dt.now`) tidak pernah berjalan — dan
+    `createdAt` menolak NULL. Ini gotcha yang sudah didokumentasikan di
+    CLAUDE.md dan tetap berulang.
+    """
+    db = fake_db(MODUL)
+    db.queue("execute", 12)
+
+    hasil = await HrRecruitmentRepository.buat_ujian(
+        {"name": "Ujian Sipil", "durationMinutes": 90}, PEMERIKSA
+    )
+
+    assert hasil == {"id": 12}
+    terikat = _parameter(db)
+    assert terikat.get("createdAt") is not None
+    assert terikat.get("createdBy") == PEMERIKSA
+
+
+@pytest.mark.asyncio
+async def test_paket_baru_menolak_nama_kosong(fake_db):
+    db = fake_db(MODUL)
+
+    hasil = await HrRecruitmentRepository.buat_ujian(
+        {"name": "   "}, PEMERIKSA
+    )
+
+    assert hasil["status"] == 400
+    assert db.executed("execute") == 0
+
+
+@pytest.mark.asyncio
+async def test_durasi_ditolak_selagi_ada_yang_mengerjakan(fake_db):
+    """
+    `sisa_waktu` membaca `durationMinutes` LANGSUNG dari tabel paket setiap
+    kali jawaban disimpan. Memendekkannya memangkas sisa waktu semua orang
+    yang sedang mengerjakan, seketika — di tengah kalimat, tanpa satu pun
+    tanda di layar mereka.
+    """
+    from datetime import datetime as dtt, timedelta as td
+
+    db = fake_db(MODUL)
+    db.queue("fetch_one", {"id": 3, "durationMinutes": 90})
+    # Satu pelamar mulai 10 menit lalu: masih mengerjakan.
+    db.queue("fetch_all", [
+        {"startedAt": dtt.now() - td(minutes=10), "durationMinutes": 90},
+    ])
+
+    hasil = await HrRecruitmentRepository.ubah_ujian(
+        3, {"durationMinutes": 45}, PEMERIKSA
+    )
+
+    assert hasil["status"] == 409
+    assert "sedang mengerjakan" in hasil["error"]
+    assert db.executed("execute") == 0
+
+
+@pytest.mark.asyncio
+async def test_durasi_boleh_diubah_bila_semua_sudah_lewat(fake_db):
+    """
+    Yang waktunya SUDAH HABIS tidak dihitung: mengubah durasi tidak lagi
+    berpengaruh apa pun baginya, dan menolaknya berarti paket ujian
+    terkunci selamanya setelah dipakai sekali.
+    """
+    from datetime import datetime as dtt, timedelta as td
+
+    db = fake_db(MODUL)
+    db.queue("fetch_one", {"id": 3, "durationMinutes": 90})
+    db.queue("fetch_all", [
+        {"startedAt": dtt.now() - td(minutes=500), "durationMinutes": 90},
+    ])
+
+    hasil = await HrRecruitmentRepository.ubah_ujian(
+        3, {"durationMinutes": 45}, PEMERIKSA
+    )
+
+    assert "error" not in hasil, hasil
+    assert _parameter(db).get("durationMinutes") == 45
+
+
+@pytest.mark.asyncio
+async def test_mengubah_nama_TIDAK_terhalang_pelamar_berjalan(fake_db):
+    """
+    Hanya DURASI yang menyentuh ujian berjalan. Menolak perubahan nama pun
+    membuat paket terkunci sepanjang hari rekrutmen tanpa sebab.
+    """
+    db = fake_db(MODUL)
+    db.queue("fetch_one", {"id": 3, "durationMinutes": 90})
+
+    hasil = await HrRecruitmentRepository.ubah_ujian(
+        3, {"name": "Nama Baru"}, PEMERIKSA
+    )
+
+    assert "error" not in hasil, hasil
+    # Tidak perlu memeriksa siapa pun yang sedang mengerjakan.
+    assert db.executed("fetch_all") == 0
+
+
+@pytest.mark.asyncio
+async def test_durasi_sama_tidak_dianggap_perubahan(fake_db):
+    """
+    Mengirim nilai yang sama tidak boleh memicu penolakan — layar ubah
+    mengirim seluruh formulirnya, dan penolakan di situ membuat namanya
+    tidak dapat diperbaiki selama ada yang mengerjakan.
+    """
+    db = fake_db(MODUL)
+    db.queue("fetch_one", {"id": 3, "durationMinutes": 90})
+
+    hasil = await HrRecruitmentRepository.ubah_ujian(
+        3, {"name": "X", "durationMinutes": 90}, PEMERIKSA
+    )
+
+    assert "error" not in hasil, hasil
+    assert db.executed("fetch_all") == 0
+
+
+@pytest.mark.asyncio
+async def test_paket_tidak_ada_dijawab_404(fake_db):
+    db = fake_db(MODUL)
+    db.queue("fetch_one", None)
+
+    hasil = await HrRecruitmentRepository.ubah_ujian(
+        999, {"name": "X"}, PEMERIKSA
+    )
+
+    assert hasil["status"] == 404

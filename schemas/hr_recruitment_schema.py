@@ -1,5 +1,6 @@
 """Muatan permintaan untuk modul rekrutmen."""
 
+from datetime import date
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -90,3 +91,66 @@ class PenilaianBatch(BaseModel):
     """
 
     nilai: list[NilaiSoal] = Field(..., min_length=1, max_length=200)
+
+
+class UjianBaru(BaseModel):
+    """
+    Paket ujian baru.
+
+    Batas durasi 5–480 menit. Bawahnya menjaga salah ketik yang membuat
+    ujian berakhir sebelum pelamarnya sempat membaca soal pertama; atasnya
+    delapan jam, lebih panjang daripada hari kerja mana pun.
+    """
+
+    name: str = Field(..., min_length=2, max_length=150)
+    description: Optional[str] = Field(None, max_length=500)
+    durationMinutes: int = Field(90, ge=5, le=480)
+    isActive: bool = True
+
+
+class UjianUbah(BaseModel):
+    """
+    Perubahan paket ujian; seluruh bidang opsional.
+
+    `durationMinutes` DITOLAK selagi ada pelamar yang sedang mengerjakan —
+    lihat `HrRecruitmentRepository.ubah_ujian`. Penjagaannya di repository,
+    bukan di sini, karena ia menuntut pembacaan basis data.
+    """
+
+    name: Optional[str] = Field(None, min_length=2, max_length=150)
+    description: Optional[str] = Field(None, max_length=500)
+    durationMinutes: Optional[int] = Field(None, ge=5, le=480)
+    isActive: Optional[bool] = None
+
+
+class StatusPelamar(BaseModel):
+    """
+    Status yang DIPUTUSKAN MANUSIA.
+
+    Daftar sahnya ditegakkan repository, bukan di sini: `baru`,
+    `mengerjakan`, `selesai`, dan `dinilai` disimpulkan dari keadaan
+    dokumennya, dan menolaknya di lapisan skema akan menyembunyikan sebab
+    penolakannya di balik 422 yang tidak menyebutkan apa pun.
+    """
+
+    status: str = Field(..., min_length=3, max_length=20)
+
+
+class BiodataPelamar(BaseModel):
+    """
+    Biodata yang diisi pelamar sendiri lewat tautannya.
+
+    SELURUHNYA opsional. Pelamar yang tidak punya surel tetap harus dapat
+    mengerjakan ujiannya — mewajibkannya di sini berarti menutup ujian bagi
+    orang yang justru hendak diuji.
+
+    `name` TIDAK ada di sini: ia dimasukkan HR saat mendaftarkan, dan
+    dipakai mencocokkan lembar dengan orangnya.
+    """
+
+    nickName: Optional[str] = Field(None, max_length=50)
+    dateOfBirth: Optional[date] = None
+    address: Optional[str] = Field(None, max_length=255)
+    city: Optional[str] = Field(None, max_length=100)
+    phoneNumber: Optional[str] = Field(None, max_length=30)
+    email: Optional[str] = Field(None, max_length=150)

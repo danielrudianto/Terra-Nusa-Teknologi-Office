@@ -43,6 +43,16 @@ def test_seluruh_rute_dijaga_modul_rekrutmen():
         '/exam/{token}/mulai',     # mulai mengerjakan, kirim soal
         '/exam/{token}/jawaban',   # simpan jawaban berkala
         '/exam/{token}/kirim',     # kirim jawaban akhir
+        # Biodata diisi PELAMAR sendiri sebelum menekan Mulai. Kolomnya
+        # sudah ada di `hr_candidates` sejak awal dengan keterangan "diisi
+        # sendiri lewat tautan"; sampai sekarang tidak pernah ada
+        # formulirnya, jadi seluruhnya NULL.
+        #
+        # Terbuka dengan alasan yang SAMA dengan empat di atas: yang
+        # menandai pesertanya tokennya sendiri. Ia hanya menyentuh baris
+        # milik token yang dibawa, dan tidak menerima parameter apa pun
+        # yang menyebut pelamar lain.
+        '/exam/{token}/biodata',   # biodata, sebelum mulai
     }
     terbuka = [r for r in rute if r.startswith('/exam/')]
     assert set(terbuka) == TERBUKA, sorted(set(terbuka) ^ TERBUKA)

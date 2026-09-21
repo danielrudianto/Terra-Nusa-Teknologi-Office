@@ -54,6 +54,21 @@ def kode_peserta(token: str) -> str:
     ].upper()
 
 
+#: Status yang DIPUTUSKAN MANUSIA, satu-satunya yang boleh disetel lewat
+#: rute status.
+#:
+#: Sisanya (`baru`, `mengerjakan`, `selesai`, `dinilai`) disimpulkan dari
+#: keadaan dokumennya sendiri. Membiarkannya disetel manual berarti daftar
+#: dapat menyatakan "sudah dinilai" atas lembar yang kosong.
+STATUS_MANUAL = ("diwawancara", "diterima", "ditolak")
+
+#: Status yang berarti pengerjaannya sudah selesai dan sudah dinilai penuh.
+STATUS_DINILAI = "dinilai"
+
+#: Status sesudah mengirim, sebelum dinilai penuh.
+STATUS_SELESAI = "selesai"
+
+
 def urutan_acak(soal: list, token: str) -> list:
     """
     Acak urutan soal — TETAP SAMA untuk pelamar yang sama.
@@ -113,6 +128,15 @@ class HrRecruitmentRepository:
                     hr_candidates_table.c.startedAt,
                     hr_candidates_table.c.submittedAt,
                     hr_candidates_table.c.status,
+                    # Biodata ikut dibaca supaya formulirnya terisi saat
+                    # pelamar membuka tautannya kembali — tanpa ini ia
+                    # mengetik ulang seluruhnya setiap kali.
+                    hr_candidates_table.c.nickName,
+                    hr_candidates_table.c.dateOfBirth,
+                    hr_candidates_table.c.address,
+                    hr_candidates_table.c.city,
+                    hr_candidates_table.c.phoneNumber,
+                    hr_candidates_table.c.email,
                     hr_tests_table.c.name.label("testName"),
                     hr_tests_table.c.description.label("testDescription"),
                     hr_tests_table.c.durationMinutes,
@@ -148,6 +172,14 @@ class HrRecruitmentRepository:
                 "startedAt": baris["startedAt"],
                 "submittedAt": baris["submittedAt"],
                 "status": baris["status"],
+                "biodata": {
+                    "nickName": baris["nickName"],
+                    "dateOfBirth": baris["dateOfBirth"],
+                    "address": baris["address"],
+                    "city": baris["city"],
+                    "phoneNumber": baris["phoneNumber"],
+                    "email": baris["email"],
+                },
                 # `id` TIDAK dikembalikan.
                 #
                 # Halaman ujian tidak memerlukannya — seluruh rutenya
@@ -538,6 +570,166 @@ class HrRecruitmentRepository:
 
 
     @staticmethod
+    async def _selaraskan_status_nilai(candidate_id: int, test_id: int):
+        """
+        Naikkan ke `dinilai` bila SELURUH soal sudah bernilai; turunkan lagi
+        bila ada yang dicabut.
+
+        HANYA bergerak di antara `selesai` dan `dinilai`. Status yang
+        diputuskan manusia — `diwawancara`, `diterima`, `ditolak` — tidak
+        pernah disentuh: seseorang yang sudah diwawancarai lalu nilainya
+        diperbaiki satu angka tidak boleh mundur menjadi "baru dinilai".
+
+        Yang belum mengirim juga tidak disentuh. Jawabannya memang boleh
+        dinilai — lembar yang ditinggalkan di tengah tetap layak dibaca —
+        tetapi menaikkannya ke `dinilai` akan menyembunyikan kenyataan
+        bahwa pelamarnya tidak pernah menyelesaikan ujiannya.
+        """
+        try:
+            baris = await database.fetch_one(
+                select(
+                    hr_candidates_table.c.status,
+                    hr_candidates_table.c.submittedAt,
+                ).where(hr_candidates_table.c.id == candidate_id)
+            )
+            if baris is None or not baris["submittedAt"]:
+                return
+            if baris["status"] not in (STATUS_SELESAI, STATUS_DINILAI):
+                return
+
+            jumlah_soal = await database.fetch_val(
+                select(func.count(hr_questions_table.c.id))
+                .where(hr_questions_table.c.testID == test_id)
+                .where(hr_questions_table.c.isDelete == False)  # noqa: E712
+            )
+            jumlah_nilai = await database.fetch_val(
+                select(func.count(hr_answers_table.c.id))
+                .where(hr_answers_table.c.candidateID == candidate_id)
+                .where(hr_answers_table.c.score.isnot(None))
+            )
+
+            penuh = int(jumlah_soal or 0) > 0 and int(jumlah_nilai or 0) >= int(
+                jumlah_soal or 0
+            )
+            tujuan = STATUS_DINILAI if penuh else STATUS_SELESAI
+            if tujuan != baris["status"]:
+                await database.execute(
+                    update(hr_candidates_table)
+                    .where(hr_candidates_table.c.id == candidate_id)
+                    .values(status=tujuan)
+                )
+        except Exception as e:  # noqa: BLE001
+            # Gagal menyelaraskan status TIDAK menggagalkan penilaiannya.
+            # Nilainya sudah tersimpan; yang meleset hanya label di daftar,
+            # dan itu akan benar sendiri pada penyimpanan berikutnya.
+            log_error(f"Gagal menyelaraskan status nilai: {str(e)}")
+
+    @staticmethod
+    async def ubah_status_pelamar(candidate_id: int, status: str, user_id: int):
+        """
+        Setel status yang DIPUTUSKAN MANUSIA.
+
+        Hanya `diwawancara`, `diterima`, `ditolak`. Status lainnya
+        disimpulkan dari keadaan dokumennya, dan membiarkannya disetel
+        lewat rute ini berarti daftar dapat menyatakan "sudah dinilai" atas
+        lembar yang belum disentuh siapa pun.
+        """
+        try:
+            if status not in STATUS_MANUAL:
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "Status ini ditentukan sistem dari keadaan dokumennya, "
+                    "jadi tidak dapat disetel dari sini. Yang dapat disetel: "
+                    + ", ".join(STATUS_MANUAL)
+                    + ".",
+                    400,
+                )
+
+            baris = await database.fetch_one(
+                select(
+                    hr_candidates_table.c.id,
+                    hr_candidates_table.c.submittedAt,
+                )
+                .where(hr_candidates_table.c.id == candidate_id)
+                .where(hr_candidates_table.c.isDelete == False)  # noqa: E712
+            )
+            if baris is None:
+                return app_error(
+                    ErrorCode.NOT_FOUND, "Pelamar tidak ditemukan.", 404
+                )
+
+            nilai = {"status": status, "decidedAt": dt.now(), "decidedBy": user_id}
+            await database.execute(
+                update(hr_candidates_table)
+                .where(hr_candidates_table.c.id == candidate_id)
+                .values(**nilai)
+            )
+            return {"id": candidate_id, "status": status}
+        except Exception as e:  # noqa: BLE001
+            log_error(f"Error updating candidate status: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def hapus_hasil(candidate_id: int, user_id: int):
+        """
+        Hapus HASIL ujiannya, kembalikan pelamarnya ke awal.
+
+        BUKAN menghapus pelamarnya. Jawabannya dibuang, `startedAt` dan
+        `submittedAt` dikosongkan, statusnya kembali `baru` — dan tautan
+        yang SAMA dapat dipakai mengerjakan lagi.
+
+        Itu yang diperlukan untuk mencoba alurnya berulang kali. Menghapus
+        pelamarnya berarti mendaftarkan yang baru dan menyalin tautan baru
+        setiap kali.
+
+        TIDAK DAPAT DIBATALKAN, dan karena itu dijaga `delete` — yang pada
+        modul ini bernilai 5, hanya pemilik usaha.
+        """
+        try:
+            baris = await database.fetch_one(
+                select(hr_candidates_table.c.id)
+                .where(hr_candidates_table.c.id == candidate_id)
+                .where(hr_candidates_table.c.isDelete == False)  # noqa: E712
+            )
+            if baris is None:
+                return app_error(
+                    ErrorCode.NOT_FOUND, "Pelamar tidak ditemukan.", 404
+                )
+
+            terhapus = await database.execute(
+                hr_answers_table.delete().where(
+                    hr_answers_table.c.candidateID == candidate_id
+                )
+            )
+            await database.execute(
+                update(hr_candidates_table)
+                .where(hr_candidates_table.c.id == candidate_id)
+                .values(
+                    startedAt=None,
+                    submittedAt=None,
+                    status="baru",
+                    decidedAt=None,
+                    decidedBy=None,
+                )
+            )
+
+            from repository.audit_log_repository import AuditLogRepository
+
+            # DICATAT. Ini satu-satunya tindakan di modul ini yang membuang
+            # pekerjaan orang lain tanpa dapat dikembalikan.
+            await AuditLogRepository.record(
+                entity="hr_candidates",
+                entityID=candidate_id,
+                action="hapus_hasil",
+                userID=user_id,
+                changes={"jawabanDihapus": terhapus},
+            )
+            return {"id": candidate_id, "jawabanDihapus": terhapus}
+        except Exception as e:  # noqa: BLE001
+            log_error(f"Error resetting candidate result: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def lembar_jawaban(candidate_id: int):
         """
         Seluruh soal paket ini beserta jawaban dan nilai pelamarnya.
@@ -799,9 +991,228 @@ class HrRecruitmentRepository:
                     )
                 tersimpan += 1
 
+            await HrRecruitmentRepository._selaraskan_status_nilai(
+                candidate_id, pelamar["testID"]
+            )
             return {"tersimpan": tersimpan, "ditolak": ditolak}
         except Exception as e:  # noqa: BLE001
             log_error(f"Error scoring answers: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def _sedang_mengerjakan(test_id: int) -> int:
+        """
+        Berapa pelamar yang SEDANG mengerjakan paket ini saat ini juga.
+
+        "Sedang" berarti sudah menekan Mulai, belum mengirim, dan waktunya
+        belum habis. Yang sudah lewat waktunya tidak dihitung: mengubah
+        durasi tidak lagi berpengaruh apa pun baginya.
+        """
+        baris = await database.fetch_all(
+            select(
+                hr_candidates_table.c.startedAt,
+                hr_tests_table.c.durationMinutes,
+            )
+            .select_from(
+                hr_candidates_table.join(
+                    hr_tests_table,
+                    hr_candidates_table.c.testID == hr_tests_table.c.id,
+                )
+            )
+            .where(hr_candidates_table.c.testID == test_id)
+            .where(hr_candidates_table.c.isDelete == False)  # noqa: E712
+            .where(hr_candidates_table.c.startedAt.isnot(None))
+            .where(hr_candidates_table.c.submittedAt.is_(None))
+        )
+        sekarang = dt.now()
+        n = 0
+        for r in baris:
+            batas = r["startedAt"] + timedelta(
+                minutes=int(r["durationMinutes"] or 90)
+            )
+            if batas > sekarang:
+                n += 1
+        return n
+
+    @staticmethod
+    async def simpan_biodata(token: str, data: dict):
+        """
+        Biodata yang diisi PELAMAR sendiri lewat tautannya.
+
+        Kolomnya sudah ada di `hr_candidates` sejak awal, dengan keterangan
+        "diisi sendiri lewat tautan" — dan tidak pernah ada satu pun
+        formulir yang mengisinya. Seluruhnya tetap NULL.
+
+        Diisi SEBELUM menekan Mulai, jadi tidak memakan waktu ujian. Tetap
+        boleh diubah selama belum mengirim: pelamar yang salah ketik nomor
+        teleponnya di menit pertama tidak perlu mengulang ujiannya.
+
+        Nama TIDAK ikut diubah di sini. Ia dimasukkan HR saat mendaftarkan,
+        dan dipakai mencocokkan lembar dengan orangnya; membiarkan pelamar
+        menggantinya membuat pencocokan itu putus.
+        """
+        try:
+            baris = await database.fetch_one(
+                select(
+                    hr_candidates_table.c.id,
+                    hr_candidates_table.c.submittedAt,
+                )
+                .where(hr_candidates_table.c.token == token)
+                .where(hr_candidates_table.c.isDelete == False)  # noqa: E712
+                .where(hr_candidates_table.c.expiresAt > dt.now())
+            )
+            if baris is None:
+                return None
+            if baris["submittedAt"]:
+                return {"error": "Ujian sudah dikirim.", "status": 409}
+
+            BIDANG = (
+                "nickName",
+                "dateOfBirth",
+                "address",
+                "city",
+                "phoneNumber",
+                "email",
+            )
+            nilai = {}
+            for k in BIDANG:
+                if k not in data:
+                    continue
+                v = data[k]
+                if isinstance(v, str):
+                    v = v.strip() or None
+                nilai[k] = v
+            if not nilai:
+                return {"message": "No changes"}
+
+            await database.execute(
+                update(hr_candidates_table)
+                .where(hr_candidates_table.c.id == baris["id"])
+                .values(**nilai)
+            )
+            return {"tersimpan": True}
+        except Exception as e:  # noqa: BLE001
+            log_error(f"Error saving candidate bio: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def buat_ujian(data: dict, user_id: int):
+        """
+        Paket ujian baru.
+
+        `createdAt` DIISI DI SINI, bukan diserahkan ke bawaan kolom: pustaka
+        `databases` menjalankan kueri yang sudah terkompilasi, sehingga
+        bawaan sisi-Python (`default=dt.now`) tidak pernah berjalan dan
+        kolomnya menolak NULL.
+        """
+        try:
+            nilai = {
+                "name": (data.get("name") or "").strip(),
+                "description": (data.get("description") or None),
+                "durationMinutes": int(data.get("durationMinutes") or 90),
+                "isActive": bool(data.get("isActive", True)),
+                "isDelete": False,
+                "createdAt": dt.now(),
+                "createdBy": user_id,
+            }
+            if not nilai["name"]:
+                return app_error(
+                    ErrorCode.VALIDATION, "Nama paket ujian wajib diisi.", 400
+                )
+
+            test_id = await database.execute(
+                insert(hr_tests_table).values(**nilai)
+            )
+            return {"id": test_id}
+        except Exception as e:  # noqa: BLE001
+            log_error(f"Error creating exam package: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def ubah_ujian(test_id: int, data: dict, user_id: int):
+        """
+        Ubah paket ujian.
+
+        DURASI TIDAK BOLEH DIUBAH SELAGI ADA YANG MENGERJAKAN.
+
+        `sisa_waktu` membaca `durationMinutes` LANGSUNG dari tabel ini pada
+        setiap kali jawaban disimpan — bukan dari nilai yang disalin saat
+        pelamarnya mulai. Memendekkan durasi karena itu memangkas sisa waktu
+        setiap orang yang sedang mengerjakan, seketika, di tengah kalimat;
+        memanjangkannya membuat penghitung waktu mereka melompat naik tanpa
+        sebab yang terlihat. Keduanya terjadi tanpa satu pun tanda di layar
+        pelamar.
+
+        Ditolak, bukan diperingatkan: yang mengubahnya ada di layar lain dan
+        tidak akan melihat akibatnya.
+
+        Perubahan LAIN — nama, keterangan, aktif/tidak — tetap boleh, karena
+        tidak satu pun menyentuh ujian yang sedang berjalan.
+        """
+        try:
+            sebelum = await database.fetch_one(
+                select(
+                    hr_tests_table.c.id,
+                    hr_tests_table.c.durationMinutes,
+                )
+                .where(hr_tests_table.c.id == test_id)
+                .where(hr_tests_table.c.isDelete == False)  # noqa: E712
+            )
+            if sebelum is None:
+                return app_error(
+                    ErrorCode.NOT_FOUND, "Paket ujian tidak ditemukan.", 404
+                )
+
+            nilai = {}
+            if "name" in data and data["name"] is not None:
+                nama = str(data["name"]).strip()
+                if not nama:
+                    return app_error(
+                        ErrorCode.VALIDATION,
+                        "Nama paket ujian wajib diisi.",
+                        400,
+                    )
+                nilai["name"] = nama
+            if "description" in data:
+                nilai["description"] = data["description"] or None
+            if "isActive" in data and data["isActive"] is not None:
+                nilai["isActive"] = bool(data["isActive"])
+
+            if (
+                "durationMinutes" in data
+                and data["durationMinutes"] is not None
+                and int(data["durationMinutes"])
+                != int(sebelum["durationMinutes"] or 90)
+            ):
+                berjalan = await HrRecruitmentRepository._sedang_mengerjakan(
+                    test_id
+                )
+                if berjalan:
+                    return app_error(
+                        ErrorCode.VALIDATION,
+                        f"Durasi tidak dapat diubah: ada {berjalan} pelamar "
+                        f"yang sedang mengerjakan paket ini. Sisa waktu "
+                        f"mereka dihitung dari durasi ini, jadi mengubahnya "
+                        f"sekarang akan memotong atau memanjangkan waktu "
+                        f"mereka seketika. Tunggu sampai selesai.",
+                        409,
+                    )
+                nilai["durationMinutes"] = int(data["durationMinutes"])
+
+            if not nilai:
+                return {"message": "No changes"}
+
+            nilai["updatedAt"] = dt.now()
+            nilai["updatedBy"] = user_id
+
+            await database.execute(
+                update(hr_tests_table)
+                .where(hr_tests_table.c.id == test_id)
+                .values(**nilai)
+            )
+            return {"id": test_id}
+        except Exception as e:  # noqa: BLE001
+            log_error(f"Error updating exam package: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
