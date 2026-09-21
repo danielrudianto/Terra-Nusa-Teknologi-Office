@@ -53,11 +53,15 @@ class LoanRepository:
             # Build the main query
             query = select(loans_table.c).where(*conditions)
             
-            # Apply sorting
+            # Apply sorting — kolom asing dulu melempar KeyError -> 500;
+            # kini kembali ke tanggal.
+            kolom_urut = {k.name: k for k in loans_table.columns}.get(sortBy or "")
+            if kolom_urut is None:
+                kolom_urut = loans_table.c.date
             if sortByDirection == "asc":
-                query = query.order_by(loans_table.c[sortBy].asc())
+                query = query.order_by(kolom_urut.asc())
             else:
-                query = query.order_by(loans_table.c[sortBy].desc())
+                query = query.order_by(kolom_urut.desc())
             
             # Apply pagination
             query = query.limit(pageSize).offset((page) * pageSize)

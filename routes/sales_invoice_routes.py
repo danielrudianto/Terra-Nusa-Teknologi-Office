@@ -58,7 +58,7 @@ async def get_sales_invoices(
     page: int = Query(1, ge=1),
     pageSize: int = Query(10, ge=1, le=100),
     sortBy: str = Query("date"),
-    sortByDirection: str = Query("desc", regex="^(asc|desc)$"),
+    sortByDirection: str = Query("desc", pattern="^(asc|desc)$"),
     keyword: Optional[str] = Query(None),
     filters: Optional[List[str]] = Query(None),
 ):

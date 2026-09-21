@@ -68,8 +68,10 @@ class AssetRepository:
             query = query.limit(page_size).offset(page * page_size)
 
             # Add sorting if provided
-            if sort_by and sort_by_direction:
-                query = query.order_by(getattr(asset_table.c, sort_by).asc() if sort_by_direction == "asc" else getattr(asset_table.c, sort_by).desc())
+            # Kolom asing dulu melempar AttributeError -> 500; kini diabaikan.
+            kolom_urut = {k.name: k for k in asset_table.columns}.get(sort_by or "")
+            if kolom_urut is not None and sort_by_direction:
+                query = query.order_by(kolom_urut.asc() if sort_by_direction == "asc" else kolom_urut.desc())
             
             # Execute query
             result = await database.fetch_all(query)

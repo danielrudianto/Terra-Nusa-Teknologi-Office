@@ -26,7 +26,7 @@ async def get_clients(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
     sortBy: str = Query(None),
-    sortByDirection: str = Query("asc", regex="^(asc|desc)$")
+    sortByDirection: str = Query("asc", pattern="^(asc|desc)$")
 ):
     """
     Get all clients with pagination, sorting, and search.

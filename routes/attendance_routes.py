@@ -43,7 +43,7 @@ async def get_assets(
     pageSize: int = Query(10, ge=10, le=100),
     keyword: str = Query(""),
     sortBy: str = Query(""),
-    sortByDirection: str = Query("asc", regex="^(asc|desc)$")
+    sortByDirection: str = Query("asc", pattern="^(asc|desc)$")
 ):
     return await AssetController.get_assets(page, pageSize, keyword, sortBy, sortByDirection)
 
