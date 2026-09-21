@@ -53,6 +53,14 @@ class HrRecruitmentController:
         return await HrRecruitmentRepository.hapus_hasil(candidate_id, user_id)
 
     @staticmethod
+    async def hapus_pelamar(candidate_id: int, user_id: int):
+        return await HrRecruitmentRepository.hapus_pelamar(candidate_id, user_id)
+
+    @staticmethod
+    async def pulihkan_pelamar(candidate_id: int, user_id: int):
+        return await HrRecruitmentRepository.pulihkan_pelamar(candidate_id, user_id)
+
+    @staticmethod
     async def simpan_biodata(token: str, data: dict):
         return await HrRecruitmentRepository.simpan_biodata(token, data)
 

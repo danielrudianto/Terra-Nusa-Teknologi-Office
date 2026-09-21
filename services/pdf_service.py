@@ -838,3 +838,179 @@ class CoPDocumentService:
         template = env.get_template("berita_acara_pemeriksaan.html")
         html = template.render(**_lengkapi(data))
         return HTML(string=html).write_pdf()
+
+
+# ---------------------------------------------------------------------------
+# Laporan laba rugi
+# ---------------------------------------------------------------------------
+
+# Nama bulan memakai `_BULAN_ID` di atas — BUKAN didefinisikan ulang di sini.
+# Definisi kedua dengan nama yang sama menimpa yang pertama untuk seluruh
+# modul, termasuk filter `tanggal` milik CoP, dan bentuknya (tuple, bukan
+# dict) kebetulan cocok hari ini tetapi tidak dijamin selamanya.
+
+#: Label kelompok — SAMA PERSIS dengan `labaRugi.*` di `id.json` layar.
+#:
+#: Laporan yang dicetak dan layar yang dibandingkan dengannya harus memakai
+#: kata yang sama. "Harga Pokok Penjualan" di layar dan "Beban Pokok Proyek"
+#: di kertas membuat yang mencocokkan berhenti untuk memastikan keduanya
+#: memang baris yang sama.
+_LABEL_LR = {
+    "pendapatan": "Pendapatan",
+    "hpp": "Harga Pokok Penjualan",
+    "labaKotor": "Laba Kotor",
+    "bebanUsaha": "Beban Usaha",
+    "labaUsaha": "Laba Usaha",
+    "bebanLain": "Beban Lain-lain",
+    "labaSebelumPajak": "Laba Sebelum Pajak",
+}
+
+
+def persen_lr(nilai, pendapatan) -> str:
+    """
+    Porsi terhadap pendapatan, SAMA dengan `persen()` di layar laba rugi.
+
+    Pendapatan nol → "—", bukan "0,0%" dan bukan pembagian dengan nol. Pada
+    bulan tanpa penjualan persentasenya memang tidak bermakna, dan "0,0%"
+    menyatakan sesuatu yang tidak pernah dihitung.
+
+    Satu desimal, koma sebagai pemisah — `toLocaleString('id-ID', {min: 1,
+    max: 1})` di layar.
+    """
+    try:
+        dasar = float(pendapatan or 0)
+    except (TypeError, ValueError):
+        dasar = 0.0
+    if not dasar:
+        return "—"
+    try:
+        n = float(nilai or 0)
+    except (TypeError, ValueError):
+        n = 0.0
+    p = n / dasar * 100
+    teks = f"{p:,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return teks + "%"
+
+
+def _gabung_rincian(bulan: dict, ytd: dict, kelompok: str) -> list:
+    """
+    Rincian satu kelompok, GABUNGAN bulan & YTD — cermin `rinci()` di layar.
+
+    Kategori yang ada di YTD tetapi belum di bulan ini (atau sebaliknya) ikut
+    dicetak dengan nol di sisi yang kosong. Tanpa itu kolomnya berlubang, dan
+    yang mencocokkan dengan akuntan menyangka ada baris yang hilang.
+
+    Diurutkan menurut YTD, terbesar di atas — sama dengan layar.
+    """
+    peta: dict = {}
+    for r in (ytd.get(kelompok) or {}).get("rincian") or []:
+        peta[r["kategori"]] = {
+            "kategori": r["kategori"],
+            "label": r.get("label") or r["kategori"],
+            "bulan": 0.0,
+            "ytd": float(r.get("nilai") or 0),
+        }
+    for r in (bulan.get(kelompok) or {}).get("rincian") or []:
+        ada = peta.get(r["kategori"]) or {
+            "kategori": r["kategori"],
+            "label": r.get("label") or r["kategori"],
+            "bulan": 0.0,
+            "ytd": 0.0,
+        }
+        ada["bulan"] = float(r.get("nilai") or 0)
+        ada["label"] = r.get("label") or ada["label"]
+        peta[r["kategori"]] = ada
+    return sorted(peta.values(), key=lambda x: x["ytd"], reverse=True)
+
+
+def baris_laba_rugi(hasil: dict) -> list:
+    """
+    Baris laporan laba rugi dalam urutan cetak, SEMUA kelompok terbuka.
+
+    Layar membiarkan kelompok dilipat; kertas tidak bisa dibuka. Laporan
+    yang dicetak dengan rincian terlipat hanya memuat total, dan total tanpa
+    penyusunnya tidak dapat dicocokkan dengan pembukuan siapa pun.
+
+    Tiap baris: `jenis` (pokok, grup, rinci, subtotal, total), `label`,
+    `bulan`, `ytd`, `kurang` (dicetak dengan tanda minus di depan, seperti
+    kelompok beban di layar), dan dua persen yang sudah jadi.
+    """
+    b = hasil.get("bulan") or {}
+    y = hasil.get("ytd") or {}
+    pb = b.get("pendapatan") or 0
+    py = y.get("pendapatan") or 0
+
+    def _baris(jenis, label, nb, ny, kurang=False):
+        return {
+            "jenis": jenis,
+            "label": label,
+            "bulan": float(nb or 0),
+            "ytd": float(ny or 0),
+            "kurang": kurang,
+            "persenBulan": persen_lr(nb, pb),
+            "persenYtd": persen_lr(ny, py),
+        }
+
+    keluar = [_baris("pokok", _LABEL_LR["pendapatan"], pb, py)]
+
+    def _kelompok(kunci):
+        keluar.append(
+            _baris(
+                "grup",
+                _LABEL_LR[kunci],
+                (b.get(kunci) or {}).get("total"),
+                (y.get(kunci) or {}).get("total"),
+                kurang=True,
+            )
+        )
+        for r in _gabung_rincian(b, y, kunci):
+            keluar.append(_baris("rinci", r["label"], r["bulan"], r["ytd"]))
+
+    _kelompok("hpp")
+    keluar.append(
+        _baris("subtotal", _LABEL_LR["labaKotor"], b.get("labaKotor"), y.get("labaKotor"))
+    )
+    _kelompok("bebanUsaha")
+    keluar.append(
+        _baris("subtotal", _LABEL_LR["labaUsaha"], b.get("labaUsaha"), y.get("labaUsaha"))
+    )
+    _kelompok("bebanLain")
+    keluar.append(
+        _baris(
+            "total",
+            _LABEL_LR["labaSebelumPajak"],
+            b.get("labaSebelumPajak"),
+            y.get("labaSebelumPajak"),
+        )
+    )
+    return keluar
+
+
+class LabaRugiDocumentService:
+    """Cetak laporan laba rugi internal."""
+
+    @staticmethod
+    def data_cetak(hasil: dict, dicetak_oleh: str = "") -> dict:
+        """Semua yang dibutuhkan templat — dipisah supaya dapat diuji tanpa PDF."""
+        from datetime import datetime as _dt
+
+        bulan = int(hasil.get("month") or 1)
+        tahun = int(hasil.get("year") or _dt.now().year)
+        return {
+            "perusahaan": _PERUSAHAAN,
+            "logoDataUri": _logo_data_uri(),
+            "periode": f"{_BULAN_ID[bulan]} {tahun}",
+            "periodeYtd": f"Januari – {_BULAN_ID[bulan]} {tahun}",
+            "baris": baris_laba_rugi(hasil),
+            "dicetakPada": _dt.now(),
+            "dicetakOleh": dicetak_oleh,
+        }
+
+    @staticmethod
+    def render(hasil: dict, dicetak_oleh: str = "") -> bytes:
+        env = _lingkungan_cop()
+        template = env.get_template("laba_rugi.html")
+        html = template.render(
+            **LabaRugiDocumentService.data_cetak(hasil, dicetak_oleh)
+        )
+        return HTML(string=html).write_pdf()

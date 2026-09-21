@@ -857,6 +857,97 @@ class HrRecruitmentRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    async def hapus_pelamar(candidate_id: int, user_id: int):
+        """
+        Hapus PELAMARNYA — bukan hanya hasilnya. Tautannya mati seketika.
+
+        KENAPA INI PERLU. Ember "Dihapus" di menu samping menghitung
+        `isDelete = 1`, dan sebelum ini tidak ada satu pun tindakan yang
+        menyetelnya: "Hapus hasil & ulangi" hanya membuang jawaban. Embernya
+        terpasang, lencananya tampil, dan angkanya nol selamanya — satu
+        kelompok yang tidak mungkin terisi.
+
+        LUNAK, bukan dibuang dari tabel. Jawaban dan nilainya DIPERTAHANKAN:
+        pelamar yang terhapus karena salah pencet dapat dipulihkan utuh,
+        dengan lembar yang sama, lewat `pulihkan_pelamar`.
+
+        TAUTANNYA MATI karena setiap pintu masuk bertoken — membuka, mulai,
+        menyimpan, mengirim, biodata — menyaring `isDelete = 0`. Termasuk
+        yang sedang mengerjakan: simpanan otomatis berikutnya ditolak.
+
+        ATOMIK: syarat `isDelete = 0` berada DI DALAM `UPDATE`, bukan dibaca
+        lebih dulu. Dua orang yang menekan hapus bersamaan tidak sama-sama
+        menerima "berhasil"; yang kedua mendapat 404.
+        """
+        try:
+            terpengaruh = await database.execute(
+                update(hr_candidates_table)
+                .where(hr_candidates_table.c.id == candidate_id)
+                .where(hr_candidates_table.c.isDelete == False)  # noqa: E712
+                .values(isDelete=True)
+            )
+            if not terpengaruh:
+                return app_error(
+                    ErrorCode.NOT_FOUND,
+                    "Pelamar tidak ditemukan atau sudah dihapus.",
+                    404,
+                )
+
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="hr_candidates",
+                entityID=candidate_id,
+                action="hapus_pelamar",
+                userID=user_id,
+                changes={"isDelete": True},
+            )
+            return {"id": candidate_id, "isDelete": True}
+        except Exception as e:  # noqa: BLE001
+            log_error(f"Error deleting candidate: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
+    async def pulihkan_pelamar(candidate_id: int, user_id: int):
+        """
+        Kembalikan pelamar yang terhapus — tautan, jawaban, dan nilainya utuh.
+
+        Ember "Dihapus" tanpa jalan pulang adalah jebakan: yang terhapus
+        karena salah pencet hanya dapat dikembalikan lewat SQL langsung.
+        Penghapusannya lunak justru supaya pintu ini ada.
+
+        Masa berlaku tautannya TIDAK diperpanjang. Tautan yang sudah lewat
+        tetap lewat; memulihkan bukan menerbitkan ulang.
+        """
+        try:
+            terpengaruh = await database.execute(
+                update(hr_candidates_table)
+                .where(hr_candidates_table.c.id == candidate_id)
+                .where(hr_candidates_table.c.isDelete == True)  # noqa: E712
+                .values(isDelete=False)
+            )
+            if not terpengaruh:
+                return app_error(
+                    ErrorCode.NOT_FOUND,
+                    "Pelamar tidak ditemukan atau tidak sedang terhapus.",
+                    404,
+                )
+
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="hr_candidates",
+                entityID=candidate_id,
+                action="pulihkan_pelamar",
+                userID=user_id,
+                changes={"isDelete": False},
+            )
+            return {"id": candidate_id, "isDelete": False}
+        except Exception as e:  # noqa: BLE001
+            log_error(f"Error restoring candidate: {str(e)}")
+            return {"error": "Internal server error.", "status": 500}
+
+    @staticmethod
     async def lembar_jawaban(candidate_id: int):
         """
         Seluruh soal paket ini beserta jawaban dan nilai pelamarnya.

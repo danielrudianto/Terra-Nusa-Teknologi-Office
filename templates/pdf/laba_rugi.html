@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <title>Laporan Laba Rugi — {{ periode }}</title>
+    <style>
+      /*
+        LAPORAN LABA RUGI INTERNAL — potret, satu kolom angka per periode.
+
+        Isi dan urutannya CERMIN layar laba rugi: kelompok yang sama, label
+        yang sama, persen yang dihitung dengan aturan yang sama. Kertas ini
+        dibawa ke akuntan untuk dicocokkan dengan layarnya; dua dokumen
+        yang tampak mirip tetapi tidak sama justru memperlambat pencocokan.
+
+        Bedanya satu, dan disengaja: SEMUA kelompok dicetak terbuka. Layar
+        boleh melipat rincian; kertas tidak bisa dibuka.
+      */
+      @page {
+        size: A4 portrait;
+        margin: 14mm 14mm 16mm;
+        @bottom-left {
+          /* Tanda pisah ditulis sebagai untai TERPISAH: spasi sesudah escape CSS
+             (`\2014 `) dimakan sebagai penutup escape-nya, dan kata
+             berikutnya menempel tanpa jarak. */
+          content: "Versi internal " "\2014" " bukan pembukuan resmi";
+          font-family: "Helvetica", "Arial", sans-serif;
+          font-size: 7pt;
+          color: #666;
+        }
+        @bottom-right {
+          content: "Halaman " counter(page) " dari " counter(pages);
+          font-family: "Helvetica", "Arial", sans-serif;
+          font-size: 7pt;
+          color: #666;
+        }
+      }
+
+      body {
+        font-family: "Helvetica", "Arial", sans-serif;
+        font-size: 8.8pt;
+        color: #000;
+        margin: 0;
+      }
+
+      /* Kepala: logo di kiri, judul di tengah — sama dengan lembar CoP. */
+      table.judul {
+        width: 100%;
+        border-collapse: collapse;
+        border-bottom: 1.4pt solid #000;
+        margin-bottom: 10pt;
+      }
+      table.judul td {
+        vertical-align: middle;
+        padding: 0 0 6pt;
+      }
+      td.judul-logo { width: 72pt; }
+      td.judul-logo img { height: 34pt; }
+      .judul-nama { font-weight: bold; font-size: 9pt; }
+      td.judul-teks {
+        text-align: center;
+        padding-right: 72pt; /* mengimbangi kolom logo agar benar-benar tengah */
+      }
+      .judul-utama {
+        font-size: 15pt;
+        font-weight: bold;
+        letter-spacing: 0.3pt;
+      }
+      .judul-sub {
+        font-size: 9pt;
+        margin-top: 2pt;
+      }
+
+      .catatan {
+        font-size: 7.6pt;
+        color: #333;
+        margin: 0 0 10pt;
+        line-height: 1.35;
+      }
+
+      table.lr {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      table.lr th,
+      table.lr td {
+        padding: 3pt 5pt;
+      }
+      table.lr th {
+        font-size: 8pt;
+        text-align: right;
+        border-bottom: 1pt solid #000;
+      }
+      table.lr th.label { text-align: left; }
+      table.lr td.nilai,
+      table.lr td.persen {
+        text-align: right;
+        white-space: nowrap;
+        /* Angka sejajar tegak: tanpa ini digit selebar-lebarnya berbeda dan
+           kolom ratusan juta tampak bergerigi. */
+        font-variant-numeric: tabular-nums;
+      }
+      table.lr td.persen { color: #444; width: 42pt; }
+      table.lr td.nilai { width: 96pt; }
+
+      tr.pokok td { font-weight: bold; }
+      tr.grup td { font-weight: bold; padding-top: 7pt; }
+      tr.rinci td { font-size: 8.2pt; color: #222; }
+      tr.rinci td.label { padding-left: 16pt; }
+      tr.subtotal td {
+        font-weight: bold;
+        border-top: 0.6pt solid #000;
+      }
+      tr.total td {
+        font-weight: bold;
+        border-top: 1pt solid #000;
+        border-bottom: 2.2pt double #000;
+        padding-top: 5pt;
+        padding-bottom: 5pt;
+      }
+
+      /* Baris tidak dipotong di tengah halaman; kelompok boleh berpindah. */
+      tr { page-break-inside: avoid; }
+
+      .kaki {
+        margin-top: 14pt;
+        font-size: 7.4pt;
+        color: #555;
+      }
+    </style>
+  </head>
+  <body>
+    <table class="judul">
+      <tr>
+        <td class="judul-logo">
+          {% if logoDataUri %}
+          <img src="{{ logoDataUri }}" alt="{{ perusahaan.nama }}" />
+          {% else %}
+          <div class="judul-nama">{{ perusahaan.nama }}</div>
+          {% endif %}
+        </td>
+        <td class="judul-teks">
+          <div class="judul-utama">Laporan Laba Rugi</div>
+          <div class="judul-sub">Periode {{ periode }}</div>
+        </td>
+      </tr>
+    </table>
+
+    <p class="catatan">
+      Versi internal, basis akrual (tanggal dokumen), konsolidasi perusahaan.
+      Nilai dalam DPP: PPN dikecualikan karena dapat dikreditkan, PPh
+      dikecualikan karena bersifat pemotongan. Untuk dicocokkan dengan
+      pembukuan akuntan — bukan laporan keuangan resmi.
+    </p>
+
+    <table class="lr">
+      <thead>
+        <tr>
+          <th class="label"></th>
+          <th>Bulan Ini</th>
+          <th>%</th>
+          <th>s/d Bulan Ini</th>
+          <th>%</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in baris %}
+        <tr class="{{ b.jenis }}">
+          <td class="label">{{ b.label }}</td>
+          <td class="nilai">{% if b.kurang %}&minus;{% endif %}{{ b.bulan | rupiah }}</td>
+          <td class="persen">{{ b.persenBulan }}</td>
+          <td class="nilai">{% if b.kurang %}&minus;{% endif %}{{ b.ytd | rupiah }}</td>
+          <td class="persen">{{ b.persenYtd }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="kaki">
+      Kolom "s/d Bulan Ini" adalah akumulasi {{ periodeYtd }}.
+      Dicetak {{ dicetakPada | tanggal }}{% if dicetakOleh %} oleh {{ dicetakOleh }}{% endif %}.
+    </div>
+  </body>
+</html>

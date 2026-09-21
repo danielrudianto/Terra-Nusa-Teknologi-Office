@@ -249,6 +249,42 @@ async def hapus_hasil(
     )
 
 
+@router.delete("/candidates/{candidate_id}")
+async def hapus_pelamar(
+    candidate_id: int,
+    user: Annotated[User, Depends(require("hr_recruitment", "delete"))],
+):
+    """
+    Hapus pelamarnya. Tautannya mati; ia pindah ke kelompok "Dihapus".
+
+    Lunak — jawaban dan nilainya disimpan, dan dapat dipulihkan lewat
+    `PUT /candidates/{id}/pulihkan`. Dijaga `delete` (level 5), sama dengan
+    hapus hasil.
+    """
+    return _periksa(
+        await HrRecruitmentController.hapus_pelamar(candidate_id, user["id"])
+    )
+
+
+@router.put("/candidates/{candidate_id}/pulihkan")
+async def pulihkan_pelamar(
+    candidate_id: int,
+    user: Annotated[User, Depends(require("hr_recruitment", "delete"))],
+):
+    """
+    Kembalikan pelamar yang terhapus.
+
+    Dijaga `delete`, BUKAN `update`: memulihkan adalah kebalikan dari
+    menghapus, dan yang boleh membatalkan sebuah keputusan harus sama dengan
+    yang boleh mengambilnya. Dijaga lebih longgar, siapa pun yang boleh
+    menyunting dapat menghidupkan kembali tautan yang sengaja dimatikan
+    pemilik usaha.
+    """
+    return _periksa(
+        await HrRecruitmentController.pulihkan_pelamar(candidate_id, user["id"])
+    )
+
+
 @router.get("/candidates/{candidate_id}/lembar")
 async def lembar_jawaban(
     candidate_id: int,
