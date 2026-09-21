@@ -153,3 +153,60 @@ def test_profil_kosong_bukan_galat():
     """
     b = _blok(_sumber(REPO), "bank_karyawan")
     assert "return dict(baris) if baris else None" in b
+
+
+# --------------------------------------------------------------------------
+# Mengirim slip yang sudah dihapus
+# --------------------------------------------------------------------------
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("nilai", [True, 1])
+async def test_slip_terhapus_tidak_dikirim(monkeypatch, nilai):
+    """
+    Slip yang dihapus TIDAK dikirim — baik tercatat True maupun 1.
+
+    Sebelum ini `send` tidak memeriksanya. Pada tampilan "Semua", tombol
+    kirim ikut menyertakan slip yang sudah dicabut, dan karyawan menerima
+    slip yang perusahaan sendiri sudah nyatakan tidak berlaku.
+
+    Nilai `1` diuji terpisah: pemeriksaan `is True` meloloskannya.
+    """
+    from fastapi import HTTPException
+
+    import controllers.salary_slip_controller as c
+
+    terkirim = []
+
+    async def slip(_id):
+        return {"id": _id, "isDelete": nilai, "userID": 1, "month": 8, "year": 2026}
+
+    monkeypatch.setattr(c.SalarySlipRepository, "get_by_id", slip)
+    monkeypatch.setattr(
+        c.MailService, "send_email", lambda **k: terkirim.append(k), raising=False
+    )
+
+    with pytest.raises(HTTPException) as e:
+        await c.SalarySlipController.send(5)
+    assert e.value.status_code == 409
+    assert e.value.detail["code"] == "SALARY_SLIP_DELETED"
+    assert not terkirim, "surel tetap terkirim untuk slip yang dihapus"
+
+
+@pytest.mark.asyncio
+async def test_kirim_banyak_melewati_yang_terhapus_dan_menyebutnya(monkeypatch):
+    """Satu slip terhapus tidak menghentikan sisanya, dan kegagalannya disebut."""
+    import controllers.salary_slip_controller as c
+    from fastapi import HTTPException
+
+    async def kirim(i):
+        if i == 2:
+            raise HTTPException(status_code=409, detail={"code": "SALARY_SLIP_DELETED"})
+
+    monkeypatch.setattr(c.SalarySlipController, "send", staticmethod(kirim))
+    r = await c.SalarySlipController.send_many([1, 2, 3])
+    assert r["sent"] == 2 and r["failed"] == 1
+    assert r["failures"][0]["id"] == 2

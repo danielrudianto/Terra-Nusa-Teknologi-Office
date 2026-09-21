@@ -89,6 +89,28 @@ class SalarySlipController:
                 )
             if salarySlip is None:
                 raise HTTPException(status_code=404, detail="Salary slip not found")
+            # Slip yang DIHAPUS tidak dikirim.
+            #
+            # Slip dihapus karena keliru — angka salah, bulan salah, orang
+            # salah. Sebelum ini `send` tidak memeriksanya, dan pada tampilan
+            # "Semua" tombol kirim ikut menyertakan slip yang sudah dicabut:
+            # karyawan menerima slip gaji yang perusahaan sendiri sudah
+            # nyatakan tidak berlaku, lewat surel yang tidak dapat ditarik.
+            #
+            # Dibaca dengan `bool()`, bukan `is True`: dari MySQL nilainya
+            # dapat datang sebagai 1, dan `1 is True` bernilai False.
+            #
+            # (`print` di bawah sengaja TIDAK diberi penjagaan yang sama:
+            # mencetak ulang slip yang dihapus untuk arsip atau pemeriksaan
+            # adalah hal yang sah; mengirimkannya ke karyawan tidak.)
+            if bool(salarySlip.get("isDelete")):
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "SALARY_SLIP_DELETED",
+                        "message": "Slip gaji ini sudah dihapus dan tidak dikirim.",
+                    },
+                )
             salarySlipAllowances = await SalarySlipAllowanceRepository.get_by_salary_slip_id(salary_slip_id)
             salarySlipDeductions = await SalarySlipDeductionRepository.get_by_salary_slip_id(salary_slip_id)
 
