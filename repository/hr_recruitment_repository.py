@@ -21,7 +21,28 @@ from models.hr_recruitment_model import (
 from models.user_model import users_table
 from utils.database import database
 from utils.errors import ErrorCode, app_error
-from utils.logger_utils import log_error
+from utils.logger_utils import log_error, log_info
+
+
+#: Sesudah waktunya habis, jawaban yang ikut dikirim bersama tombol Kirim
+#: (atau kiriman otomatis layar saat hitungan mundur mencapai nol) masih
+#: diterima selama ini. Tanpa tenggang, kiriman otomatis di detik ke-0 tiba
+#: di server pada detik ke-1 — dan kalimat terakhir yang diketik hilang.
+TENGGANG_KIRIM_DETIK = 120
+
+#: Pengerjaan yang waktunya habis lebih dari ini dan BELUM dikirim ditutup
+#: server. Sengaja lebih panjang dari `TENGGANG_KIRIM_DETIK`: kiriman layar
+#: yang masih dalam perjalanan harus menang, karena ia membawa ketikan
+#: terakhir.
+TENGGANG_TUTUP_DETIK = 180
+
+
+def lewat_batas(mulai, durasi_menit, sekarang, tenggang_detik: int = 0) -> bool:
+    """Waktu pengerjaan sudah habis (ditambah tenggang)?"""
+    if not mulai:
+        return False
+    batas = mulai + timedelta(minutes=int(durasi_menit or 90))
+    return sekarang > batas + timedelta(seconds=tenggang_detik)
 
 
 #: Panjang kode peserta.
@@ -156,6 +177,76 @@ def urutan_acak(soal: list, token: str) -> list:
 
 class HrRecruitmentRepository:
     # ------------------------------------------------------------ paket ujian
+
+    @staticmethod
+    async def tutup_yang_habis_waktu() -> int:
+        """
+        Kirim otomatis pengerjaan yang waktunya sudah habis.
+
+        Layar ujian mengirim sendiri saat hitungan mundurnya mencapai nol —
+        TETAPI hanya selama layarnya terbuka. Pelamar yang menutup peramban,
+        ponselnya mati, atau koneksinya putus tidak pernah mengirim, dan
+        statusnya tertinggal "sedang mengerjakan" selamanya.
+
+        Dijalankan setiap kali daftar/lembar pelamar dibaca (tanpa penjadwal
+        terpisah). `submittedAt` diisi dengan BATAS WAKTUNYA, bukan saat
+        penutupan: yang dicatat adalah kapan pengerjaannya berakhir, bukan
+        kapan kebetulan ada yang membuka daftarnya. Jawaban yang sudah
+        tersimpan berkala itulah yang dinilai.
+
+        Status yang sudah diputuskan manusia tidak disentuh; hanya
+        `mengerjakan` yang menjadi `selesai`.
+        """
+        try:
+            baris = await database.fetch_all(
+                select(
+                    hr_candidates_table.c.id,
+                    hr_candidates_table.c.startedAt,
+                    hr_tests_table.c.durationMinutes,
+                )
+                .select_from(
+                    hr_candidates_table.join(
+                        hr_tests_table,
+                        hr_candidates_table.c.testID == hr_tests_table.c.id,
+                    )
+                )
+                .where(hr_candidates_table.c.isDelete == False)  # noqa: E712
+                .where(hr_candidates_table.c.startedAt.isnot(None))
+                .where(hr_candidates_table.c.submittedAt.is_(None))
+            )
+            sekarang = dt.now()
+            n = 0
+            for r in baris:
+                if not lewat_batas(
+                    r["startedAt"], r["durationMinutes"], sekarang,
+                    TENGGANG_TUTUP_DETIK,
+                ):
+                    continue
+                batas = r["startedAt"] + timedelta(
+                    minutes=int(r["durationMinutes"] or 90)
+                )
+                await database.execute(
+                    update(hr_candidates_table)
+                    .where(hr_candidates_table.c.id == r["id"])
+                    # Penjaga balapan: kiriman pelamar yang tiba bersamaan
+                    # tidak ditimpa.
+                    .where(hr_candidates_table.c.submittedAt.is_(None))
+                    .values(
+                        submittedAt=batas,
+                        status=case(
+                            (hr_candidates_table.c.status == "mengerjakan", STATUS_SELESAI),
+                            else_=hr_candidates_table.c.status,
+                        ),
+                    )
+                )
+                n += 1
+            if n:
+                log_info(f"Ujian dikirim otomatis (waktu habis): {n} pelamar")
+            return n
+        except Exception as e:  # noqa: BLE001
+            # Tidak pernah menggagalkan pembacaan daftar.
+            log_error(f"Gagal menutup ujian yang habis waktu: {e}")
+            return 0
 
     # ------------------------------------------------------- ujian (publik)
 
@@ -372,7 +463,7 @@ class HrRecruitmentRepository:
         return int((batas - dt.now()).total_seconds())
 
     @staticmethod
-    async def simpan_jawaban(token: str, jawaban: dict):
+    async def simpan_jawaban(token: str, jawaban: dict, tenggang_detik: int = 0):
         """
         Simpan jawaban yang sedang dikerjakan.
 
@@ -424,7 +515,10 @@ class HrRecruitmentRepository:
             sisa = await HrRecruitmentRepository.sisa_waktu(pelamar["id"])
             if sisa is None:
                 return {"error": "Ujian belum dimulai.", "status": 400}
-            if sisa <= 0:
+            # `tenggang_detik` hanya dipakai `kirim_ujian` — lihat
+            # `TENGGANG_KIRIM_DETIK`. Autosave berkala tetap berhenti tepat
+            # di batas waktunya.
+            if sisa <= 0 and -sisa >= tenggang_detik:
                 return {"error": "Waktu pengerjaan sudah habis.", "status": 410}
 
             # Hanya soal MILIK paket ujiannya yang diterima.
@@ -488,7 +582,7 @@ class HrRecruitmentRepository:
         try:
             if jawaban:
                 hasil = await HrRecruitmentRepository.simpan_jawaban(
-                    token, jawaban
+                    token, jawaban, tenggang_detik=TENGGANG_KIRIM_DETIK
                 )
                 # Waktu habis tidak menghalangi pengiriman: yang sudah
                 # tersimpan tetap dikirim, dan penilailah yang memutuskan.

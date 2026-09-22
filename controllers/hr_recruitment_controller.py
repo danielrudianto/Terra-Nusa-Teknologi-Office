@@ -34,12 +34,18 @@ class HrRecruitmentController:
 
     @staticmethod
     async def daftar_pelamar(test_id=None, status=None, ember=None, cari=None):
+        # Ujian yang waktunya habis tanpa dikirim ditutup dulu, supaya
+        # statusnya tidak tertinggal "sedang mengerjakan".
+        await HrRecruitmentRepository.tutup_yang_habis_waktu()
         return await HrRecruitmentRepository.daftar_pelamar(
             test_id, status, ember, cari
         )
 
     @staticmethod
     async def ringkasan_pelamar(test_id=None):
+        # Ujian yang waktunya habis tanpa dikirim ditutup dulu, supaya
+        # statusnya tidak tertinggal "sedang mengerjakan".
+        await HrRecruitmentRepository.tutup_yang_habis_waktu()
         return await HrRecruitmentRepository.ringkasan_pelamar(test_id)
 
     @staticmethod
@@ -76,6 +82,9 @@ class HrRecruitmentController:
 
     @staticmethod
     async def lembar_jawaban(candidate_id: int):
+        # Ujian yang waktunya habis tanpa dikirim ditutup dulu, supaya
+        # statusnya tidak tertinggal "sedang mengerjakan".
+        await HrRecruitmentRepository.tutup_yang_habis_waktu()
         return await HrRecruitmentRepository.lembar_jawaban(candidate_id)
 
     @staticmethod
@@ -86,6 +95,9 @@ class HrRecruitmentController:
 
     @staticmethod
     async def pelamar_dari_token(token: str):
+        # Ujian yang waktunya habis tanpa dikirim ditutup dulu, supaya
+        # statusnya tidak tertinggal "sedang mengerjakan".
+        await HrRecruitmentRepository.tutup_yang_habis_waktu()
         return await HrRecruitmentRepository.pelamar_dari_token(token)
 
     @staticmethod
