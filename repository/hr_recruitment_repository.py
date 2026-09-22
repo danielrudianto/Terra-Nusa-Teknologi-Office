@@ -60,7 +60,15 @@ def kode_peserta(token: str) -> str:
 #: Sisanya (`baru`, `mengerjakan`, `selesai`, `dinilai`) disimpulkan dari
 #: keadaan dokumennya sendiri. Membiarkannya disetel manual berarti daftar
 #: dapat menyatakan "sudah dinilai" atas lembar yang kosong.
-STATUS_MANUAL = ("diwawancara", "diterima", "ditolak")
+STATUS_MANUAL = ("diwawancara", "diterima", "ditolak", "gagal_wawancara")
+
+#: DUA jenis gagal, dibedakan menurut TAHAPNYA:
+#:   `ditolak`         — gagal sebelum wawancara (hasil ujiannya);
+#:   `gagal_wawancara` — sudah diwawancarai, lalu tidak dilanjutkan.
+#: Keduanya masuk ember "ditolak"; yang membedakannya adalah pertanyaan
+#: "sampai tahap mana ia sempat maju", yang dicari saat menimbang pelamar
+#: yang sama di lowongan berikutnya.
+STATUS_GAGAL = ("ditolak", "gagal_wawancara")
 
 #: Status yang berarti pengerjaannya sudah selesai dan sudah dinilai penuh.
 STATUS_DINILAI = "dinilai"
@@ -107,7 +115,7 @@ def _syarat_ember(ember: str):
     if ember == "diterima":
         return [aktif, st == "diterima"]
     if ember == "ditolak":
-        return [aktif, st == "ditolak"]
+        return [aktif, st.in_(STATUS_GAGAL)]
     if ember == "dihapus":
         return [hr_candidates_table.c.isDelete == True]  # noqa: E712
     return None
@@ -703,7 +711,8 @@ class HrRecruitmentRepository:
         bila ada yang dicabut.
 
         HANYA bergerak di antara `selesai` dan `dinilai`. Status yang
-        diputuskan manusia — `diwawancara`, `diterima`, `ditolak` — tidak
+        diputuskan manusia — `diwawancara`, `diterima`, `ditolak`,
+        `gagal_wawancara` — tidak
         pernah disentuh: seseorang yang sudah diwawancarai lalu nilainya
         diperbaiki satu angka tidak boleh mundur menjadi "baru dinilai".
 
@@ -756,7 +765,7 @@ class HrRecruitmentRepository:
         """
         Setel status yang DIPUTUSKAN MANUSIA.
 
-        Hanya `diwawancara`, `diterima`, `ditolak`. Status lainnya
+        Hanya `diwawancara`, `diterima`, `ditolak`, `gagal_wawancara`. Status lainnya
         disimpulkan dari keadaan dokumennya, dan membiarkannya disetel
         lewat rute ini berarti daftar dapat menyatakan "sudah dinilai" atas
         lembar yang belum disentuh siapa pun.

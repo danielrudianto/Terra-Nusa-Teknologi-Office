@@ -134,6 +134,8 @@ hr_candidates_table = Table(
     #
     # Berkas unggahan dihapus ketika status berpindah ke `diterima` atau
     # `ditolak` — setelah diputuskan, isinya tidak diperlukan lagi.
+    # `gagal_wawancara` = gagal SESUDAH wawancara (lihat STATUS_GAGAL); 15
+    # karakter, muat di String(20) tanpa perubahan skema.
     Column("status", String(20), nullable=False, server_default="baru"),
     Column("decidedAt", DateTime(), nullable=True),
     Column("decidedBy", Integer, ForeignKey("users.id"), nullable=True),

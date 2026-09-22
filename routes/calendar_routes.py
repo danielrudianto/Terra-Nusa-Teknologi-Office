@@ -77,6 +77,26 @@ async def pembayaran_tertunda(
     return await CalendarController.tertunda(bankAccounts)
 
 
+@router.get("/terjadwal")
+async def pembayaran_terjadwal(
+    current_user: Annotated[User, Depends(require("payment_outgoing", "read"))],
+    mulai: date,
+    akhir: date | None = None,
+    bankAccounts: List[int] = Query(None),
+):
+    """
+    Pembayaran BELUM disetujui sebelum `mulai` (dibawa ke saldo awal), dan
+    seluruh pembayaran per tanggal di [mulai, akhir].
+
+    Satu sumber untuk saldo rencana kalender, proyeksi kas, dan unduhan —
+    saldo awal dari view `mutation` hanya memuat yang sudah disetujui.
+    """
+    hasil = await CalendarController.terjadwal(mulai, akhir, bankAccounts)
+    if "error" in hasil:
+        raise HTTPException(status_code=hasil["status"], detail=error_detail(hasil))
+    return hasil
+
+
 @router.get("/download")
 async def download_calendar(
     current_user: Annotated[User, Depends(require("payment_outgoing", "read"))],

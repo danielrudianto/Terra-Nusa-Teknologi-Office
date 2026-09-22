@@ -217,7 +217,8 @@ async def ubah_status_pelamar(
     user: Annotated[User, Depends(require("hr_recruitment", "update"))],
 ):
     """
-    Setel status yang diputuskan manusia: diwawancara, diterima, ditolak.
+    Setel status yang diputuskan manusia: diwawancara, diterima, ditolak
+    (gagal sebelum wawancara), gagal_wawancara (gagal sesudah wawancara).
 
     Status lainnya disimpulkan dari keadaan dokumennya — lihat tangga
     statusnya di `models/hr_recruitment_model.py`.

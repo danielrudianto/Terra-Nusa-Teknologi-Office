@@ -1,3 +1,4 @@
+from repository.kalender_terjadwal_repository import KalenderTerjadwalRepository
 import asyncio
 from datetime import date, timedelta
 from utils.logger_utils import log_info, log_error
@@ -31,6 +32,31 @@ class CalendarController:
             "count": len(data),
             "total": sum(float(x["amount"] or 0) for x in data),
         }
+    @staticmethod
+    async def terjadwal(mulai, akhir, bankAccounts):
+        """
+        Pembayaran tertunda sebelum `mulai` (per rekening) dan pembayaran
+        terjadwal per tanggal di [mulai, akhir] — lihat
+        `KalenderTerjadwalRepository`. `akhir` boleh kosong: hanya bawaan.
+        """
+        try:
+            bawaan = await KalenderTerjadwalRepository.bawaan(mulai, bankAccounts)
+            harian = (
+                await KalenderTerjadwalRepository.harian(mulai, akhir, bankAccounts)
+                if akhir
+                else []
+            )
+            return {
+                "bawaan": bawaan,
+                "bawaanKeluar": round(sum(b["keluar"] for b in bawaan), 2),
+                "bawaanMasuk": round(sum(b["masuk"] for b in bawaan), 2),
+                "bawaanJumlah": sum(b["jumlah"] for b in bawaan),
+                "harian": harian,
+            }
+        except Exception as e:  # noqa: BLE001
+            log_error(f"Kalender terjadwal gagal: {e}")
+            return {"error": "Internal server error.", "status": 500}
+
     @staticmethod
     async def get_calendar_data(month: int, year: int, bankAccounts: List[int]):
         """
