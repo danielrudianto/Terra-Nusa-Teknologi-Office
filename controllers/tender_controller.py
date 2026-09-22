@@ -1,7 +1,51 @@
 from typing import Any, Dict, List, Optional
 
 from repository.tender_repository import MINIMAL_PENAWARAN, TenderRepository
+from sqlalchemy import select
+
+from models.master_item_model import master_item_table
+from utils.database import database
 from utils.logger_utils import log_error, log_info
+
+
+async def periksa_baris_barang(jenis: Optional[str], baris: Optional[list]) -> Optional[Dict[str, Any]]:
+    """
+    Tender BARANG: setiap baris wajib menunjuk barang di katalog (`itemID`).
+
+    Nama barang yang diketik bebas menghasilkan "Semen 50kg", "semen 50 kg",
+    dan "Semen Tiga Roda" untuk barang yang sama — penawaran tidak dapat
+    dibandingkan dan riwayat harga terpecah. Barang yang belum ada
+    didaftarkan dulu di Master Barang.
+
+    Tender JASA tidak disentuh: uraian pekerjaan memang bebas.
+    Mengembalikan galat, atau None bila lolos.
+    """
+    if jenis != "barang" or baris is None:
+        return None
+    kosong = [i + 1 for i, b in enumerate(baris) if not b.get("itemID")]
+    if kosong:
+        return {
+            "error": (
+                "Baris barang harus dipilih dari katalog (baris "
+                + ", ".join(map(str, kosong))
+                + "). Daftarkan dulu di Master Barang bila belum ada."
+            ),
+            "status": 422,
+        }
+    ids = sorted({int(b["itemID"]) for b in baris})
+    ada = await database.fetch_all(
+        select(master_item_table.c.id).where(
+            master_item_table.c.id.in_(ids),
+            master_item_table.c.isDelete == 0,
+        )
+    )
+    hilang = set(ids) - {int(r["id"]) for r in ada}
+    if hilang:
+        return {
+            "error": "Sebagian barang tidak ditemukan di katalog (mungkin sudah dihapus).",
+            "status": 422,
+        }
+    return None
 
 
 class TenderController:
@@ -33,6 +77,9 @@ class TenderController:
     @staticmethod
     async def buat(body: dict, user_id: int) -> Dict[str, Any]:
         baris = body.pop("items", [])
+        galat = await periksa_baris_barang(body.get("tenderType"), baris)
+        if galat:
+            return galat
         hasil = await TenderRepository.buat(body, baris, user_id)
         if "error" not in hasil:
             log_info(f"Tender dibuat: {hasil.get('id')}")
@@ -77,6 +124,11 @@ class TenderController:
 
         baris = body.pop("items", None)
         versi = body.pop("rowVersion", None)
+        galat = await periksa_baris_barang(
+            body.get("tenderType") or tender.get("tenderType"), baris
+        )
+        if galat:
+            return galat
         return await TenderRepository.ubah(
             tender_id, body, baris, user_id, versi=versi
         )
