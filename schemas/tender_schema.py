@@ -15,8 +15,14 @@ benar tersimpan sebagai NULL dan jawabannya tetap sukses.
 # Bidang bernama `date` yang bernilai bawaan (`date: Optional[date] = None`)
 # menimpa tipe `datetime.date` di ruang nama kelasnya, dan Pydantic
 # membacanya sebagai `Optional[None]` — menolak setiap tanggal dengan "Input
-# should be None". Bidang lain (`startDate`, `endDate`) tidak bertabrakan
-# nama, jadi tetap memakai `date` biasa.
+# should be None".
+#
+# Penimpaannya berlaku untuk SEMUA bidang yang ditulis SESUDAHNYA di kelas
+# yang sama, bukan hanya bidang `date` itu sendiri. `TenderUpdate.dueDate`
+# ditulis sesudah `date = None` dan tetap memakai `date` biasa — sehingga
+# setiap penyuntingan tender yang punya batas penawaran ditolak 422, apa pun
+# yang diubah (22 Sep 2026). Di kelas yang punya bidang `date` bernilai
+# bawaan, SEMUA tanggal memakai `TanggalHari`.
 from datetime import date, date as TanggalHari, datetime
 from decimal import Decimal
 from typing import List, Optional
@@ -92,7 +98,9 @@ class TenderUpdate(BaseModel):
     paymentTerm: Optional[str] = Field(default=None, max_length=20)
     creditTerm: Optional[int] = None
     requirements: Optional[str] = None
-    dueDate: Optional[date] = None
+    # `TanggalHari`, BUKAN `date` — di baris ini `date` sudah berarti `None`
+    # (bidang `date` di atas); lihat catatan di kepala berkas.
+    dueDate: Optional[TanggalHari] = None
     # Baris diganti seluruhnya bila disebutkan; kosong berarti tidak diubah.
     items: Optional[List[TenderItemBase]] = None
     # Versi yang dibaca layar — lihat `utils/kunci_optimistik.py`.
