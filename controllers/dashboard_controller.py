@@ -18,4 +18,9 @@ class DashboardController:
         following the same convention the route layer already unpacks.
         """
         return await DashboardModel.fetch_cash_position(bank_account_ids)
+
+    @staticmethod
+    async def cash_trend(days: int = 30) -> Dict:
+        """Total saldo harian untuk garis tren di kartu Posisi Kas."""
+        return await DashboardModel.fetch_cash_trend(days)
     

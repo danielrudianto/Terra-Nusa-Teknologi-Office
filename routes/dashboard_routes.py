@@ -42,6 +42,20 @@ async def get_cash_position(
     except HTTPException:
         raise
 
+@router.get("/cash-trend")
+async def get_cash_trend(
+    # Penjaga yang SAMA dengan `/cash-position`: deret ini adalah saldo
+    # rekening yang sama, hanya dilihat per hari.
+    current_user: Annotated[User, Depends(require("bank", "read"))],
+    days: int = Query(30, ge=2, le=120),
+):
+    """Total saldo kas harian `days` hari terakhir (garis tren beranda)."""
+    result = await DashboardController.cash_trend(days)
+    if "error" in result:
+        raise HTTPException(status_code=result["status"], detail=error_detail(result))
+    return result
+
+
 @router.get("/lencana")
 async def lencana(
     current_user: Annotated[User, Depends(get_current_user)],
