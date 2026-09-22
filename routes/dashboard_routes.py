@@ -74,3 +74,20 @@ async def lencana(
     disebut "menunggu saya".
     """
     return await LencanaController.semua(current_user)
+
+
+@router.get("/tenggat")
+async def tenggat(
+    current_user: Annotated[User, Depends(get_current_user)],
+    hari: int = Query(7, ge=1, le=31),
+):
+    """
+    Tenggat `hari` ke depan (dan yang terlewat, sampai 60 hari ke belakang).
+
+    Tanpa `require(...)`, sama seperti `/lencana`: tiap sumber memeriksa
+    izinnya sendiri dan yang tidak berhak tidak muncul sama sekali — lihat
+    `repository/dashboard_tenggat_repository.py`.
+    """
+    from repository.dashboard_tenggat_repository import kumpulkan_tenggat
+
+    return await kumpulkan_tenggat(current_user, hari)

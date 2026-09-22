@@ -444,7 +444,13 @@ class ProjectRepository:
                     COALESCE(b.beli_internal, 0)  AS beli_internal,
                     COALESCE(d.draft, 0)          AS draft,
                     COALESCE(r.reimburse, 0)      AS reimburse,
-                    COALESCE(si.tertagih, 0)      AS tertagih
+                    COALESCE(si.tertagih, 0)      AS tertagih,
+                    -- Kemajuan TERAKHIR (persen kumulatif) dan tanggal
+                    -- keadaannya — lihat PROGRESS-PROYEK-KURVA-S. Dasbor
+                    -- menaruhnya di samping biaya terpakai: biaya 60% baru
+                    -- berarti sesudah dibandingkan dengan kemajuannya.
+                    pg.percentage                 AS kemajuan,
+                    pg.date                       AS kemajuanTanggal
                 FROM projects p
                 LEFT JOIN (
                     SELECT projectID, SUM(dpp) AS kontrak
@@ -510,6 +516,20 @@ class ProjectRepository:
                     WHERE isDelete = 0
                     GROUP BY projectName
                 ) si ON si.projectName = p.code
+                LEFT JOIN (
+                    -- Satu baris per proyek: catatan dengan tanggal keadaan
+                    -- TERAKHIR (satu tanggal satu catatan, jadi tidak ada
+                    -- dua baris yang bersaing).
+                    SELECT x.projectID, x.percentage, x.date
+                    FROM project_progress x
+                    JOIN (
+                        SELECT projectID, MAX(date) AS terakhir
+                        FROM project_progress
+                        WHERE isDelete = 0
+                        GROUP BY projectID
+                    ) t ON t.projectID = x.projectID AND t.terakhir = x.date
+                    WHERE x.isDelete = 0
+                ) pg ON pg.projectID = p.id
                 WHERE p.isDelete = 0
                 ORDER BY p.isActive DESC, p.code ASC
                 LIMIT :limit OFFSET :offset
@@ -562,6 +582,16 @@ class ProjectRepository:
                         # Tanpa pembelian internal: yang dibeli dari dalam
                         # perusahaan bukan uang yang keluar dari grup.
                         "marginInternalKeluar": kontrak - (total_biaya - internal),
+                        # None = belum pernah dicatat, BUKAN 0%.
+                        "kemajuan": (
+                            float(r["kemajuan"]) if r["kemajuan"] is not None else None
+                        ),
+                        "kemajuanTanggal": (
+                            r["kemajuanTanggal"].isoformat()
+                            if r["kemajuanTanggal"] is not None
+                            and hasattr(r["kemajuanTanggal"], "isoformat")
+                            else r["kemajuanTanggal"]
+                        ),
                     }
                 )
 
