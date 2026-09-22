@@ -1843,6 +1843,7 @@ class CertificateOfPaymentController:
         keyword: str | None = None,
         user_level: int = 1,
         purchase_order_id: int | None = None,
+        cop_id: int | None = None,
     ):
         """
         CoP yang siap ditagihkan: sudah disetujui, belum ada pembeliannya.
@@ -1864,7 +1865,7 @@ class CertificateOfPaymentController:
                     403,
                 )
             baris = await CertificateOfPaymentRepository.siap_tagih(
-                keyword, purchase_order_id=purchase_order_id
+                keyword, purchase_order_id=purchase_order_id, cop_id=cop_id
             )
             if isinstance(baris, dict) and "error" in baris:
                 return baris

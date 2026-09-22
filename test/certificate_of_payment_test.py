@@ -2387,7 +2387,7 @@ class TestPenagihanCoP:
         tarif SPK-nya, bukan angka yang diketik ulang.
         """
 
-        async def _siap(kata=None, batas=30, purchase_order_id=None):
+        async def _siap(kata=None, batas=30, purchase_order_id=None, cop_id=None):
             return [{
                 "id": 9, "name": "001-R501-VIII-2026", "number": 1,
                 "projectName": "R501", "date": None,
@@ -2424,7 +2424,7 @@ class TestPenagihanCoP:
         """
         terlihat = {}
 
-        async def _siap(kata=None, batas=30, purchase_order_id=None):
+        async def _siap(kata=None, batas=30, purchase_order_id=None, cop_id=None):
             terlihat["po"] = purchase_order_id
             return []
 

@@ -147,6 +147,7 @@ async def cop_siap_tagih(
     current_user: Annotated[User, Depends(require("certificate_of_payment", "read"))],
     keyword: Optional[str] = None,
     purchaseOrderID: Optional[int] = None,
+    id: Optional[int] = None,
 ):
     """
     CoP yang sudah disetujui dan belum ditagihkan.
@@ -159,7 +160,7 @@ async def cop_siap_tagih(
     """
     return _lempar_bila_galat(
         await CertificateOfPaymentController.siap_tagih(
-            keyword, _level(current_user), purchase_order_id=purchaseOrderID
+            keyword, _level(current_user), purchase_order_id=purchaseOrderID, cop_id=id
         )
     )
 

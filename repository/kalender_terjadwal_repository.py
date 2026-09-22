@@ -21,7 +21,10 @@ Aturan bersamanya:
     belum hilang; ia dibawa masuk ke saldo awal, seperti rencana yang
     belum jalan dari bulan sebelumnya.
   * `harian` — SELURUH pembayaran (disetujui atau belum, tidak dihapus)
-    per tanggal di dalam rentang, untuk proyeksi.
+    per tanggal di dalam rentang, untuk proyeksi. Ditambah transfer antar
+    rekening yang MELINTASI saringan rekening: ke rekening di luar saringan
+    = keluar, dari luar = masuk. Transfer di antara dua rekening yang
+    sama-sama disaring saling meniadakan dan tidak dihitung.
 
 Ditolak = `isDelete = 1` (lihat penyaring `isRejected` pada daftar
 pembayaran), jadi cukup `isDelete = 0 AND isApprove = 0`.
@@ -84,4 +87,35 @@ class KalenderTerjadwalRepository:
                 k = t.isoformat() if hasattr(t, "isoformat") else str(t)[:10]
                 d = per.setdefault(k, {"tanggal": k, "keluar": 0.0, "masuk": 0.0})
                 d[arah] = round(d[arah] + float(b["total"] or 0), 2)
+
+        # Transfer yang melintasi saringan. Tanpa saringan (= seluruh
+        # rekening) tidak ada yang melintas.
+        if rekening:
+            daftar = ",".join(str(int(x)) for x in rekening)
+            baris = await database.fetch_all(
+                "SELECT DATE(date) AS tanggal, "
+                f"  COALESCE(SUM(CASE WHEN bankAccountIDOrigin IN ({daftar}) "
+                f"    AND bankAccountIDDestination NOT IN ({daftar}) "
+                "    THEN amount ELSE 0 END), 0) AS keluar, "
+                f"  COALESCE(SUM(CASE WHEN bankAccountIDDestination IN ({daftar}) "
+                f"    AND bankAccountIDOrigin NOT IN ({daftar}) "
+                "    THEN amount ELSE 0 END), 0) AS masuk "
+                "FROM interpayments "
+                "WHERE isDelete = 0 AND DATE(date) >= :mulai AND DATE(date) <= :akhir "
+                f"  AND (bankAccountIDOrigin IN ({daftar}) "
+                f"       OR bankAccountIDDestination IN ({daftar})) "
+                "GROUP BY DATE(date)",
+                {"mulai": mulai, "akhir": akhir},
+            )
+            for b in baris:
+                keluar = float(b["keluar"] or 0)
+                masuk = float(b["masuk"] or 0)
+                if not keluar and not masuk:
+                    continue
+                t = b["tanggal"]
+                k = t.isoformat() if hasattr(t, "isoformat") else str(t)[:10]
+                d = per.setdefault(k, {"tanggal": k, "keluar": 0.0, "masuk": 0.0})
+                d["keluar"] = round(d["keluar"] + keluar, 2)
+                d["masuk"] = round(d["masuk"] + masuk, 2)
+
         return [per[k] for k in sorted(per)]

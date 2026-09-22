@@ -55,3 +55,48 @@ async def test_bawaan_dan_harian(sambungan):
     finally:
         await db.execute("DELETE FROM payment_outgoing WHERE bankAccountID = :a", {"a": akun})
         await db.execute("SET FOREIGN_KEY_CHECKS = 1")
+
+
+async def test_transfer_melintasi_saringan_ikut_harian(sambungan):
+    """
+    Transfer ke rekening di luar saringan = uang keluar dari proyeksi, dari
+    luar = masuk; di antara dua rekening yang disaring saling meniadakan.
+    """
+    from repository.kalender_terjadwal_repository import (
+        KalenderTerjadwalRepository as R,
+    )
+
+    db = sambungan
+    try:
+        await db.fetch_one(
+            "SELECT bankAccountIDOrigin, bankAccountIDDestination FROM interpayments LIMIT 1"
+        )
+    except Exception:
+        pytest.skip("tabel interpayments tidak ada di basis data uji")
+    a, b, luar = 987651, 987652, 987653
+    hapus = (
+        "DELETE FROM interpayments WHERE bankAccountIDOrigin IN (:a,:b,:l) "
+        "OR bankAccountIDDestination IN (:a,:b,:l)"
+    )
+    kunci = {"a": a, "b": b, "l": luar}
+    await db.execute(hapus, kunci)
+    try:
+        for tgl, asal, tujuan, jml, dihapus in [
+            ("2026-10-05 09:30:00", a, luar, 8, 0),    # keluar
+            ("2026-10-05 14:00:00", a, b, 500, 0),     # di dalam -> nol
+            ("2026-10-06 08:00:00", luar, b, 3, 0),    # masuk
+            ("2026-10-07 08:00:00", a, luar, 99, 1),   # dihapus -> tidak
+        ]:
+            await db.execute(
+                "INSERT INTO interpayments (bankAccountIDOrigin, bankAccountIDDestination, "
+                "amount, description, date, isDelete, createdBy, createdAt) "
+                "VALUES (:o, :d, :j, 'uji', :t, :h, 1, NOW())",
+                {"o": asal, "d": tujuan, "j": jml, "t": tgl, "h": dihapus},
+            )
+        h = await R.harian(date(2026, 10, 1), date(2026, 10, 31), [a, b])
+        assert h == [
+            {"tanggal": "2026-10-05", "keluar": 8.0, "masuk": 0.0},
+            {"tanggal": "2026-10-06", "keluar": 0.0, "masuk": 3.0},
+        ]
+    finally:
+        await db.execute(hapus, kunci)

@@ -1113,6 +1113,9 @@ class CertificateOfPaymentRepository:
                 f"""
                 SELECT c.*, po.name AS purchaseOrderName,
                        s.name AS supplierName,
+                       -- Bentuk badan usaha, untuk akhiran redup ", PT."
+                       -- di kolom pemasok daftar.
+                       s.prefix AS supplierPrefix,
                        pembuat.name AS createdByName
                 FROM certificate_of_payments c
                 JOIN purchase_orders po ON po.id = c.purchaseOrderID
@@ -1240,6 +1243,7 @@ class CertificateOfPaymentRepository:
         keyword: str | None = None,
         batas: int = 30,
         purchase_order_id: int | None = None,
+        cop_id: int | None = None,
     ) -> List[Dict[str, Any]]:
         """
         CoP yang SUDAH DISETUJUI dan BELUM ditagihkan.
@@ -1266,6 +1270,12 @@ class CertificateOfPaymentRepository:
         if purchase_order_id:
             syarat.append("c.purchaseOrderID = :po")
             params["po"] = int(purchase_order_id)
+        # SATU CoP — dipakai formulir pembelian yang dibuka dari `?cop=<id>`.
+        # Tanpa ini formulirnya mencari di 30 baris terbaru saja, dan CoP
+        # yang lebih lama dari itu dinyatakan "tidak dapat ditagihkan".
+        if cop_id:
+            syarat.append("c.id = :cop")
+            params["cop"] = int(cop_id)
         kata = (keyword or "").strip()
         if kata:
             syarat.append(
@@ -1282,6 +1292,11 @@ class CertificateOfPaymentRepository:
                    po.name AS purchaseOrderName,
                    po.purchaseType, po.ppn, po.pphCode, po.pphTaxObject,
                    po.pphPercentage, po.supplierID,
+                   -- WAJIB ikut: `melayani_cop` membacanya. Tanpa kolom ini
+                   -- PO-F beton (materialType ada di customData) dianggap
+                   -- tidak dilayani CoP dan disaring keluar — CoP-nya yang
+                   -- sah dinyatakan "tidak dapat ditagihkan".
+                   po.customData,
                    s.name AS supplierName, s.address AS supplierAddress
             FROM certificate_of_payments c
             JOIN purchase_orders po ON po.id = c.purchaseOrderID
