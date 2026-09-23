@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional
 
 from repository.tender_repository import MINIMAL_PENAWARAN, TenderRepository
+from utils.transaksi import atomik
 from sqlalchemy import select
 
 from models.master_item_model import master_item_table
@@ -75,6 +76,7 @@ class TenderController:
     STATUS_MENERIMA_PENAWARAN = ("berjalan",)
 
     @staticmethod
+    @atomik
     async def buat(body: dict, user_id: int) -> Dict[str, Any]:
         baris = body.pop("items", [])
         galat = await periksa_baris_barang(body.get("tenderType"), baris)
@@ -106,7 +108,21 @@ class TenderController:
         )
 
     @staticmethod
+    @atomik
     async def ubah(tender_id: int, body: dict, user_id: int) -> Dict[str, Any]:
+        """
+        Ubah tender beserta baris permintaannya — SATU TRANSAKSI.
+
+        Sebelumnya tidak: kepala tendernya tersimpan lebih dahulu, lalu
+        penulisan barisnya dikerjakan terpisah. Ketika penulisan baris gagal,
+        yang tertinggal adalah tender yang berubah sementara layar
+        menampilkan "Terjadi kesalahan di server" — yang membacanya
+        menyimpulkan simpanannya tidak jadi, lalu mengetik ulang di atas
+        data yang sudah berubah.
+
+        `@atomik` juga menggulung balik pada dict ber-`error`, bukan hanya
+        pada pengecualian — lihat keterangannya di `utils/transaksi.py`.
+        """
         tender = await TenderRepository.ambil(tender_id)
         if tender is None:
             return {"error": "Tender tidak ditemukan.", "status": 404}
@@ -201,6 +217,7 @@ class TenderController:
     # ------------------------------------------------------------------
 
     @staticmethod
+    @atomik
     async def tambah_penawaran(
         tender_id: int, body: dict, user_id: int
     ) -> Dict[str, Any]:
@@ -251,6 +268,7 @@ class TenderController:
         )
 
     @staticmethod
+    @atomik
     async def ubah_penawaran(
         tender_id: int, quote_id: int, body: dict, user_id: int
     ) -> Dict[str, Any]:

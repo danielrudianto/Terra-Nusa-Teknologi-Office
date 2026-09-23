@@ -6,6 +6,7 @@ from datetime import timedelta
 from repository.reminder_repository import BirthdayRepository, ReminderRepository
 from repository.employee_form_repository import EmployeeFormRepository
 from utils.logger_utils import log_error
+from utils.transaksi import atomik
 
 # Akses minimum untuk membuat pengingat bagi SELURUH pengguna.
 #
@@ -126,6 +127,7 @@ class AgendaController:
         return {"birthdays": ulang_tahun, "reminders": pengingat}
 
     @staticmethod
+    @atomik
     async def create(user_id: int, user_level: int, body):
         try:
             if body.isShared and int(user_level or 1) < LEVEL_PENGINGAT_UMUM:
@@ -164,6 +166,7 @@ class AgendaController:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    @atomik
     async def update(user_id: int, user_level: int, reminder_id: int, body):
         try:
             lama = await ReminderRepository.get_by_id(reminder_id)

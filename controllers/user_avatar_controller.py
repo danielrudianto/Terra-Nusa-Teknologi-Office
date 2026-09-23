@@ -7,6 +7,7 @@ from repository.user_avatar_repository import (
 )
 from utils.redis import r
 from utils.logger_utils import log_error
+from utils.transaksi import atomik
 
 # Redis is a cache only — the database stays the source of truth, so a flushed
 # or evicted cache never loses an avatar.
@@ -95,6 +96,7 @@ class UserAvatarController:
         return [result[user_id] for user_id in user_ids if user_id in result]
 
     @staticmethod
+    @atomik
     async def save_avatar(user_id: int, values: dict):
         row = await UserAvatarRepository.upsert(user_id, values)
         if isinstance(row, dict) and "error" in row:

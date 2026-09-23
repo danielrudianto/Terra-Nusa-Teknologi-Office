@@ -131,32 +131,113 @@ class TenderRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
-    async def _tulis_baris(tender_id: int, baris: List[dict]) -> None:
+    async def _baris_terpakai(tender_id: int) -> set:
         """
-        Tulis ulang seluruh baris permintaan.
+        Id baris permintaan yang SUDAH DIHARGAI vendor.
 
-        Baris LAMA dihapus keras, bukan ditandai — berbeda dari tendernya
-        sendiri. Baris permintaan tidak dirujuk dokumen mana pun selain
-        penawaran atasnya, dan penawaran hanya ada setelah tendernya
-        disebarkan; selama masih draf, tidak ada yang kehilangan rujukan.
+        Baris semacam itu tidak boleh dihapus: `tender_quote_items` menunjuk
+        kepadanya, dan yang tersimpan di sana adalah harga yang ditawarkan —
+        angka yang tidak dapat dibuat ulang bila hilang.
         """
-        await database.execute(
-            tender_items_table.delete().where(
+        baris = await database.fetch_all(
+            """
+            SELECT DISTINCT tqi.tenderItemID AS id
+            FROM tender_quote_items tqi
+            JOIN tender_items ti ON ti.id = tqi.tenderItemID
+            WHERE ti.tenderID = :tender
+            """,
+            {"tender": tender_id},
+        )
+        return {int(b["id"]) for b in baris}
+
+    @staticmethod
+    async def _tulis_baris(tender_id: int, baris: List[dict]) -> Optional[dict]:
+        """
+        Selaraskan baris permintaan — TANPA menghapus yang sudah dihargai.
+
+        Sebelumnya seluruh baris DIHAPUS KERAS lalu ditulis ulang, dengan
+        alasan yang tertulis di sini: "penawaran hanya ada setelah tendernya
+        disebarkan; selama masih draf, tidak ada yang kehilangan rujukan".
+        Alasan itu keliru — penyuntingan juga diizinkan pada status
+        `berjalan` (`STATUS_DAPAT_DISUNTING`), dan `berjalan` justru
+        SATU-SATUNYA status yang menerima penawaran.
+
+        Akibatnya, menyunting tender yang sudah punya penawaran berhenti
+        pada `DELETE` karena kunci asing `fk_tqi_item`. Kepala tendernya
+        sudah tersimpan lebih dahulu, sehingga layar menampilkan galat
+        sementara datanya BERUBAH — persis keluhan yang dilaporkan.
+
+        Sekarang barisnya diselaraskan:
+          - yang membawa `id` diperbarui di tempat, jadi harga yang sudah
+            ditawarkan tetap menunjuk baris yang sama
+          - yang tanpa `id` ditambahkan
+          - yang hilang dari kiriman dihapus HANYA bila belum dihargai;
+            bila sudah, permintaannya ditolak dengan menyebut barisnya,
+            bukan dihapus diam-diam bersama harganya
+
+        Mengendurkan kunci asingnya menjadi `ON DELETE CASCADE` BUKAN
+        perbaikan: ia membuat penghapusan berhasil justru dengan memusnahkan
+        seluruh harga penawarannya.
+        """
+        lama = await database.fetch_all(
+            select(tender_items_table.c.id).where(
                 tender_items_table.c.tenderID == tender_id
             )
         )
-        for urut, b in enumerate(baris):
-            await database.execute(
-                insert(tender_items_table).values(
-                    tenderID=tender_id,
-                    itemID=b.get("itemID"),
-                    name=b.get("name"),
-                    specification=b.get("specification"),
-                    quantity=b.get("quantity"),
-                    unit=b.get("unit"),
-                    sortOrder=b.get("sortOrder", urut),
+        id_lama = {int(b["id"]) for b in lama}
+        terpakai = await TenderRepository._baris_terpakai(tender_id)
+
+        dikirim = set()
+        for b in baris:
+            bid = b.get("id")
+            if bid is not None and int(bid) in id_lama:
+                dikirim.add(int(bid))
+
+        hendak_dihapus = id_lama - dikirim
+        tertahan = hendak_dihapus & terpakai
+        if tertahan:
+            nama = await database.fetch_all(
+                select(tender_items_table.c.name).where(
+                    tender_items_table.c.id.in_(sorted(tertahan))
                 )
             )
+            daftar = ", ".join(str(n["name"]) for n in nama) or "baris permintaan"
+            return {
+                "error": (
+                    f"Baris {daftar} sudah dihargai vendor, jadi tidak dapat "
+                    "dihapus. Tarik dahulu penawaran yang memuatnya."
+                ),
+                "status": 409,
+            }
+
+        if hendak_dihapus:
+            await database.execute(
+                tender_items_table.delete().where(
+                    tender_items_table.c.id.in_(sorted(hendak_dihapus))
+                )
+            )
+
+        for urut, b in enumerate(baris):
+            nilai = {
+                "itemID": b.get("itemID"),
+                "name": b.get("name"),
+                "specification": b.get("specification"),
+                "quantity": b.get("quantity"),
+                "unit": b.get("unit"),
+                "sortOrder": b.get("sortOrder", urut),
+            }
+            bid = b.get("id")
+            if bid is not None and int(bid) in id_lama:
+                await database.execute(
+                    tender_items_table.update()
+                    .where(tender_items_table.c.id == int(bid))
+                    .values(**nilai)
+                )
+            else:
+                await database.execute(
+                    insert(tender_items_table).values(tenderID=tender_id, **nilai)
+                )
+        return None
 
     @staticmethod
     async def ambil(tender_id: int) -> Optional[Dict[str, Any]]:
@@ -404,7 +485,12 @@ class TenderRepository:
             if hasil_kunci == "konflik":
                 return jawaban_konflik("Tender")
             if baris is not None:
-                await TenderRepository._tulis_baris(tender_id, baris)
+                # Penolakan baris DIKEMBALIKAN, bukan diabaikan: tanpa ini
+                # kepala tendernya tersimpan sementara barisnya tidak, dan
+                # layar mengira semuanya berhasil.
+                tolak = await TenderRepository._tulis_baris(tender_id, baris)
+                if tolak:
+                    return tolak
             from repository.audit_log_repository import AuditLogRepository
 
             await AuditLogRepository.record(

@@ -627,6 +627,7 @@ class PurchaseOrderController:
             return internal_error()
 
     @staticmethod
+    @atomik
     async def update_purchase_order(
         purchase_order_id: int,
         fields: Dict,

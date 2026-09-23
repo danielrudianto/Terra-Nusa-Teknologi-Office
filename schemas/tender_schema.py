@@ -47,6 +47,13 @@ STATUS_TENDER = {"draft", "berjalan", "selesai", "batal"}
 class TenderItemBase(BaseModel):
     """Satu baris permintaan: barang yang dicari atau pekerjaan yang dipesan."""
 
+    # Id baris yang SUDAH ADA, dikirim balik layar saat menyunting.
+    #
+    # Tanpa ini penyimpanan tidak dapat membedakan "baris yang sama, diubah"
+    # dari "baris baru", sehingga satu-satunya cara adalah menghapus semua
+    # lalu menulis ulang — dan penghapusan itu memusnahkan harga yang sudah
+    # ditawarkan vendor atas baris tersebut.
+    id: Optional[int] = None
     itemID: Optional[int] = None
     name: str = Field(min_length=1, max_length=255)
     specification: Optional[str] = None

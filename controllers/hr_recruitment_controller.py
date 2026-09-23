@@ -1,6 +1,7 @@
 """Lapis kendali modul rekrutmen."""
 
 from repository.hr_recruitment_repository import HrRecruitmentRepository
+from utils.transaksi import atomik
 
 
 class HrRecruitmentController:
@@ -55,6 +56,7 @@ class HrRecruitmentController:
         )
 
     @staticmethod
+    @atomik
     async def hapus_hasil(candidate_id: int, user_id: int):
         return await HrRecruitmentRepository.hapus_hasil(candidate_id, user_id)
 
@@ -88,6 +90,7 @@ class HrRecruitmentController:
         return await HrRecruitmentRepository.lembar_jawaban(candidate_id)
 
     @staticmethod
+    @atomik
     async def nilai_jawaban(candidate_id: int, nilai: list, user_id: int):
         return await HrRecruitmentRepository.nilai_jawaban(
             candidate_id, nilai, user_id
@@ -105,9 +108,11 @@ class HrRecruitmentController:
         return await HrRecruitmentRepository.mulai_ujian(token)
 
     @staticmethod
+    @atomik
     async def simpan_jawaban(token: str, jawaban: dict):
         return await HrRecruitmentRepository.simpan_jawaban(token, jawaban)
 
     @staticmethod
+    @atomik
     async def kirim_ujian(token: str, jawaban: dict = None):
         return await HrRecruitmentRepository.kirim_ujian(token, jawaban)

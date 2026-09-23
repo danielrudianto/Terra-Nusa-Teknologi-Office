@@ -43,6 +43,22 @@ KATA_TULIS = (
     "save",
     "set_",
     "remove",
+    # Sebagian repository dinamai dalam bahasa Indonesia, dan daftar yang
+    # hanya berbahasa Inggris membuat pemeriksa ini BUTA terhadapnya.
+    #
+    # Itu bukan kemungkinan yang dikarang: `TenderController.ubah` menulis ke
+    # `tenders` lalu ke `tender_items` tanpa transaksi, dan tidak pernah
+    # terhitung sebagai satu pun penulisan — sehingga tender yang disunting
+    # tersimpan separuh sementara layar menampilkan galat.
+    "ubah",
+    "buat",
+    "hapus",
+    "tambah",
+    "tulis",
+    "simpan",
+    "tandai",
+    "catat",
+    "perbarui",
 )
 
 # Fungsi yang sengaja dikecualikan, beserta ALASANNYA.
@@ -52,7 +68,26 @@ KATA_TULIS = (
 DIKECUALIKAN: dict[tuple[str, str], str] = {}
 
 
-def _jumlah_penulisan(fn: ast.AST) -> int:
+#: Panggilan yang MEMANG menulis, apa pun namanya.
+#:
+#: Menebak dari nama method saja terbukti bocor: `perbarui_terkunci` dipanggil
+#: sebagai fungsi lepas (bukan atribut) sehingga tidak terhitung, dan
+#: `database.execute` — primitif tulis yang sebenarnya di repo ini — tidak
+#: mengandung satu pun kata tulis. Keduanya bersama-sama membuat
+#: `TenderRepository.ubah` terbaca sebagai satu penulisan padahal dua.
+PANGGILAN_TULIS = ("database.execute",)
+
+
+def _jumlah_penulisan(fn: ast.AST, dalam_kelas: dict | None = None) -> int:
+    """
+    Berapa kali fungsi ini menulis ke basis data.
+
+    `dalam_kelas` memetakan nama method -> simpulnya, dipakai untuk menembus
+    SATU lapis pembantu privat di kelas yang sama. Tanpa itu, memindahkan
+    penulisan kedua ke sebuah `_pembantu()` cukup untuk menghilang dari
+    pemeriksaan ini — dan persis begitulah bentuk `ubah` yang bermasalah:
+    satu penulisan di badannya, satu lagi di `_tulis_baris`.
+    """
     n = 0
     for simpul in ast.walk(fn):
         if not isinstance(simpul, ast.Await):
@@ -60,10 +95,25 @@ def _jumlah_penulisan(fn: ast.AST) -> int:
         panggilan = simpul.value
         if not isinstance(panggilan, ast.Call):
             continue
-        if not isinstance(panggilan.func, ast.Attribute):
+
+        teks = ast.unparse(panggilan.func)
+        if teks in PANGGILAN_TULIS:
+            n += 1
             continue
-        nama = panggilan.func.attr.lower()
-        if any(k in nama for k in KATA_TULIS):
+
+        if isinstance(panggilan.func, ast.Attribute):
+            nama = panggilan.func.attr
+        elif isinstance(panggilan.func, ast.Name):
+            nama = panggilan.func.id
+        else:
+            continue
+
+        # Pembantu di kelas yang sama: penulisannya ikut dihitung, satu lapis.
+        if dalam_kelas is not None and nama in dalam_kelas:
+            n += _jumlah_penulisan(dalam_kelas[nama], None)
+            continue
+
+        if any(k in nama.lower() for k in KATA_TULIS):
             n += 1
     return n
 
@@ -102,6 +152,86 @@ def periksa() -> list[str]:
                     f"{berkas.name}::{fn.name} menulis {n} kali tanpa "
                     f"transaksi — bila salah satunya gagal, yang sudah "
                     f"tertulis TETAP tersimpan. Tambahkan `@atomik` di bawah "
+                    f"`@staticmethod`."
+                )
+
+    # ------------------------------------------------------------------
+    # PENULISAN GANDA YANG BERSEMBUNYI DI REPOSITORY
+    #
+    # Menghitung panggilan di controller saja TIDAK CUKUP, dan itu terbukti
+    # mahal. `TenderController.ubah` hanya memanggil `TenderRepository.ubah`
+    # satu kali — terlihat tunggal, lolos pemeriksaan ini — padahal fungsi
+    # repository itulah yang menulis ke `tenders` lalu ke `tender_items`.
+    # Ketika penulisan kedua gagal, kepala tendernya sudah tersimpan dan
+    # layar menampilkan galat: data berubah sementara penggunanya yakin
+    # simpanannya batal.
+    #
+    # Jadi repository ikut dibaca: fungsi yang menulis lebih dari sekali
+    # dicatat namanya, lalu setiap fungsi controller yang memanggilnya wajib
+    # atomik. Yang dijaga tetap hal yang sama — satu tindakan, satu
+    # transaksi — hanya saja kini terlihat menembus satu lapis.
+    # ------------------------------------------------------------------
+    # Dicatat LENGKAP dengan nama kelasnya — `TenderRepository.ubah`, bukan
+    # `ubah`. Mencocokkan nama telanjang membuat setiap repository yang punya
+    # method bernama `update` ikut terseret: satu `update` yang menulis ganda
+    # akan menuduh seluruh controller yang memanggil `update` milik siapa pun.
+    penulis_ganda: set[str] = set()
+    for berkas in sorted((AKAR / "repository").glob("*.py")):
+        sumber = berkas.read_text(encoding="utf-8")
+        try:
+            pohon = ast.parse(sumber)
+        except SyntaxError:
+            continue
+        for kelas in ast.walk(pohon):
+            if not isinstance(kelas, ast.ClassDef):
+                continue
+            sekelas = {
+                f.name: f
+                for f in kelas.body
+                if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            for fn in kelas.body:
+                if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                potongan = ast.get_source_segment(sumber, fn) or ""
+                if "transaction()" in potongan:
+                    continue
+                if _jumlah_penulisan(fn, sekelas) >= 2:
+                    penulis_ganda.add(f"{kelas.name}.{fn.name}")
+
+    for berkas in sorted((AKAR / "controllers").glob("*.py")):
+        sumber = berkas.read_text(encoding="utf-8")
+        try:
+            pohon = ast.parse(sumber)
+        except SyntaxError:
+            continue
+        for fn in ast.walk(pohon):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if (berkas.name, fn.name) in DIKECUALIKAN:
+                continue
+            if "atomik" in [ast.unparse(d) for d in fn.decorator_list]:
+                continue
+            potongan = ast.get_source_segment(sumber, fn) or ""
+            if "transaction()" in potongan:
+                continue
+            dipanggil = sorted(
+                {
+                    ast.unparse(simpul.value.func)
+                    for simpul in ast.walk(fn)
+                    if isinstance(simpul, ast.Await)
+                    and isinstance(simpul.value, ast.Call)
+                    and isinstance(simpul.value.func, ast.Attribute)
+                    and ast.unparse(simpul.value.func) in penulis_ganda
+                }
+            )
+            if dipanggil:
+                masalah.append(
+                    f"{berkas.name}::{fn.name} memanggil "
+                    f"{', '.join(dipanggil)} — yang menulis ke lebih dari "
+                    f"satu tabel — tanpa transaksi. Bila penulisan kedua "
+                    f"gagal, yang pertama TETAP tersimpan sementara layar "
+                    f"menampilkan galat. Tambahkan `@atomik` di bawah "
                     f"`@staticmethod`."
                 )
 
