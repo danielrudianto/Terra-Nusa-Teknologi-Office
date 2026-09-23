@@ -108,6 +108,11 @@ class PurchaseResponse(PurchaseBase):
     # Akibatnya daftar pembelian menandai SELURUH barisnya "dokumen belum
     # tersedia", termasuk yang dokumennya benar-benar ada.
     purchase_order_id: Optional[int] = None
+    # NOMOR CoP yang menagihkan pembelian ini — alasan yang sama seperti
+    # `purchase_order_id` di atas: tanpa didaftarkan di sini, FastAPI
+    # membuangnya diam-diam dan tautan ke CoP tidak pernah muncul di layar
+    # meski kuerinya sudah mengambilnya.
+    certificate_of_payment_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

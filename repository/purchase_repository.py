@@ -224,6 +224,9 @@ class PurchaseRepository:
             # susunan proyek itu memicu impor melingkar sehingga
             # PurchaseRepository gagal terbaca.
             from models.user_model import users_table
+            from models.certificate_of_payment_model import (
+                certificate_of_payments_table,
+            )
 
             query = (
                 select(
@@ -234,6 +237,17 @@ class PurchaseRepository:
                     # seperti pada daftar: tabel purchases hanya menyimpan
                     # nomornya sebagai teks.
                     purchase_orders_table.c.id.label("purchase_order_id"),
+                    # NOMOR CoP yang menagihkan pembelian ini.
+                    #
+                    # `certificateOfPaymentID` sudah ikut lewat
+                    # `*purchases_table.c`, tetapi id saja tidak dapat
+                    # ditampilkan — yang membuka pembelian ingin tahu CoP
+                    # MANA, bukan angka 214. Tanpa nomornya, satu-satunya
+                    # jalan ke dokumen penagihnya adalah mencarinya sendiri
+                    # di halaman CoP.
+                    certificate_of_payments_table.c.name.label(
+                        "certificate_of_payment_name"
+                    ),
                 )
                 .select_from(
                     purchases_table.join(
@@ -246,6 +260,10 @@ class PurchaseRepository:
                         purchase_orders_table,
                         purchases_table.c.purchaseOrderName
                         == purchase_orders_table.c.name,
+                    ).outerjoin(
+                        certificate_of_payments_table,
+                        purchases_table.c.certificateOfPaymentID
+                        == certificate_of_payments_table.c.id,
                     )
                 )
                 .where(purchases_table.c.id == purchaseID)
