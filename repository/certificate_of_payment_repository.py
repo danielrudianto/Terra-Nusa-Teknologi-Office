@@ -332,6 +332,62 @@ class CertificateOfPaymentRepository:
             return {"jumlah": 0, "nilai": 0.0}
 
     @staticmethod
+    async def lembur_tanpa_baris(purchase_order_id: int) -> Dict[str, Any]:
+        """
+        SPK ini menyepakati tarif lembur, tetapi BARIS lemburnya tidak ada.
+
+        Keadaan SPK lama. Lembur dulu hanya klausul — `overtimeRate` dan
+        `overtimeUnit` di `customData`, tanpa baris di `purchase_order_items`.
+        CoP menyertifikasi per BARIS, jadi pada SPK seperti itu lembur tidak
+        punya tempat untuk diisi: yang mengisi membuka daftar, tidak
+        menemukan "Lembur", dan menyangka sistemnya yang salah.
+
+        Yang dapat dilakukan di sini MENYEBUTKANNYA. Barisnya tidak dibuat
+        diam-diam dari sini: menambah baris pada SPK yang sudah
+        ditandatangani adalah perubahan kontrak, dan itu lewat adendum
+        (atau skrip `sql/spk-d-baris-lembur.sql` untuk yang terlanjur).
+        """
+        ids = await CertificateOfPaymentRepository.rantai_ids(purchase_order_id)
+        if not ids:
+            return {"ada": False}
+
+        # Dua kueri sederhana, bukan satu kueri bersarang: baris SPK di sini
+        # tidak dibaca isinya sama sekali — yang ditanyakan hanya "SPK mana
+        # yang sudah punya baris lembur".
+        punya = {
+            r["purchaseOrderID"]
+            for r in await database.fetch_all(
+                select(purchase_order_items_table.c.purchaseOrderID)
+                .where(purchase_order_items_table.c.purchaseOrderID.in_(ids))
+                .where(purchase_order_items_table.c.remarks_2 == "LEMBUR")
+            )
+        }
+        kurang = [i for i in ids if i not in punya]
+        if not kurang:
+            return {"ada": False}
+
+        baris = await database.fetch_one(
+            select(
+                purchase_orders_table.c.id,
+                purchase_orders_table.c.customData,
+            )
+            .where(purchase_orders_table.c.id.in_(kurang))
+            .where(purchase_orders_table.c.isDelete == False)  # noqa: E712
+            .order_by(purchase_orders_table.c.id.desc())
+        )
+        if baris is None:
+            return {"ada": False}
+
+        custom = _custom(baris["customData"])
+        tarif = _d(custom.get("overtimeRate"))
+        if tarif <= 0:
+            return {"ada": False}
+        return {
+            "ada": True,
+            "satuan": str(custom.get("overtimeUnit") or "jam"),
+        }
+
+    @staticmethod
     async def pagu(purchase_order_id: int) -> List[Dict[str, Any]]:
         """
         Keadaan setiap baris pekerjaan pada rantai SPK ini.

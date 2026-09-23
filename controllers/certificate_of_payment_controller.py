@@ -282,6 +282,21 @@ class CertificateOfPaymentController:
     # ------------------------------------------------------------------
 
     @staticmethod
+    async def peringatan_lembur(purchase_order_id: int) -> Dict[str, Any]:
+        """
+        Tarif lembur disepakati tetapi barisnya tidak ada — lihat
+        `lembur_tanpa_baris`. TANPA nilai rupiah, jadi tidak disaring level.
+        """
+        try:
+            return await CertificateOfPaymentRepository.lembur_tanpa_baris(
+                purchase_order_id
+            )
+        except Exception as e:  # noqa: BLE001
+            log_error(f"Peringatan lembur gagal: {e}")
+            # Peringatan yang gagal tidak menjatuhkan layar pencatatan volume.
+            return {"ada": False}
+
+    @staticmethod
     async def peringatan_faktur(
         purchase_order_id: int, user_level: int = 1
     ) -> Dict[str, Any]:

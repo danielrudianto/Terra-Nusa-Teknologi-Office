@@ -86,6 +86,22 @@ async def peringatan_faktur(
     )
 
 
+@router.get("/peringatan-lembur/{purchase_order_id}")
+async def peringatan_lembur(
+    purchase_order_id: int,
+    current_user: Annotated[User, Depends(require("certificate_of_payment", "read"))],
+):
+    """
+    Apakah SPK ini menyepakati lembur tanpa punya baris lembur.
+
+    Rute tersendiri dengan alasan yang sama seperti `peringatan-faktur`:
+    gagalnya peringatan tidak boleh menjatuhkan layar pencatatan volume.
+    """
+    return _lempar_bila_galat(
+        await CertificateOfPaymentController.peringatan_lembur(purchase_order_id)
+    )
+
+
 @router.get("/pagu/{purchase_order_id}")
 async def pagu_spk(
     purchase_order_id: int,
