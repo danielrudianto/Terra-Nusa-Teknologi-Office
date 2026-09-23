@@ -1,8 +1,8 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Annotated
-from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, ForeignKey, or_, select, func, insert, update
+from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, Date, Float, ForeignKey, and_, or_, select, func, insert, update
 from utils.database import metadata
-from datetime import datetime as d
+from datetime import datetime as d, date as dt
 from utils.logger_utils import log_error, log_info
 from models.supplier_model import suppliers_table
 from utils.database import database
@@ -20,6 +20,13 @@ class PurchaseDraft(BaseModel):
     ppn: Annotated[float, Field(ge=0)]  # PPN value (optional)
     pbbkb: Annotated[float, Field(ge=0)]  # PBBKB value (optional)
     description: str | None = None
+    # PERIODE tagihan yang dicakup draf ini — boleh kosong.
+    #
+    # Tanpa bidang ini pada muatan masuk, periode yang diisi di layar
+    # DIBUANG diam-diam oleh Pydantic (bidang tak dikenal diabaikan), dan
+    # drafnya tersimpan tanpa periode tanpa satu pesan galat pun.
+    periodStart: dt | None = None
+    periodEnd: dt | None = None
 
     @staticmethod
     async def create_purchase_draft(purchase_data: dict):
@@ -45,7 +52,19 @@ class PurchaseDraft(BaseModel):
             return internal_error()
     
     @staticmethod
-    async def get_purchase_draft(page: int, pageSize: int, isPending: bool, isApproved: bool,sortBy: str, sortByDirection: str, keyword: str):
+    async def get_purchase_draft(
+        page: int,
+        pageSize: int,
+        isPending: bool,
+        isApproved: bool,
+        sortBy: str,
+        sortByDirection: str,
+        keyword: str,
+        isConverted: bool = False,
+        isDeleted: bool = False,
+        periodFrom=None,
+        periodTo=None,
+    ):
         offset = (page - 1) * pageSize
         supplier_columns = [
             suppliers_table.c.id.label("supplier_id"),
@@ -77,13 +96,65 @@ class PurchaseDraft(BaseModel):
                 )
             )
 
+        # TIGA KEADAAN, bukan dua.
+        #
+        # `isApproved` adalah nama LAMA penyaring ini, dan namanya keliru
+        # sejak awal: yang disaringnya `isDelete = 1`, yaitu draf yang
+        # DIHAPUS — bukan yang disetujui. Layar pun menampilkannya sebagai
+        # "Disetujui" berlencana centang hijau, sehingga draf yang barusan
+        # dihapus terbaca sebagai pekerjaan yang sudah beres.
+        #
+        # Sekarang keadaannya dipisah menurut apa yang benar-benar terjadi:
+        #   draf      belum diapa-apakan
+        #   konversi  sudah menjadi pembelian (`convertedAt`)
+        #   hapus     dibatalkan (`isDelete`)
+        #
+        # `isApproved` tetap diterima agar pemanggil lama tidak patah, dan
+        # diartikan sebagai "dihapus" — persis seperti yang selama ini
+        # dikerjakannya.
         status_conditions = []
         if isPending:
-            status_conditions.append(purchase_draft_table.c.isDelete == False)  # noqa: E712
-        if isApproved:
+            status_conditions.append(
+                and_(
+                    purchase_draft_table.c.isDelete == False,  # noqa: E712
+                    purchase_draft_table.c.convertedAt.is_(None),
+                )
+            )
+        if isConverted:
+            status_conditions.append(purchase_draft_table.c.convertedAt.isnot(None))
+        if isDeleted or isApproved:
             status_conditions.append(purchase_draft_table.c.isDelete == True)  # noqa: E712
         if status_conditions:
             conditions.append(or_(*status_conditions))
+
+        # PENYARING PERIODE — yang dipakai saat menyusun tagihan.
+        #
+        # Logistik lapangan memasukkan draf setiap hari, dan yang membuat
+        # pembelian perlu memilih "yang masuk bulan ini" tanpa membuka
+        # belasan draf satu per satu.
+        #
+        # Yang dicari adalah draf yang periodenya BERSINGGUNGAN dengan
+        # rentang yang diminta, bukan yang seluruhnya berada di dalamnya:
+        # pekerjaan yang membentang melewati akhir bulan tetap ditagihkan
+        # pada bulan itu, dan menyaringnya keluar berarti tagihan kurang.
+        #
+        # Draf LAMA tidak berperiode. Alih-alih dikeluarkan diam-diam —
+        # yang membuatnya hilang dari setiap rentang dan tidak pernah
+        # tertagih — draf tanpa periode dinilai menurut tanggal dokumennya.
+        if periodFrom or periodTo:
+            awal = func.coalesce(
+                purchase_draft_table.c.periodStart,
+                purchase_draft_table.c.date,
+            )
+            akhir = func.coalesce(
+                purchase_draft_table.c.periodEnd,
+                purchase_draft_table.c.periodStart,
+                purchase_draft_table.c.date,
+            )
+            if periodTo:
+                conditions.append(awal <= periodTo)
+            if periodFrom:
+                conditions.append(akhir >= periodFrom)
 
         # Draft yang sudah menjadi pembelian tidak lagi menunggu apa pun,
         # jadi tidak ditampilkan di daftar tertunda. Tanpa ini, draft yang
@@ -92,8 +163,6 @@ class PurchaseDraft(BaseModel):
         #
         # Ditambahkan sebagai syarat AND tersendiri, bukan disisipkan ke
         # rangkaian OR di atas, agar tidak ikut melonggarkan penyaring lain.
-        if isPending:
-            conditions.append(purchase_draft_table.c.convertedAt.is_(None))
 
         # Sort by, using switch case
         if sortBy == "date":
@@ -249,6 +318,29 @@ class PurchaseDraft(BaseModel):
         )
 
     @staticmethod
+    async def ubah(draft_id: int, nilai: dict):
+        """
+        Ubah isi draf yang MASIH draf.
+
+        Syaratnya ikut di dalam WHERE, bukan diperiksa lebih dahulu lalu
+        ditulis belakangan: draf yang sedang dikonversi orang lain tidak
+        boleh ikut berubah di tengah jalan. Mengembalikan jumlah baris yang
+        benar-benar berubah — 0 berarti drafnya sudah dikonversi atau
+        dihapus.
+        """
+        if not nilai:
+            return 0
+        return await database.execute(
+            update(purchase_draft_table)
+            .where(
+                purchase_draft_table.c.id == draft_id,
+                purchase_draft_table.c.isDelete == False,  # noqa: E712
+                purchase_draft_table.c.convertedAt.is_(None),
+            )
+            .values(**nilai)
+        )
+
+    @staticmethod
     async def catat_purchase_id(draft_id: int, purchase_id: int):
         """Lengkapi tautan ke pembelian setelah nomornya diketahui."""
         return await database.execute(
@@ -280,6 +372,16 @@ purchase_draft_table = Table(
     Column("supplierID", Integer, ForeignKey("suppliers.id"), nullable=False),
     Column("description", String(100), nullable=False),
     Column("date", Date(), nullable=False),
+    #
+    # PERIODE pekerjaan yang dicakup draf ini.
+    #
+    # Logistik lapangan memasukkan draf setiap hari; tanpa periode, yang
+    # membuat tagihan tidak punya cara membedakan belasan draf satu pemasok
+    # selain membukanya satu per satu. Boleh kosong: draf lama tidak
+    # memilikinya, dan memaksanya membuat seluruh draf yang sudah ada
+    # menjadi tidak sah.
+    Column("periodStart", Date(), nullable=True, default=None),
+    Column("periodEnd", Date(), nullable=True, default=None),
     Column("purchaseOrderName", String(100), nullable=False),
     Column("projectName", String(100), nullable=False),
     Column("purchaseType", String(100), nullable=False),

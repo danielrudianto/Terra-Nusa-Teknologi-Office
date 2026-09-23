@@ -10,6 +10,36 @@ from repository.purchase_repository import PurchaseRepository
 from utils.errors import internal_error
 from utils.transaksi import atomik
 
+def _ambil(baris, kunci, bawaan=None):
+    """
+    Baca satu kolom dari hasil query.
+
+    `database.fetch_one` mengembalikan `sqlalchemy.engine.Row`, dan Row
+    TIDAK punya `.get()` — memanggilnya melempar AttributeError, bukan
+    mengembalikan bawaan. Jadi pembacaannya lewat `keys()`, dan dict tetap
+    dilayani karena pemanggilnya kadang sudah mengubahnya jadi dict.
+    """
+    if baris is None:
+        return bawaan
+    if isinstance(baris, dict):
+        return baris.get(kunci, bawaan)
+    try:
+        if kunci in baris.keys():
+            return baris[kunci]
+    except Exception:
+        return bawaan
+    return bawaan
+
+
+def _teks(nilai):
+    """Nilai untuk riwayat: tanggal jadi `YYYY-MM-DD`, sisanya apa adanya."""
+    if nilai is None:
+        return None
+    if hasattr(nilai, "isoformat"):
+        return nilai.isoformat()[:10]
+    return nilai
+
+
 class PurchaseDraftController:
     @staticmethod
     async def create_purchase_draft(purchase_data: dict, userID: int):
@@ -45,12 +75,36 @@ class PurchaseDraftController:
             return internal_error()
     
     @staticmethod
-    async def get_purchase_draft(page: int, pageSize: int, isPending: bool, isApproved: bool, sortBy: str, sortByDirection: str, keyword: str | None):
+    async def get_purchase_draft(
+        page: int,
+        pageSize: int,
+        isPending: bool,
+        isApproved: bool,
+        sortBy: str,
+        sortByDirection: str,
+        keyword: str | None,
+        isConverted: bool = False,
+        isDeleted: bool = False,
+        periodFrom=None,
+        periodTo=None,
+    ):
         if page < 1:
             return {"error": "Page number must be greater than 0", "status": 400}
         
         try:
-            result = await PurchaseDraft.get_purchase_draft(page, pageSize, isPending, isApproved, sortBy, sortByDirection, keyword)
+            result = await PurchaseDraft.get_purchase_draft(
+                page,
+                pageSize,
+                isPending,
+                isApproved,
+                sortBy,
+                sortByDirection,
+                keyword,
+                isConverted,
+                isDeleted,
+                periodFrom,
+                periodTo,
+            )
             if "error" in result:
                 return {"error": result["error"], "status": result["status"]}
             return result
@@ -73,6 +127,111 @@ class PurchaseDraftController:
         response["payments"] = payments
         return response
     
+    #: Yang boleh diubah setelah draf terbit.
+    #:
+    #: Hanya angka dan keterangannya — BUKAN pemasok, proyek, atau SPK-nya.
+    #: Mengganti itu berarti draf ini sebenarnya draf yang lain, dan
+    #: riwayatnya akan menerangkan perubahan yang tidak dapat dibaca siapa
+    #: pun ("pemasok: A -> B" pada dokumen yang sama).
+    BIDANG_BOLEH_UBAH = (
+        "dpp",
+        "ppn",
+        "pbbkb",
+        "description",
+        "date",
+        "periodStart",
+        "periodEnd",
+    )
+
+    @staticmethod
+    async def ubah_purchase_draft(draft_id: int, muatan: dict, userID: int):
+        """
+        Ubah nominal/periode draf, DENGAN jejak nilai lamanya.
+
+        Draf lapangan kerap perlu dibetulkan: angka yang salah ketik,
+        periode yang meleset. Menghapus lalu membuat ulang menghilangkan
+        siapa yang memasukkannya dan kapan — dan itulah satu-satunya jalan
+        yang tersedia sebelum ini.
+
+        Yang sudah DIKONVERSI atau DIHAPUS tidak dapat diubah: angkanya
+        sudah menjadi tagihan, dan tagihan dibetulkan pada pembeliannya.
+        """
+        draf = await PurchaseDraft.get_purchase_draft_by_id(draft_id)
+        if not draf or _ambil(draf, "error"):
+            return {"error": "Draf pembelian tidak ditemukan.", "status": 404}
+        if _ambil(draf, "convertedAt"):
+            return {
+                "error": (
+                    "Draf ini sudah dikonversi menjadi pembelian, jadi "
+                    "nilainya tidak dapat diubah. Betulkan pada pembeliannya."
+                ),
+                "status": 409,
+            }
+        if _ambil(draf, "isDelete"):
+            return {"error": "Draf ini sudah dihapus.", "status": 409}
+
+        # Hanya bidang yang BERUBAH yang ditulis — dan hanya itu pula yang
+        # masuk riwayat. Menyimpan seluruh bidang membuat riwayat penuh
+        # baris "dpp: 1.000.000 -> 1.000.000".
+        nilai = {}
+        perubahan = {}
+        for bidang in PurchaseDraftController.BIDANG_BOLEH_UBAH:
+            if bidang not in muatan:
+                continue
+            baru = muatan[bidang]
+            lama = _ambil(draf, bidang)
+            if str(lama) == str(baru):
+                continue
+            nilai[bidang] = baru
+            # Kuncinya `from`/`to`, BUKAN `dari`/`ke`.
+            #
+            # Seluruh aplikasi membaca jejak audit lewat satu komponen, dan
+            # komponen itu mencari `from`/`to`. Kunci berbahasa Indonesia
+            # tersimpan rapi di basis data tetapi tampil di layar sebagai
+            # "— → —": riwayatnya ada, isinya tidak terbaca.
+            perubahan[bidang] = {"from": _teks(lama), "to": _teks(baru)}
+
+        if not nilai:
+            return {"message": "Tidak ada yang berubah.", "perubahan": {}}
+
+        # Periode diperiksa pada HASIL GABUNGANNYA, bukan pada muatannya.
+        #
+        # Muatan yang hanya membawa `periodEnd` lolos pemeriksaan di skema —
+        # tidak ada `periodStart` di sana untuk dibandingkan — padahal nilai
+        # yang tersimpan bisa saja lebih belakangan. Yang menentukan adalah
+        # bagaimana barisnya nanti, bukan apa yang dikirim.
+        mulai = nilai["periodStart"] if "periodStart" in nilai else _ambil(draf, "periodStart")
+        selesai = nilai["periodEnd"] if "periodEnd" in nilai else _ambil(draf, "periodEnd")
+        if mulai and selesai and str(selesai) < str(mulai):
+            return {
+                "error": "Periode selesai tidak boleh mendahului periode mulai.",
+                "status": 400,
+            }
+
+        terubah = await PurchaseDraft.ubah(draft_id, nilai)
+        if not terubah:
+            # Kalah cepat: drafnya baru saja dikonversi atau dihapus.
+            return {
+                "error": (
+                    "Draf ini baru saja dikonversi atau dihapus, jadi "
+                    "perubahannya tidak disimpan."
+                ),
+                "status": 409,
+            }
+
+        from repository.audit_log_repository import AuditLogRepository
+
+        await AuditLogRepository.record(
+            entity="purchase_draft",
+            entityID=int(draft_id),
+            action="update",
+            userID=userID,
+            changes=perubahan,
+        )
+
+        log_info(f"Purchase draft {draft_id} diubah: {', '.join(perubahan)}")
+        return {"message": "Draf pembelian diperbarui.", "perubahan": perubahan}
+
     @staticmethod
     async def delete_purchase_draft(purchase_draft_id: int, userID: int):
         """
@@ -86,7 +245,10 @@ class PurchaseDraftController:
         Yang keliru dibatalkan pada pembeliannya, bukan pada drafnya.
         """
         draf = await PurchaseDraft.get_purchase_draft_by_id(purchase_draft_id)
-        if isinstance(draf, dict) and draf.get("convertedAt"):
+        # `isinstance(draf, dict)` di sini dahulu membuat penjagaannya tidak
+        # pernah menyala: `fetch_one` mengembalikan Row, bukan dict, jadi
+        # draf yang sudah dikonversi pun lolos dihapus.
+        if _ambil(draf, "convertedAt"):
             return {
                 "error": (
                     "Draf ini sudah dikonversi menjadi pembelian dan tidak "
