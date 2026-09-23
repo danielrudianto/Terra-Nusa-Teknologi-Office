@@ -1018,6 +1018,12 @@ class CertificateOfPaymentRepository:
             items = await database.fetch_all(
                 """
                 SELECT ci.*, poi.task, poi.unit, poi.quantity AS paguBaris,
+                       -- Pembeda antar-baris yang bernama SAMA: seluruh baris
+                       -- upah satu SPK D memakai nama pekerjaan yang sama, dan
+                       -- yang membedakannya komponennya (upah harian, lembur,
+                       -- uang makan). Tanpa ini dialog lihat mencetak dua
+                       -- "Operator Bored Pile" yang tidak dapat dibedakan.
+                       poi.remarks_3 AS komponen,
                        poi.item_id, poi.equipment_id,
                        mi.description AS itemDescription,
                        me.name        AS equipmentName
@@ -1599,11 +1605,21 @@ class CertificateOfPaymentRepository:
                   ON c.id = ci.certificateOfPaymentID
                 WHERE c.isDelete = 0
                   AND c.status <> 'cancelled'
-                  AND c.purchaseOrderID = :po
+                  AND c.purchaseOrderID IN :ids
                   AND c.number < :nomor
                 GROUP BY ci.purchaseOrderItemID
                 """,
-                {"po": ids[0], "nomor": nomor},
+                # SELURUH RANTAI, bukan hanya SPK induknya.
+                #
+                # `riwayat_pembayaran` di bawah sudah memakai rantai penuh;
+                # yang ini dulu hanya membaca `ids[0]`. Selama CoP hanya
+                # dapat dibuat atas SPK induk (`spk_kandidat` menyaring
+                # `parentPurchaseOrderID IS NULL`) keduanya menghasilkan
+                # angka yang sama — tetapi dua tempat yang menjawab
+                # pertanyaan yang sama dengan cara berbeda adalah selisih
+                # yang menunggu terjadi, dan selisihnya akan muncul pada
+                # kolom "Sebelumnya" di lembar yang sudah ditandatangani.
+                {"ids": tuple(ids), "nomor": nomor},
             )
             return {r["baris"]: _d(r["jumlah"]) for r in baris}
         except Exception as e:
@@ -1652,7 +1668,7 @@ class CertificateOfPaymentRepository:
             baris = await database.fetch_all(
                 """
                 SELECT poi.id, poi.task, poi.unit, poi.quantity, poi.price,
-                       poi.remarks_1, poi.purchaseOrderID,
+                       poi.remarks_1, poi.remarks_3, poi.purchaseOrderID,
                        poi.item_id, poi.equipment_id,
                        poi.itemKind, poi.parentItemID,
                        mi.description AS itemDescription,

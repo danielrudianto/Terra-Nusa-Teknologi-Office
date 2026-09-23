@@ -83,7 +83,13 @@
     <tr>
       <td class="tengah">{{ b.no }}</td>
       <td class="bap-pekerjaan">
-        {{ b.pekerjaan }}
+        {# Komponen upah sebagai nama baris, pekerjaan sebagai keterangan —
+           urutan yang sama dengan tampilan SPK dan layar CoP. Pada SPK D
+           seluruh baris memakai nama pekerjaan yang sama, sehingga
+           mencetaknya sebagai judul menghasilkan baris-baris kembar pada
+           lembar yang ditandatangani. #}
+        {{ b.komponen or b.pekerjaan }}
+        {% if b.komponen and b.pekerjaan %}<span class="bap-ket">{{ b.pekerjaan }}</span>{% endif %}
         {% if b.keterangan %}<span class="bap-ket">{{ b.keterangan }}</span>{% endif %}
         {% if b.adendum %}<span class="bap-ket">Adendum #{{ b.adendum }}</span>{% endif %}
       </td>

@@ -1591,6 +1591,15 @@ class CertificateOfPaymentController:
                     {
                         "no": urut,
                         "pekerjaan": b["task"] or "-",
+                        # Komponen upah — lihat catatan pada kueri `pagu()`.
+                        # Lembar BAP mencetak baris upah harian dan baris
+                        # lembur dengan nama pekerjaan yang SAMA; tanpa ini,
+                        # yang menandatangani melihat dua baris kembar.
+                        # `Record` tidak punya `.get()`; baris dari pemanggil
+                        # lama pun belum tentu membawa kolom ini.
+                        "komponen": (
+                            b["remarks_3"] if "remarks_3" in b.keys() else None
+                        ),
                         "keterangan": b["remarks_1"],
                         "adendum": b["addendumNumber"],
                         "volumeKontrak": float(vol_kontrak),
