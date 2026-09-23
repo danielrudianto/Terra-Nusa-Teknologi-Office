@@ -27,6 +27,8 @@ from routes.income_routes import router as income_router
 from routes.loan_routes import router as loan_router
 from routes.purchase_order_routes import router as purchase_order_router
 from routes.certificate_of_payment_routes import router as certificate_of_payment_router
+# SEMENTARA — alat tautkan pembelian lama ke CoP; hapus barisnya saat dicopot.
+from routes.tautan_pembelian_routes import router as tautan_pembelian_router
 from routes.dashboard_routes import router as dashboard_router
 from routes.master_item_routes import router as master_item_router
 from routes.master_equipment_routes import router as master_equipment_router
@@ -100,6 +102,13 @@ router.include_router(
     certificate_of_payment_router,
     prefix="/certificate-of-payments",
     tags=["Certificate of Payment"],
+)
+# SEMENTARA — alat tautkan pembelian lama ke CoP. Hapus baris ini (dan
+# import-nya di atas) saat fiturnya dicopot.
+router.include_router(
+    tautan_pembelian_router,
+    prefix="/tautan-pembelian",
+    tags=["Tautan Pembelian (sementara)"],
 )
 router.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])
 router.include_router(master_item_router, prefix="/master-items", tags=["Master Items"])
