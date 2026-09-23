@@ -2078,6 +2078,40 @@ class CertificateOfPaymentController:
                     403,
                 )
 
+            # YANG SUDAH DITAGIHKAN TIDAK DAPAT DIHAPUS.
+            #
+            # Penjagaan di atas hanya menimbang LEVEL, tidak pernah menimbang
+            # apakah tagihannya benar-benar ada — padahal keterangannya
+            # sendiri menyebut CoP sebagai dasar penagihan. Akibatnya satu
+            # klik dari daftar dapat menghapus CoP yang pembeliannya masih
+            # hidup, dan yang tertinggal:
+            #
+            #   - pembeliannya tetap dapat dibayar; tidak ada jalur
+            #     pembayaran yang menengok CoP
+            #   - nilainya tetap masuk biaya proyek dan masa pajak, sementara
+            #     volume yang mendasarinya sudah tidak ada
+            #   - akumulasi "CoP sebelumnya" menyaring `isDelete = 0`,
+            #     sehingga volume yang sama dapat disertifikasi ULANG oleh
+            #     CoP berikutnya selagi tagihan lamanya masih berjalan
+            #
+            # Sisi pembelian sudah menjaga dirinya begini (menghapus
+            # pembelian yang sudah ada pembayarannya ditolak). Yang keliru
+            # adalah sisi sertifikasi tidak menjaga apa pun.
+            #
+            # Kueri yang dipakai menyaring pembelian yang sudah dihapus,
+            # sehingga CoP yang pembeliannya SUDAH dibatalkan tetap dapat
+            # dihapus — dan itu memang keadaan yang seharusnya boleh.
+            tagihan = await CertificateOfPaymentRepository.tagihan(cop_id)
+            if tagihan:
+                nomor = tagihan.get("invoiceName") or tagihan["id"]
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    f"Certificate of payment ini sudah ditagihkan lewat "
+                    f"pembelian {nomor}, jadi tidak dapat dihapus. Hapus "
+                    f"pembelian itu lebih dahulu.",
+                    409,
+                )
+
             return await CertificateOfPaymentRepository.soft_delete(cop_id, user_id)
         except Exception as e:
             log_error(f"Gagal menghapus CoP: {str(e)}")

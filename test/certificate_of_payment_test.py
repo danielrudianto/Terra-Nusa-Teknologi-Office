@@ -96,6 +96,11 @@ def repo(monkeypatch):
         "dibuat": None,
         "items_disimpan": None,
         "cop": None,
+        # Pembelian yang menagihkan CoP ini — None berarti belum ditagihkan.
+        # Penghapusan menimbangnya: CoP yang sudah ditagihkan tidak dapat
+        # dihapus, karena pembeliannya akan tertinggal sebagai tagihan tanpa
+        # dasar yang tetap dapat dibayar.
+        "tagihan": None,
     }
 
     async def _pagu_repo(po_id):
@@ -125,6 +130,10 @@ def repo(monkeypatch):
     async def _get_by_id(cop_id):
         return dict(keadaan["cop"]) if keadaan["cop"] else {"error": "x", "status": 404}
 
+    async def _tagihan(cop_id):
+        t = keadaan["tagihan"]
+        return dict(t) if t else None
+
     async def _set_checked(cop_id, checked, user_id):
         keadaan["set_checked"] = (cop_id, checked, user_id)
         return {"message": "ok"}
@@ -145,6 +154,7 @@ def repo(monkeypatch):
         keadaan["meta"] = dict(nilai)
         return {"message": "ok"}
 
+    monkeypatch.setattr(modul.CertificateOfPaymentRepository, "tagihan", staticmethod(_tagihan))
     monkeypatch.setattr(modul.CertificateOfPaymentRepository, "pagu", staticmethod(_pagu_repo))
     monkeypatch.setattr(modul.CertificateOfPaymentRepository, "nomor_berikut", staticmethod(_nomor))
     monkeypatch.setattr(modul.CertificateOfPaymentRepository, "create", staticmethod(_create))
@@ -643,6 +653,18 @@ class TestHapus:
         )
         hasil = await CoP.delete(9, user_id=4, user_level=4)
         assert "error" not in hasil
+
+    @pytest.mark.asyncio
+    async def test_yang_sudah_ditagihkan_ditolak_meski_level_4(self, repo):
+        """
+        Wewenang tidak menghapus akibatnya. CoP yang pembeliannya masih
+        hidup, bila dihapus, meninggalkan tagihan yang tetap dapat dibayar
+        dan volume yang dapat disertifikasi ulang.
+        """
+        repo["cop"] = {"id": 9, "createdBy": 1, "isApproved": True}
+        repo["tagihan"] = {"id": 55, "invoiceName": "16-968-INV-R501-IX-2026"}
+        hasil = await CoP.delete(9, user_id=4, user_level=4)
+        assert hasil["status"] == 409
 
 
 # =====================================================================

@@ -113,6 +113,9 @@ class PurchaseResponse(PurchaseBase):
     # membuangnya diam-diam dan tautan ke CoP tidak pernah muncul di layar
     # meski kuerinya sudah mengambilnya.
     certificate_of_payment_name: Optional[str] = None
+    # CoP-nya sudah dihapus — nomornya tetap ditampilkan sebagai asal-usul,
+    # tetapi tidak lagi ditawarkan sebagai tautan.
+    certificate_of_payment_deleted: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True)
 

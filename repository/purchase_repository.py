@@ -248,6 +248,18 @@ class PurchaseRepository:
                     certificate_of_payments_table.c.name.label(
                         "certificate_of_payment_name"
                     ),
+                    # Apakah CoP-nya sudah dihapus.
+                    #
+                    # Sambungannya SENGAJA tidak menyaring `isDelete`:
+                    # menyaringnya membuat pembelian lama yang CoP-nya
+                    # telanjur dihapus kehilangan asal-usulnya sama sekali,
+                    # padahal justru itu yang perlu terlihat. Yang dikirim
+                    # keadaannya, supaya layar menampilkan nomornya tanpa
+                    # menawarkan tautan ke dokumen yang sudah tidak dapat
+                    # dibuka.
+                    certificate_of_payments_table.c.isDelete.label(
+                        "certificate_of_payment_deleted"
+                    ),
                 )
                 .select_from(
                     purchases_table.join(
