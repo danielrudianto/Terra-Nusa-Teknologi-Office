@@ -183,9 +183,18 @@ def _tanpa_pagu(jenis: Any, pagu: Decimal, volume_disepakati: bool) -> bool:
     """
     if str(jenis or "").strip().upper() not in JENIS_BOLEH_TANPA_PAGU:
         return False
-    if not volume_disepakati:
-        return True
-    return pagu <= 0
+    # SPK D SELALU tanpa plafon, apa pun isi kotak volumenya.
+    #
+    # Perubahan aturan, diminta pemilik. Yang disepakati pada SPK tenaga
+    # kerja adalah UPAH SATUANNYA; volume di formulir itu rencana, bukan
+    # janji. Menegakkannya sebagai plafon berarti berita acara untuk tiga
+    # hari kerja ditolak oleh angka "1" yang tidak pernah dimaksudkan
+    # sebagai batas — persis yang terjadi pada 095-SPK-R501-D.
+    #
+    # `volume_disepakati` dan `pagu` sengaja tetap sebagai parameter:
+    # keduanya masih menentukan jenis SPK lain, dan menghapusnya dari sini
+    # berarti memindahkan keputusan yang sama ke beberapa tempat.
+    return True
 
 
 class CertificateOfPaymentRepository:
@@ -1023,7 +1032,19 @@ class CertificateOfPaymentRepository:
             )
 
             hasil = dict(baris)
-            hasil["items"] = [{**dict(i), "task": _nama_baris(i)} for i in items]
+            # `tanpaPagu` per baris — dialog lihat memakainya untuk memutuskan
+            # apakah "dari <pagu>" pantas dicetak. Pada SPK harga satuan,
+            # angka itu menyebut batas yang tidak ada.
+            hasil["items"] = [
+                {
+                    **dict(i),
+                    "task": _nama_baris(i),
+                    "tanpaPagu": _tanpa_pagu(
+                        hasil.get("purchaseType"), _d(i["paguBaris"]), True
+                    ),
+                }
+                for i in items
+            ]
             hasil["adjustments"] = await CertificateOfPaymentRepository.ambil_penyesuaian(
                 cop_id
             )

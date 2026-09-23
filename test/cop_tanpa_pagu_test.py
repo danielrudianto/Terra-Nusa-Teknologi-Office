@@ -48,15 +48,21 @@ def test_spk_d_bervolume_nol_tanpa_plafon():
     assert _tanpa_pagu("D", Decimal("0"), True) is True
 
 
-def test_spk_d_bervolume_terisi_tetap_berplafon():
+def test_spk_d_bervolume_terisi_JUGA_tanpa_plafon():
     """
-    Volume yang DIISI adalah kesepakatan, dan harus dijaga.
+    ATURAN BERUBAH, atas permintaan pemilik.
 
-    Pilihannya ada di tangan yang membuat SPK: dikosongkan berarti harga
-    satuan, diisi berarti berplafon. Kalau yang terisi pun dibiarkan terbuka,
-    kotak volumenya berhenti berarti apa-apa.
+    Sebelumnya volume yang diisi ditegakkan sebagai plafon. Di lapangan
+    angka itu bukan janji: yang disepakati pada SPK tenaga kerja adalah UPAH
+    SATUANNYA, dan volumenya rencana. Akibatnya berita acara tiga hari kerja
+    ditolak oleh angka "1" yang tidak pernah dimaksudkan sebagai batas
+    (095-SPK-R501-D), dan yang menolaknya tidak dapat dijelaskan kepada yang
+    mengisi.
+
+    Volume pada SPK D sekarang KETERANGAN, bukan pagu. Jenis lain tidak
+    berubah sedikit pun.
     """
-    assert _tanpa_pagu("D", Decimal("2000"), True) is False
+    assert _tanpa_pagu("D", Decimal("2000"), True) is True
 
 
 def test_spk_material_bervolume_nol_tetap_berplafon():
@@ -209,15 +215,16 @@ def test_spk_d_lama_terbuka_walau_volumenya_satu():
     assert _tanpa_pagu("D", Decimal("1"), volume_disepakati=False) is True
 
 
-def test_spk_d_baru_bervolume_satu_TETAP_berplafon():
+def test_spk_d_baru_bervolume_satu_JUGA_terbuka():
     """
-    Satu yang DIKETIK orang adalah kesepakatan, dan harus ditegakkan.
+    Pasangan dari uji di atas untuk SPK yang dibuat formulir BARU.
 
-    Inilah alasan penandanya ada pada dokumen dan bukan pada angkanya.
-    Menebak "1 berarti penambal" akan membuat yang diketik berbeda dari yang
-    ditegakkan begitu formulirnya punya kotak volume — tanpa galat apa pun.
+    Penanda `volumeDiisi` tetap ditulis dan tetap dibaca — ia masih
+    membedakan jenis SPK lain — tetapi pada jenis D ia tidak lagi menentukan
+    apa pun. Inilah keadaan yang dilaporkan dari lapangan: SPK D baru dengan
+    volume 1, berita acara 3 hari, ditolak.
     """
-    assert _tanpa_pagu("D", Decimal("1"), volume_disepakati=True) is False
+    assert _tanpa_pagu("D", Decimal("1"), volume_disepakati=True) is True
 
 
 def test_spk_material_lama_TIDAK_ikut_terbuka():
