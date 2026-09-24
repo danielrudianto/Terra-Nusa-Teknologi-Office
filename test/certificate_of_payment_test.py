@@ -1605,7 +1605,7 @@ class TestLapanganTidakTahuHarga:
     async def test_daftar_bersih_dari_uang(self, repo, monkeypatch):
         async def _semua(
             po=None, proyek=None, pembuat=None, page=0, page_size=20, kata=None,
-            urut=None, arah=None, keadaan=None,
+            urut=None, arah=None, keadaan=None, dari=None, sampai=None,
         ):
             return {
                 "total": 1,
@@ -1921,7 +1921,8 @@ class TestPencarianDaftar:
         diterima = {}
 
         async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20,
-                         kata=None, urut=None, arah=None, keadaan=None):
+                         kata=None, urut=None, arah=None, keadaan=None,
+                         dari=None, sampai=None):
             diterima["kata"] = kata
             return {"total": 0, "data": []}
 
@@ -1936,7 +1937,8 @@ class TestPencarianDaftar:
         diterima = {}
 
         async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20,
-                         kata=None, urut=None, arah=None, keadaan=None):
+                         kata=None, urut=None, arah=None, keadaan=None,
+                         dari=None, sampai=None):
             diterima["kata"] = kata
             return {"total": 0, "data": []}
 
@@ -1957,7 +1959,8 @@ class TestPencarianDaftar:
         """
 
         async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20,
-                         kata=None, urut=None, arah=None, keadaan=None):
+                         kata=None, urut=None, arah=None, keadaan=None,
+                         dari=None, sampai=None):
             return {
                 "total": 1,
                 "data": [{
@@ -2112,7 +2115,8 @@ class TestUrutanDaftar:
         diterima = {}
 
         async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20,
-                         kata=None, urut=None, arah=None, keadaan=None):
+                         kata=None, urut=None, arah=None, keadaan=None,
+                         dari=None, sampai=None):
             diterima["urut"] = urut
             diterima["arah"] = arah
             return {"total": 0, "data": []}
@@ -2542,7 +2546,8 @@ class TestSaringKeadaan:
         diterima = {}
 
         async def _semua(po=None, proyek=None, pembuat=None, page=0, page_size=20,
-                         kata=None, urut=None, arah=None, keadaan=None):
+                         kata=None, urut=None, arah=None, keadaan=None,
+                         dari=None, sampai=None):
             diterima["keadaan"] = keadaan
             return {"total": 0, "data": []}
 

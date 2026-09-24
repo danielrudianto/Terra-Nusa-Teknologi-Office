@@ -128,6 +128,35 @@ def _d(nilai: Any) -> Decimal:
     return Decimal(str(nilai))
 
 
+def _tanggal_saring(nilai: Any) -> str | None:
+    """
+    `YYYY-MM-DD` yang benar-benar tanggal, atau `None`.
+
+    Nilainya masuk sebagai PARAMETER — bukan disambung ke dalam SQL — jadi
+    yang dijaga di sini bukan penyuntikan melainkan arti. MySQL membandingkan
+    `DATE` dengan teks yang bukan tanggal sebagai `NULL`, dan seluruh baris
+    rontok tanpa satu pun galat: layar menjawab "belum ada CoP" untuk daftar
+    berisi ratusan dokumen, dan tidak ada apa pun yang menyebut penyaring
+    tanggalnyalah yang salah.
+
+    Ditolak DIAM-DIAM, tidak menggagalkan daftar — sama seperti nama kolom
+    pengurutan yang tidak dikenali. Penyaring adalah kenyamanan; menjatuhkan
+    seluruh layar karena satu parameter aneh menyisakan halaman kosong tanpa
+    keterangan.
+    """
+    teks = str(nilai or "").strip()
+    if not teks:
+        return None
+    # Menerima "2026-09-24" maupun "2026-09-24T00:00:00.000Z" — peramban
+    # mengirim bentuk kedua bila tanggalnya sempat melewati `toISOString()`.
+    teks = teks.split("T")[0]
+    try:
+        dt.strptime(teks, "%Y-%m-%d")
+    except Exception:
+        return None
+    return teks
+
+
 #: Jenis SPK yang boleh berkontrak TANPA plafon volume.
 #:
 #: Hanya D — SPK tenaga kerja. Yang disepakati di sana harga satuannya (upah
@@ -1069,9 +1098,17 @@ class CertificateOfPaymentRepository:
     #: kosong tanpa keterangan.
     URUTAN_BOLEH = {
         "nomor": "c.name",
+        # Nomor SPK — kolomnya sendiri sekarang, jadi kepala kolomnya harus
+        # dapat mengurutkan seperti kolom lain. Diurutkan menurut `po.name`,
+        # bukan salinan di CoP: nomor SPK tidak disalin ke sini sama sekali.
+        "spk": "po.name",
         "pemasok": "s.name",
         "proyek": "c.projectName",
         "tanggal": "c.date",
+        # Periode kerja diurutkan menurut AWALNYA. Akhirnya menjadi pemutus
+        # kedua: dua berita acara yang mulai di hari sama tetapi berakhir
+        # beda panjang punya urutan yang tetap, bukan berganti tiap muat.
+        "periode": "c.periodStart, c.periodEnd",
         "pembuat": "pembuat.name",
         "nilai": "c.netAmount",
         # Keadaan bukan satu kolom melainkan disimpulkan dari tiga penanda.
@@ -1108,6 +1145,8 @@ class CertificateOfPaymentRepository:
         sort_by: str | None = None,
         sort_dir: str | None = None,
         keadaan: str | None = None,
+        dari: str | None = None,
+        sampai: str | None = None,
     ):
         """
         Daftar CoP, disaring dan dipenggal halaman.
@@ -1147,6 +1186,35 @@ class CertificateOfPaymentRepository:
             if created_by:
                 syarat.append("c.createdBy = :pembuat")
                 params["pembuat"] = created_by
+
+            """
+            RENTANG TANGGAL — atas `c.date`, tanggal dokumennya.
+
+            Bukan atas periode kerjanya, meski keduanya kini punya kolom
+            sendiri di layar. Penyaring harus menyaring kolom yang NAMANYA
+            ia pakai: kotaknya berlabel "Tanggal", tepat di bawah kepala
+            kolom "Tanggal" yang dapat diurutkan. Menyaring diam-diam atas
+            kolom sebelahnya membuat baris hilang dari daftar padahal
+            tanggal yang terlihat jelas masuk rentangnya — dan tidak ada
+            apa pun di layar yang dapat menerangkannya.
+
+            Kedua ujungnya INKLUSIF. `c.date` bertipe DATE tanpa jam,
+            sehingga `<= :sampai` benar-benar memuat hari terakhirnya —
+            tidak ada pukul 14:30 yang terlewat di ujung rentang.
+
+            Masing-masing berdiri sendiri: mengisi hanya "dari" berarti
+            "sejak tanggal itu", mengisi hanya "sampai" berarti "hingga
+            tanggal itu". Mensyaratkan keduanya memaksa orang yang cuma
+            ingin melihat sejak awal bulan mengarang tanggal akhir.
+            """
+            d = _tanggal_saring(dari)
+            if d:
+                syarat.append("c.date >= :dari")
+                params["dari"] = d
+            sd = _tanggal_saring(sampai)
+            if sd:
+                syarat.append("c.date <= :sampai")
+                params["sampai"] = sd
 
             # Keadaan dokumen disaring DI SQL.
             #

@@ -133,9 +133,16 @@ async def daftar_cop(
     sortBy: Optional[str] = None,
     sortDir: Optional[str] = None,
     keadaan: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
 ):
     """
     Daftar CoP.
+
+    `start`/`end` menyaring TANGGAL DOKUMEN (`c.date`), inklusif di kedua
+    ujungnya, dan masing-masing berdiri sendiri. Namanya mengikuti daftar
+    Beban dan Pendapatan Lain yang lebih dulu memakainya — satu nama untuk
+    satu arti di seluruh API.
 
     `keadaan` disaring di SERVER — draft, diperiksa, atau disetujui. Dipakai
     keping penyaring pada layar daftar dan penghitung pada beranda ponsel;
@@ -154,6 +161,8 @@ async def daftar_cop(
             sort_by=sortBy,
             sort_dir=sortDir,
             keadaan=keadaan,
+            dari=start,
+            sampai=end,
         )
     )
 

@@ -2173,6 +2173,8 @@ class CertificateOfPaymentController:
         sort_by: str | None = None,
         sort_dir: str | None = None,
         keadaan: str | None = None,
+        dari: str | None = None,
+        sampai: str | None = None,
     ):
         hasil = await CertificateOfPaymentRepository.get_all(
             purchase_order_id,
@@ -2184,6 +2186,12 @@ class CertificateOfPaymentController:
             sort_by,
             sort_dir,
             keadaan,
+            # DENGAN NAMA, bukan urutan. Delapan argumen di atas sudah
+            # berurutan; dua yang baru ini bertipe sama dengan tetangganya
+            # (`str | None`), sehingga satu saja tergeser tidak menimbulkan
+            # galat apa pun — hanya daftar yang menyaring kolom yang salah.
+            dari=dari,
+            sampai=sampai,
         )
         if isinstance(hasil, dict) and "error" in hasil:
             return hasil
