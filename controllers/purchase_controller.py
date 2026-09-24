@@ -6,6 +6,7 @@ from repository.purchase_order_repository import PurchaseOrderRepository
 from repository.reimbursement_repository import ReimbursementRepository
 from utils.errors import app_error, ErrorCode
 from repository.sales_invoice_repository import SalesInvoiceRepository
+from repository.project_repository import ProjectRepository
 from models.purchase_draft_model import PurchaseDraft
 from utils.logger_utils import log_error, log_info
 from fastapi import HTTPException
@@ -600,14 +601,79 @@ class PurchaseController:
                             400,
                         )
                     bersih["purchaseOrderName"] = po["name"]
-                    bersih["projectName"] = po["projectName"]
-                else:
-                    # Nomornya tidak berubah — proyeknya pun tidak boleh
-                    # ikut berubah lewat jalur ini.
-                    bersih.pop("projectName", None)
-            else:
-                # `projectName` hanya boleh bergerak bersama nomor PO-nya.
-                bersih.pop("projectName", None)
+                    # Proyeknya MENGIKUTI PO-nya, kecuali layar menyebut
+                    # proyek lain dengan sengaja — lihat di bawah.
+                    bersih.setdefault("projectName", po["projectName"])
+
+            # ---- proyek yang dibebani ------------------------------------
+            #
+            # Boleh BERBEDA dari proyek purchase order-nya, dan itu disengaja.
+            #
+            # Dahulu kolom ini selalu dibuang: proyeknya hanya boleh bergerak
+            # mengikuti nomor PO. Alasannya benar — bila keduanya boleh
+            # berbeda diam-diam, rekap per proyek menghitung pembelian ini di
+            # proyek yang berbeda dari PO-nya, dan tidak ada yang tahu mana
+            # yang benar.
+            #
+            # Tetapi aturan itu juga mengunci keadaan yang nyata: sebagian
+            # purchase order memang tidak dapat diterbitkan atas nama proyek
+            # yang membiayainya, sementara biayanya jelas milik proyek itu.
+            # Tanpa jalan keluar, satu-satunya cara membetulkannya adalah
+            # menghapus pembeliannya dan mencatat ulang.
+            #
+            # Yang menjawab keberatan lama bukan melarangnya, melainkan
+            # membuatnya TERLIHAT: pembelian menyimpan proyeknya sendiri —
+            # itulah yang dipakai seluruh rekap biaya, satu sumber, tidak
+            # ambigu — dan perbedaannya dari PO-nya dicatat pada jejak,
+            # sehingga yang mencarinya setahun kemudian menemukan alasannya
+            # dan bukan dua angka yang bertengkar tanpa sebab.
+            catatan_proyek = ""
+            if "projectName" in bersih:
+                kode = str(bersih["projectName"] or "").strip().upper()
+                if not kode:
+                    return app_error(
+                        ErrorCode.VALIDATION,
+                        "Proyek tidak boleh kosong.",
+                        400,
+                    )
+
+                # Kodenya dicocokkan, sama seperti nomor PO di atas: kolom
+                # ini teks, bukan tautan, dan tidak ada penjaga basis data
+                # yang menolak proyek yang tidak pernah ada.
+                proyek = await ProjectRepository.get_by_code(kode)
+                if proyek is None:
+                    log_error(
+                        f"Sunting meta pembelian {purchaseID} ditolak: "
+                        f"proyek '{kode}' tidak ditemukan."
+                    )
+                    return app_error(
+                        ErrorCode.VALIDATION,
+                        f"Proyek '{kode}' tidak ditemukan atau sudah dihapus.",
+                        400,
+                    )
+                bersih["projectName"] = proyek["code"]
+
+                # Nomor PO yang berlaku sesudah penyuntingan ini — yang baru
+                # bila diganti, yang lama bila tidak.
+                nomor_po = str(
+                    bersih.get("purchaseOrderName")
+                    or lama.get("purchaseOrderName")
+                    or ""
+                ).strip()
+                if nomor_po:
+                    po_akhir = (
+                        await PurchaseOrderRepository.cari_aktif_berdasarkan_nama(
+                            nomor_po
+                        )
+                    )
+                    if po_akhir is not None and str(
+                        po_akhir["projectName"] or ""
+                    ).strip().upper() != proyek["code"].strip().upper():
+                        catatan_proyek = (
+                            f"proyek dibebankan ke {proyek['code']}, "
+                            f"berbeda dari purchase order {nomor_po} "
+                            f"({po_akhir['projectName']})"
+                        )
 
             diubah_nilai = {
                 k for k in PurchaseController._META_NILAI
@@ -624,7 +690,28 @@ class PurchaseController:
                     )
                     return {"error": "PURCHASE_HAS_PAYMENTS", "status": 409}
 
-            return await PurchaseRepository.update(purchaseID, bersih, userID)
+            hasil = await PurchaseRepository.update(purchaseID, bersih, userID)
+
+            # Pembebanan yang MENYIMPANG dari PO-nya dicatat tersendiri.
+            #
+            # Jejak `update` biasa hanya menyebut "projectName: A -> B", dan
+            # itu tidak memberi tahu bahwa proyeknya kini berbeda dari
+            # purchase order yang mendasarinya — justru keterangan itulah
+            # yang dicari orang yang menemukan selisih pada rekap proyek.
+            if catatan_proyek and not (
+                isinstance(hasil, dict) and "error" in hasil
+            ):
+                from repository.audit_log_repository import AuditLogRepository
+
+                await AuditLogRepository.record(
+                    entity="purchases",
+                    entityID=purchaseID,
+                    action="purchase_project_override",
+                    userID=userID,
+                    note=catatan_proyek,
+                )
+
+            return hasil
         except Exception as e:
             log_error(f"Error updating purchase meta {purchaseID}: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
