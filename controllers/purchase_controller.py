@@ -11,6 +11,7 @@ from models.purchase_draft_model import PurchaseDraft
 from utils.logger_utils import log_error, log_info
 from fastapi import HTTPException
 from datetime import datetime
+from types import SimpleNamespace
 from utils.transaksi import atomik
 
 
@@ -531,7 +532,65 @@ class PurchaseController:
                     if po["purchaseType"]:
                         muatan["purchaseType"] = po["purchaseType"]
 
-            return await PurchaseRepository.update(purchaseID, muatan, userID)
+            hasil = await PurchaseRepository.update(purchaseID, muatan, userID)
+
+            """
+            STATUS LUNAS DIHITUNG ULANG bila nilainya bergeser.
+
+            `isPaid` pada pembelian adalah kesimpulan: nilai dokumen
+            dibandingkan pembayaran yang sudah disetujui. Sampai sekarang
+            hanya sisi PEMBAYARAN yang memicu perhitungannya — sehingga
+            dokumen yang nilainya dinaikkan level 4 setelah lunas tetap
+            bertanda lunas.
+
+            Rupiahnya sendiri aman: sisa utang dan posisi keuangan menghitung
+            ulang dari baris pembayaran dan sengaja tidak membaca `isPaid`.
+            Yang keliru adalah KETERLIHATANNYA — faktur yang kini kurang
+            bayar hilang dari kartu jatuh tempo tujuh hari
+            (`WHERE isDelete = 0 AND isPaid = 0`) dan salah sisi pada
+            penyaring lunas/belum di daftar pembelian. Kekurangan bayar yang
+            tidak pernah muncul di layar mana pun adalah kekurangan bayar
+            yang tidak pernah ditagihkan.
+
+            Memakai `selaraskan_status_lunas` yang sudah ada, bukan menulis
+            aturan kedua: ambang toleransi dan penundaan-menunggu-konfirmasi
+            hanya boleh hidup di satu tempat.
+            """
+            if diubah and not (isinstance(hasil, dict) and "error" in hasil):
+                try:
+                    from controllers.payment_outgoing_controller import (
+                        PaymentOutgoingController,
+                    )
+
+                    # `SimpleNamespace`, BUKAN kelas bersarang.
+                    #
+                    # Badan kelas tidak melihat variabel fungsi yang
+                    # melingkupinya: `purchaseID = purchaseID` di dalamnya
+                    # melempar NameError — yang akan ditelan `except` di
+                    # bawah, sehingga perhitungan ulangnya tidak pernah
+                    # berjalan dan tidak ada satu pun tanda bahwa ia tidak
+                    # berjalan. Sudah diuji, bukan dikira-kira.
+                    penagih = SimpleNamespace(
+                        purchaseID=purchaseID,
+                        reimbursementID=None,
+                        expenseID=None,
+                        loanID=None,
+                        salarySlipID=None,
+                    )
+
+                    await PaymentOutgoingController.selaraskan_status_lunas(
+                        penagih, userID
+                    )
+                except Exception as e:  # noqa: BLE001
+                    # Kegagalan menghitung ulang TIDAK membatalkan
+                    # penyuntingannya: nilainya sudah benar tersimpan, dan
+                    # menggagalkannya meninggalkan keadaan yang lebih buruk.
+                    log_error(
+                        f"Status lunas pembelian {purchaseID} gagal dihitung "
+                        f"ulang: {str(e)}"
+                    )
+
+            return hasil
         except Exception as e:
             log_error(f"Error updating purchase {purchaseID}: {str(e)}")
             return {"error": "Internal server error.", "status": 500}

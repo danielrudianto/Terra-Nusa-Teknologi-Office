@@ -270,3 +270,63 @@ async def test_ubah_tidak_menyentuh_proyek_bila_tidak_dikirim():
     assert "error" not in hasil
     assert "projectName" not in RepoPembelian.diperbarui[1]
     assert "purchaseType" not in RepoPembelian.diperbarui[1]
+
+
+# =====================================================================
+# STATUS LUNAS DIHITUNG ULANG KETIKA NILAINYA BERGESER
+#
+# `isPaid` adalah kesimpulan: nilai dokumen dibanding pembayaran yang
+# sudah disetujui. Sampai sekarang hanya sisi PEMBAYARAN yang memicunya,
+# sehingga dokumen yang nilainya dinaikkan level 4 setelah lunas tetap
+# bertanda lunas — dan hilang dari kartu jatuh tempo tujuh hari, yang
+# menyaring `isPaid = 0`.
+# =====================================================================
+
+
+@pytest.mark.asyncio
+async def test_menaikkan_nilai_memicu_hitung_ulang_lunas(monkeypatch):
+    dipanggil = []
+
+    class Bayar:
+        @staticmethod
+        async def hitung_pembayaran_aktif(_id):
+            return 1
+
+    class Keluar:
+        @staticmethod
+        async def selaraskan_status_lunas(penagih, userID=None, konfirmasi=False):
+            dipanggil.append((penagih.purchaseID, userID))
+
+    monkeypatch.setattr(modul, "PaymentOutgoingRepository", Bayar)
+    import controllers.payment_outgoing_controller as mod_keluar
+
+    monkeypatch.setattr(mod_keluar, "PaymentOutgoingController", Keluar)
+
+    hasil = await PurchaseController.update_purchase(
+        5, {"dpp": 1_200_000}, userID=9, userLevel=5
+    )
+    assert "error" not in hasil
+    # Penagihnya harus menunjuk pembelian ini, bukan None — kelas bersarang
+    # yang membaca variabel fungsinya melempar NameError, dan galat itu
+    # ditelan sehingga perhitungannya diam-diam tidak pernah berjalan.
+    assert dipanggil == [(5, 9)]
+
+
+@pytest.mark.asyncio
+async def test_menyunting_selain_nilai_tidak_memicu_hitung_ulang(monkeypatch):
+    dipanggil = []
+
+    class Keluar:
+        @staticmethod
+        async def selaraskan_status_lunas(penagih, userID=None, konfirmasi=False):
+            dipanggil.append(penagih.purchaseID)
+
+    import controllers.payment_outgoing_controller as mod_keluar
+
+    monkeypatch.setattr(mod_keluar, "PaymentOutgoingController", Keluar)
+
+    hasil = await PurchaseController.update_purchase(
+        5, {"invoiceName": "INV-99"}, userID=9, userLevel=5
+    )
+    assert "error" not in hasil
+    assert dipanggil == []
