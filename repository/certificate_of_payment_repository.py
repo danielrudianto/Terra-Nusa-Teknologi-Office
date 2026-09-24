@@ -1120,7 +1120,23 @@ class CertificateOfPaymentRepository:
         menjawab "tidak ada" untuk dokumen yang jelas ada.
         """
         try:
-            syarat = ["c.isDelete = 0"]
+            """
+            YANG TERHAPUS punya kepingnya sendiri, dan hanya itu yang
+            menampilkannya.
+
+            Sebelumnya `c.isDelete = 0` dipasang mati di sini, sehingga CoP
+            yang dihapus tidak dapat dilihat dari mana pun — padahal
+            pertanyaan "mana CoP yang tadi saya hapus, dan siapa yang
+            menghapusnya" justru muncul persis sesudah penghapusannya.
+
+            Penyaringnya DIBALIK, bukan dilonggarkan: keping "Dihapus"
+            menampilkan HANYA yang terhapus, dan seluruh keping lain tetap
+            menampilkan hanya yang hidup. Daftar yang mencampur keduanya
+            membuat jumlah pada setiap keping lain berubah arti tanpa ada
+            yang memberitahu.
+            """
+            terhapus = (keadaan or "").strip() == "dihapus"
+            syarat = ["c.isDelete = 1" if terhapus else "c.isDelete = 0"]
             params: Dict[str, Any] = {}
             if purchase_order_id:
                 syarat.append("c.purchaseOrderID = :po")
@@ -1157,7 +1173,10 @@ class CertificateOfPaymentRepository:
                 # tahap "dibuat".
                 "diperiksa": "c.isCopCreated = 1 AND c.isApproved = 0",
             }
-            ke = KEADAAN.get((keadaan or "").strip())
+            # "dihapus" sudah dikerjakan di atas lewat `isDelete`; ia bukan
+            # tahap perjalanan dokumen melainkan keadaan lain sama sekali,
+            # dan menaruhnya di peta ini akan menyaring DUA KALI.
+            ke = None if terhapus else KEADAAN.get((keadaan or "").strip())
             if ke:
                 syarat.append(f"({ke})")
 
@@ -1199,11 +1218,17 @@ class CertificateOfPaymentRepository:
                        -- Bentuk badan usaha, untuk akhiran redup ", PT."
                        -- di kolom pemasok daftar.
                        s.prefix AS supplierPrefix,
-                       pembuat.name AS createdByName
+                       pembuat.name AS createdByName,
+                       -- Siapa yang menghapus — itulah pertanyaan yang
+                       -- membawa orang ke keping "Dihapus". Tanpa nama, yang
+                       -- tersisa hanya id yang tidak berarti apa pun di
+                       -- layar.
+                       penghapus.name AS deletedByName
                 FROM certificate_of_payments c
                 JOIN purchase_orders po ON po.id = c.purchaseOrderID
                 LEFT JOIN suppliers s ON s.id = po.supplierID
                 LEFT JOIN users pembuat ON pembuat.id = c.createdBy
+                LEFT JOIN users penghapus ON penghapus.id = c.deletedBy
                 WHERE {where}
                 ORDER BY {urutan}
                 LIMIT :limit OFFSET :offset
