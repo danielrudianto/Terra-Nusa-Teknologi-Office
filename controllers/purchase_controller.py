@@ -452,7 +452,86 @@ class PurchaseController:
                     )
                     return {"error": "PURCHASE_HAS_PAYMENTS", "status": 409}
 
-            return await PurchaseRepository.update(purchaseID, data, userID)
+            muatan = dict(data or {})
+
+            """
+            PROYEK DICOCOKKAN DI SINI JUGA, bukan hanya di `update_purchase_meta`.
+
+            Kolom `projectName` pada pembelian adalah TEKS, bukan tautan.
+            Tidak ada penjaga basis data yang menolak kode proyek yang tidak
+            pernah ada — dan pemilih proyek di layar memang sengaja menerima
+            kode asing dengan peringatan, bukan menolaknya.
+
+            Akibat satu huruf salah ketik: pembeliannya lenyap dari Laporan
+            Proyek, dari ringkasan margin, dan dari arus kas proyek — seluruh
+            laporan itu menyambung lewat `projectName = code`. Laba rugi
+            perusahaan tetap menghitungnya, sehingga kedua laporan berselisih
+            persis sebesar pembelian itu, tanpa satu pun galat dan tanpa baris
+            jejak yang menyebutkan sebabnya.
+
+            Jalur `meta` sudah memeriksanya sejak awal; jalur ini tidak, dan
+            justru inilah jalur yang dipakai layar "Ubah Pembelian".
+            """
+            if "projectName" in muatan:
+                kode = str(muatan["projectName"] or "").strip().upper()
+                if not kode:
+                    return app_error(
+                        ErrorCode.VALIDATION, "Proyek tidak boleh kosong.", 400
+                    )
+                proyek = await ProjectRepository.get_by_code(kode)
+                if proyek is None:
+                    log_error(
+                        f"Ubah pembelian {purchaseID} ditolak: proyek "
+                        f"'{kode}' tidak ditemukan."
+                    )
+                    return app_error(
+                        ErrorCode.VALIDATION,
+                        f"Proyek '{kode}' tidak ditemukan atau sudah dihapus.",
+                        400,
+                    )
+                muatan["projectName"] = proyek["code"]
+
+            """
+            NOMOR PO — dicocokkan, dan proyek serta jenisnya MENGIKUTINYA.
+
+            Alasannya sama persis dengan `update_purchase_meta`. Dahulu jalur
+            ini menerima nomor PO apa pun dan membiarkan `projectName` serta
+            `purchaseType` apa adanya: satu permintaan dapat memindahkan
+            pembelian ke dokumen lain sambil meninggalkan proyek dan kategori
+            biaya yang lama.
+            """
+            if "purchaseOrderName" in muatan:
+                nomor = str(muatan["purchaseOrderName"] or "").strip()
+                if not nomor:
+                    return app_error(
+                        ErrorCode.VALIDATION,
+                        "Nomor purchase order tidak boleh kosong.",
+                        400,
+                    )
+                if nomor != str(lama.get("purchaseOrderName") or ""):
+                    po = await PurchaseOrderRepository.cari_aktif_berdasarkan_nama(
+                        nomor
+                    )
+                    if po is None:
+                        log_error(
+                            f"Ubah pembelian {purchaseID} ditolak: purchase "
+                            f"order '{nomor}' tidak ditemukan."
+                        )
+                        return app_error(
+                            ErrorCode.VALIDATION,
+                            f"Purchase order '{nomor}' tidak ditemukan atau "
+                            f"sudah dihapus.",
+                            400,
+                        )
+                    muatan["purchaseOrderName"] = po["name"]
+                    # Proyeknya hanya diikutkan bila layar tidak menyebut
+                    # proyek lain dengan sengaja — pembebanan silang tetap
+                    # boleh, lihat `update_purchase_meta`.
+                    muatan.setdefault("projectName", po["projectName"])
+                    if po["purchaseType"]:
+                        muatan["purchaseType"] = po["purchaseType"]
+
+            return await PurchaseRepository.update(purchaseID, muatan, userID)
         except Exception as e:
             log_error(f"Error updating purchase {purchaseID}: {str(e)}")
             return {"error": "Internal server error.", "status": 500}

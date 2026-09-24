@@ -217,3 +217,56 @@ async def test_jenis_dari_layar_tidak_dipercaya():
     )
     assert "error" not in hasil
     assert RepoPembelian.diperbarui[1]["purchaseType"] == "6.4.1"
+
+
+# =====================================================================
+# JALUR KEDUA: PUT /purchases/update
+#
+# Lubang yang sama pernah ada di sini, dan justru inilah jalur yang
+# dipakai layar "Ubah Pembelian" — sementara pemeriksaannya hanya ada di
+# `update_purchase_meta`. Pemilih proyek di layar itu SENGAJA menerima
+# kode asing dengan peringatan, bukan menolaknya, sehingga satu huruf
+# salah ketik cukup untuk melenyapkan pembelian dari Laporan Proyek.
+# =====================================================================
+
+
+async def ubah(data):
+    return await PurchaseController.update_purchase(5, data, userID=1, userLevel=5)
+
+
+@pytest.mark.asyncio
+async def test_ubah_menolak_proyek_yang_tidak_ada():
+    hasil = await ubah({"projectName": "MICZ2"})
+    assert hasil["status"] == 400
+    assert RepoPembelian.diperbarui is None
+
+
+@pytest.mark.asyncio
+async def test_ubah_menerima_proyek_yang_ada():
+    hasil = await ubah({"projectName": "mchp"})
+    assert "error" not in hasil
+    # Dinormalkan ke kode resminya, bukan disimpan apa adanya.
+    assert RepoPembelian.diperbarui[1]["projectName"] == "MCHP"
+
+
+@pytest.mark.asyncio
+async def test_ubah_menolak_nomor_po_yang_tidak_ada():
+    hasil = await ubah({"purchaseOrderName": "999-PO-XXX-F"})
+    assert hasil["status"] == 400
+    assert RepoPembelian.diperbarui is None
+
+
+@pytest.mark.asyncio
+async def test_ubah_memindahkan_proyek_dan_jenis_bersama_nomor_po():
+    hasil = await ubah({"purchaseOrderName": "831-SPK-PUSAT-6.4.1"})
+    assert "error" not in hasil
+    assert RepoPembelian.diperbarui[1]["projectName"] == "PUSAT"
+    assert RepoPembelian.diperbarui[1]["purchaseType"] == "6.4.1"
+
+
+@pytest.mark.asyncio
+async def test_ubah_tidak_menyentuh_proyek_bila_tidak_dikirim():
+    hasil = await ubah({"invoiceName": "INV-88"})
+    assert "error" not in hasil
+    assert "projectName" not in RepoPembelian.diperbarui[1]
+    assert "purchaseType" not in RepoPembelian.diperbarui[1]

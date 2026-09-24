@@ -33,6 +33,23 @@ KELOMPOK = [
      lambda r: {"id": r["id"], "judul": r["name"], "sub": r.get("projectName"), "tanggal": _tgl(r.get("date")), "kunci": r["name"]}),
     ("tender", "tender", SearchRepository.tender,
      lambda r: {"id": r["id"], "judul": " · ".join(x for x in [r.get("number"), r["name"]] if x), "sub": r.get("projectName"), "kunci": r["name"]}),
+    # Pengguna aplikasi — dijaga `user:read` (level 5), bukan `employees`.
+    # Keduanya orang, tetapi menjawab pertanyaan berbeda: yang digaji, dan
+    # yang punya akun. Lihat `SearchRepository.pengguna`.
+    ("pengguna", "user", SearchRepository.pengguna,
+     lambda r: {
+         "id": r["id"],
+         "judul": r["name"],
+         # Surelnya yang dicari orang, dan ia pula penandanya — dua akun
+         # dapat bernama sama, surelnya tidak.
+         "sub": " · ".join(
+             x for x in [r.get("email"), r.get("position")] if x
+         ) or None,
+         "kunci": r["name"],
+         # Akun nonaktif tetap muncul — "kenapa dia tidak bisa masuk" adalah
+         # salah satu alasan orang mencarinya — tetapi harus dapat dibedakan.
+         "nonaktif": not bool(r.get("isActive")),
+     }),
     ("karyawan", "employees", SearchRepository.karyawan,
      lambda r: {"id": r["id"], "judul": r["name"], "sub": r.get("position"), "kunci": r["name"]}),
 ]

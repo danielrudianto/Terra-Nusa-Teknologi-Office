@@ -1,6 +1,6 @@
 """
 Pencarian GLOBAL (Ctrl+K) — satu kotak untuk klien, pemasok, karyawan,
-proyek, tender, purchase order, pembelian, dan faktur penjualan.
+PENGGUNA, proyek, tender, purchase order, pembelian, dan faktur penjualan.
 
 Setiap kelompok adalah kueri kecil sendiri (maksimal `batas` baris), bukan
 satu UNION besar: kelompok yang tidak boleh dilihat pengguna tidak pernah
@@ -23,6 +23,7 @@ from models.purchase_model import purchases_table
 from models.purchase_order_model import purchase_orders_table
 from models.sales_invoice_model import sales_invoice_tables
 from models.supplier_model import suppliers_table
+from models.user_model import users_table
 from models.tender_model import tenders_table
 from utils.database import database
 
@@ -66,6 +67,36 @@ class SearchRepository:
         return await _ambil(
             select(t.c.id, t.c.name, t.c.position)
             .where(t.c.isDelete == False, _cocok(q, t.c.name))  # noqa: E712
+            .order_by(t.c.name)
+            .limit(batas)
+        )
+
+    @staticmethod
+    async def pengguna(q: str, batas: int):
+        """
+        Pengguna aplikasi — BERBEDA dari karyawan.
+
+        Keduanya orang, tetapi menjawab pertanyaan yang berbeda: karyawan
+        adalah yang digaji, pengguna adalah yang punya akun. Tidak semua
+        karyawan punya akun, dan sebagian akun bukan karyawan (konsultan dari
+        luar, misalnya). Mencari "siapa yang punya akses" lewat daftar
+        karyawan karena itu tidak pernah menemukan keduanya.
+
+        Kelompok ini dijaga `user:read` — level 5 — dan di situlah surel boleh
+        ikut dicari: yang berhak membukanya sudah dapat melihat seluruh daftar
+        penggunanya. Berbeda dari NIK pada karyawan, yang sengaja tidak dapat
+        dicari karena mengetik sebagian nomor lalu melihat nama siapa yang
+        muncul adalah cara menebak nomor orang lain.
+
+        Kolom penandanya `isDeleted`, BUKAN `isDelete` seperti tabel lain.
+        """
+        t = users_table
+        return await _ambil(
+            select(t.c.id, t.c.name, t.c.email, t.c.position, t.c.isActive)
+            .where(
+                t.c.isDeleted == False,  # noqa: E712
+                _cocok(q, t.c.name, t.c.email),
+            )
             .order_by(t.c.name)
             .limit(batas)
         )
