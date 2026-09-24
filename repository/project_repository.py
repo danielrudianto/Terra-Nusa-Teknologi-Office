@@ -607,8 +607,63 @@ class ProjectRepository:
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
+    async def _total_dpp(project_id: int):
+        """
+        Nilai kontrak berjalan satu proyek — jumlah DPP baris yang belum
+        dihapus.
+
+        DPP, bukan DPP + PPN: kemajuan mengukur PEKERJAAN, dan PPN titipan
+        negara, bukan nilai pekerjaan. Sama dengan dasar yang dipakai ringkasan
+        margin.
+        """
+        nilai = await database.fetch_val(
+            select(func.coalesce(func.sum(project_contracts_table.c.dpp), 0)).where(
+                project_contracts_table.c.projectID == project_id,
+                project_contracts_table.c.isDelete == False,  # noqa: E712
+            )
+        )
+        return nilai or 0
+
+    @staticmethod
+    async def _selaraskan_kemajuan(project_id: int, dpp_lama, user_id: int, sebab: str):
+        """
+        Susun ulang persen kemajuan setelah nilai kontraknya berganti.
+
+        Kemajuan disimpan sebagai PERSEN; yang tidak berubah saat adendum
+        terbit adalah pekerjaan yang sudah dikerjakan. Begitu penyebutnya
+        berganti, seluruh angka lama menyatakan hal lain daripada yang
+        dimaksud ketika dicatat. Lihat `ProjectProgressRepository.skalakan`.
+
+        Kegagalannya DICATAT, tidak dilempar: adendumnya sendiri sudah
+        tersimpan dengan benar, dan menggagalkan penyimpanan karena
+        penyesuaian turunannya justru meninggalkan keadaan yang lebih buruk.
+        """
+        try:
+            from repository.project_progress_repository import (
+                ProjectProgressRepository,
+            )
+
+            dpp_baru = await ProjectRepository._total_dpp(project_id)
+            hasil = await ProjectProgressRepository.skalakan(
+                project_id, dpp_lama, dpp_baru, user_id, sebab
+            )
+            if isinstance(hasil, dict) and "error" in hasil:
+                log_error(
+                    f"Kemajuan proyek {project_id} tidak dapat diselaraskan "
+                    f"setelah {sebab}."
+                )
+        except Exception as e:
+            log_error(
+                f"Kemajuan proyek {project_id} gagal diselaraskan: {str(e)}"
+            )
+
+    @staticmethod
     async def add_contract(project_id: int, data: dict, user_id: int) -> Dict[str, Any]:
         try:
+            # Nilai kontrak SEBELUM dokumen ini masuk — dasar penyesuaian
+            # persen kemajuan di bawah.
+            dpp_lama = await ProjectRepository._total_dpp(project_id)
+
             contract_id = await database.execute(
                 insert(project_contracts_table).values(
                     **data,
@@ -640,6 +695,14 @@ class ProjectRepository:
                 action="contract_create",
                 note=f"{data.get('documentType', 'spk')} {data.get('documentNumber', '')}".strip(),
             )
+
+            await ProjectRepository._selaraskan_kemajuan(
+                project_id,
+                dpp_lama,
+                user_id,
+                f"{data.get('documentType', 'spk')} "
+                f"{data.get('documentNumber', '')}".strip(),
+            )
             return {"message": "Contract added successfully", "contract_id": contract_id}
         except Exception as e:
             log_error(f"Error adding contract: {str(e)}")
@@ -670,6 +733,8 @@ class ProjectRepository:
             if _sebelum is None:
                 return {"error": "Contract not found", "status": 404}
 
+            dpp_lama = await ProjectRepository._total_dpp(_sebelum["projectID"])
+
             values = {**values, "updatedAt": dt.now(), "updatedBy": user_id}
             await database.execute(
                 update(project_contracts_table)
@@ -692,6 +757,14 @@ class ProjectRepository:
                 changes=AuditLogRepository.diff(dict(_sebelum), values),
                 note=f"{_sebelum['documentType']} {_sebelum['documentNumber']}".strip(),
             )
+
+            await ProjectRepository._selaraskan_kemajuan(
+                _sebelum["projectID"],
+                dpp_lama,
+                user_id,
+                f"ubah {_sebelum['documentType']} "
+                f"{_sebelum['documentNumber']}".strip(),
+            )
             return {"message": "Contract updated successfully"}
         except Exception as e:
             log_error(f"Error updating contract: {str(e)}")
@@ -708,6 +781,8 @@ class ProjectRepository:
             if _sebelum is None:
                 return {"error": "Contract not found", "status": 404}
 
+            dpp_lama = await ProjectRepository._total_dpp(_sebelum["projectID"])
+
             await database.execute(
                 update(project_contracts_table)
                 .where(project_contracts_table.c.id == contract_id)
@@ -723,6 +798,14 @@ class ProjectRepository:
                     f"{_sebelum['documentType']} {_sebelum['documentNumber']} "
                     f"({_sebelum['dpp']})"
                 ).strip(),
+            )
+
+            await ProjectRepository._selaraskan_kemajuan(
+                _sebelum["projectID"],
+                dpp_lama,
+                user_id,
+                f"hapus {_sebelum['documentType']} "
+                f"{_sebelum['documentNumber']}".strip(),
             )
             return {"message": "Contract deleted successfully"}
         except Exception as e:

@@ -6,6 +6,7 @@ basis data sendiri.
 """
 
 from datetime import date as d, datetime as dt
+from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy import select, func
 
@@ -147,6 +148,129 @@ class ProjectProgressRepository:
             return {"message": "Progress updated"}
         except Exception as e:
             log_error(f"Error updating progress {progress_id}: {str(e)}")
+            return internal_error()
+
+    @staticmethod
+    async def skalakan(
+        project_id: int,
+        dpp_lama,
+        dpp_baru,
+        userID: int,
+        sebab: str,
+    ) -> dict:
+        """
+        Susun ulang persen kemajuan setelah NILAI KONTRAK berubah.
+
+        MENGAPA PERLU
+
+        Kemajuan disimpan sebagai PERSEN, sedangkan yang tidak berubah saat
+        adendum terbit adalah pekerjaan yang sudah dikerjakan. Persen adalah
+        pekerjaan itu dibagi nilai kontrak — jadi begitu penyebutnya berganti,
+        seluruh angka lama menyatakan hal yang berbeda dari yang dimaksud
+        ketika dicatat.
+
+        Kontrak 100 dengan kemajuan 5% berarti pekerjaan senilai 5. Kontrak
+        dipangkas menjadi 50 lewat adendum; pekerjaan yang sama sekarang
+        separuh dari lingkup yang tersisa:
+
+            5% x (100 / 50) = 10%
+
+        Bukan 2,5%. Yang dikalikan adalah PERBANDINGAN TERBALIKNYA, karena
+        yang tetap adalah pembilangnya. Kontrak yang MEMBESAR menurunkan
+        persennya dengan aturan yang sama — pekerjaan yang sama menjadi
+        bagian yang lebih kecil dari lingkup yang lebih besar.
+
+        Tanpa penyesuaian ini, kurva S membandingkan kemajuan terhadap
+        kontrak baru dengan biaya terhadap kontrak baru, sementara angka
+        kemajuannya masih mengukur kontrak lama. Keduanya tetap tergambar
+        rapi, dan selisihnya terbaca sebagai kemajuan yang melesat atau
+        tertinggal — padahal tidak satu pun pekerjaan berubah.
+
+        YANG SENGAJA TIDAK DILAKUKAN
+
+        Hasilnya TIDAK dibatasi 100%. Lingkup yang dipangkas di bawah
+        pekerjaan yang sudah terlanjur dikerjakan memang menghasilkan angka
+        di atas seratus, dan itu keadaan yang justru paling perlu terlihat:
+        kontraknya tidak lagi menutup pekerjaan yang sudah jadi. Dibatasi
+        seratus, keadaan itu terbaca persis seperti proyek yang selesai
+        tepat waktu.
+        """
+        try:
+            lama = Decimal(str(dpp_lama or 0))
+            baru = Decimal(str(dpp_baru or 0))
+
+            # Tidak ada yang dapat dihitung: pembagian terhadap nol, atau
+            # perbandingan terhadap kontrak yang dahulu belum ada. Kemajuan
+            # dibiarkan apa adanya — angka lama yang salah lebih baik
+            # daripada angka baru yang dikarang.
+            if lama <= 0 or baru <= 0 or lama == baru:
+                return {"disesuaikan": 0}
+
+            baris = await database.fetch_all(
+                select(project_progress_table).where(
+                    project_progress_table.c.projectID == project_id,
+                    project_progress_table.c.isDelete == False,  # noqa: E712
+                )
+            )
+            if not baris:
+                return {"disesuaikan": 0}
+
+            from repository.audit_log_repository import AuditLogRepository
+
+            jumlah = 0
+            for b in baris:
+                persen_lama = Decimal(str(b["percentage"]))
+                persen_baru = (persen_lama * lama / baru).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+                if persen_baru == persen_lama:
+                    continue
+
+                await database.execute(
+                    project_progress_table.update()
+                    .where(project_progress_table.c.id == b["id"])
+                    .values(
+                        percentage=persen_baru,
+                        updatedAt=dt.now(),
+                        updatedBy=userID,
+                    )
+                )
+
+                # Aksinya DIBEDAKAN dari `update`.
+                #
+                # Yang membaca riwayat harus dapat melihat bahwa angkanya
+                # disusun ulang oleh sistem karena kontraknya berubah, bukan
+                # diketik ulang seseorang. Keduanya terlihat persis sama pada
+                # jejak bila memakai aksi yang sama, dan yang menelusurinya
+                # setahun kemudian akan mencari orang yang mengubahnya.
+                #
+                # `userID` TETAP orang yang menerbitkan adendumnya: sistem
+                # tidak bertindak sendiri, ia menindaklanjuti perbuatan
+                # seseorang, dan jejak yang kehilangan orang itu kehilangan
+                # pertanggungjawabannya.
+                await AuditLogRepository.record(
+                    entity="project_progress",
+                    entityID=int(b["id"]),
+                    action="progress_rebase",
+                    userID=userID,
+                    changes={
+                        "percentage": {
+                            "from": str(persen_lama),
+                            "to": str(persen_baru),
+                        }
+                    },
+                    note=(
+                        f"Disesuaikan sistem: nilai kontrak {lama} -> {baru}"
+                        f" ({sebab})".strip()
+                    ),
+                )
+                jumlah += 1
+
+            return {"disesuaikan": jumlah}
+        except Exception as e:
+            log_error(
+                f"Error rescaling progress for project {project_id}: {str(e)}"
+            )
             return internal_error()
 
     @staticmethod
