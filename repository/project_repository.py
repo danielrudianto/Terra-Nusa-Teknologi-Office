@@ -523,9 +523,35 @@ class ProjectRepository:
                     --
                     -- `dpp` tanpa PPN: PPN dipungut untuk negara, bukan
                     -- pendapatan proyek.
+                    --
+                    -- `isApprove = 1` WAJIB, dan ini satu-satunya tempat di
+                    -- seluruh backend yang sempat melewatkannya.
+                    --
+                    -- Faktur yang belum disetujui BELUM terbit: ia belum
+                    -- pernah sampai ke klien, dan klien belum berutang
+                    -- apa-apa karenanya. Menghitungnya di sini membuat
+                    -- kolom yang namanya sendiri "yang SUDAH difakturkan"
+                    -- memuat yang belum.
+                    --
+                    -- Arahnya pula yang berbahaya. Sisi BIAYA di kueri yang
+                    -- sama sengaja memasukkan draf pembelian — konservatif,
+                    -- karena biaya yang belum tercatat yang paling
+                    -- menyesatkan. Memasukkan faktur draf ke sisi
+                    -- PENDAPATAN adalah kebalikannya: ia membesarkan yang
+                    -- masuk dan membuat proyek tampak lebih sehat daripada
+                    -- kenyataannya, tepat pada angka yang dibaca untuk
+                    -- memutuskan lanjut atau berhenti.
+                    --
+                    -- Laba rugi (`laba_rugi_repository`), KPI, arus kas
+                    -- proyek, dan status keuangan SEMUANYA sudah menyaring
+                    -- `isApprove`. Yang ini tertinggal sendirian, sehingga
+                    -- daftar proyek dan laporan laba rugi dapat menyebut
+                    -- dua angka "tertagih" yang berbeda untuk proyek yang
+                    -- sama — tanpa ada yang salah terlihat di keduanya.
                     SELECT projectName, SUM(dpp) AS tertagih
                     FROM sales_invoices
                     WHERE isDelete = 0
+                      AND isApprove = 1
                     GROUP BY projectName
                 ) si ON si.projectName = p.code
                 LEFT JOIN (
