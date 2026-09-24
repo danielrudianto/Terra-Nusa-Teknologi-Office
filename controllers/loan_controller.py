@@ -328,13 +328,16 @@ class LoanController:
                 }
             )
         else:
+            # `updatedBy` tidak lagi dititipkan lewat muatan: repository
+            # menerimanya sebagai argumen tersendiri, dan muatannya kini
+            # disaring daftar kolom yang boleh diubah.
             hasil = await PaymentIncomingRepository.update(
                 baris[0]["id"],
                 {
                     "amount": nilai,
                     "bankAccountID": rekening,
-                    "updatedBy": user_id,
                 },
+                user_id,
             )
 
         if isinstance(hasil, dict) and "error" in hasil:

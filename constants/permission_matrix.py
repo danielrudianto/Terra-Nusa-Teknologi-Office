@@ -99,7 +99,17 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     # dokumen lama lewat `item_id`, jadi menyuntingnya mengubah isi dokumen
     # yang sudah terbit.
     "master_item": (1, 1, 3, 4, 0),
-    "payment_incoming": (3, 3, 3, 3, 3),
+    # Menghapus pembayaran masuk di level 4, mencatatnya tetap 3.
+    #
+    # Mencatat penerimaan adalah pekerjaan sehari-hari. Membatalkannya bukan:
+    # yang terhapus membuat faktur kembali tampak belum lunas, dan uang yang
+    # sudah masuk rekening tidak lagi terlihat di mana pun. Pemisahan yang
+    # sama dengan penghapusan pembelian yang sudah dibayar.
+    #
+    # `update` tetap 3: membetulkan rekening atau tanggal yang salah ketik
+    # tidak menghilangkan uangnya, dan yang mencatat biasanya yang pertama
+    # menyadari kekeliruannya.
+    "payment_incoming": (3, 3, 3, 4, 3),
     # Persetujuan pembayaran keluar di akses 4.
     #
     # Pemisahan yang dijaga bukan jarak levelnya, melainkan bahwa yang

@@ -187,10 +187,28 @@ class PaymentIncomingRepository:
             return internal_error()
 
     @staticmethod
-    async def update(payment_id: int, update_data: dict):
-        """Update a payment incoming."""
+    async def update(payment_id: int, update_data: dict, user_id: int):
+        """
+        Ubah pembayaran masuk.
+
+        Kolom yang boleh diubah DIDAFTAR di sini, bukan diambil apa adanya
+        dari muatan permintaan. Menyalin seluruh muatan membuat klien dapat
+        menulis `isDelete`, `isApprove`, `salesInvoiceID`, bahkan `id` —
+        cukup dengan menambahkan satu bidang pada permintaannya. Memindahkan
+        pembayaran ke faktur lain lewat jalur ini akan melewati seluruh
+        penjagaan yang dijalankan saat pembayaran dibuat.
+
+        Yang boleh hanya tiga: rekening tujuan, tanggal, dan nominal —
+        persis yang dapat salah diketik saat mencatat.
+        """
+        BOLEH = {"date", "amount", "bankAccountID"}
+
         try:
             from sqlalchemy import update
+
+            nilai = {k: v for k, v in (update_data or {}).items() if k in BOLEH}
+            if not nilai:
+                return {"error": "Tidak ada kolom yang dapat diubah.", "status": 400}
 
             # Keadaan lama dibaca lebih dulu agar nilai sebelumnya terekam.
             _sebelum = await database.fetch_one(
@@ -198,58 +216,86 @@ class PaymentIncomingRepository:
                     payment_incoming_table.c.id == payment_id
                 )
             )
-            
-            update_data["updatedAt"] = datetime.now()
-            
-            query = (
+            if not _sebelum:
+                return {"error": "Pembayaran tidak ditemukan.", "status": 404}
+            if _sebelum["isDelete"]:
+                return {"error": "Pembayaran sudah dihapus.", "status": 400}
+
+            nilai["updatedAt"] = datetime.now()
+            # `updatedBy` sebelumnya TIDAK pernah diisi: jejaknya menyebut
+            # ada perubahan tanpa menyebut siapa.
+            nilai["updatedBy"] = user_id
+
+            await database.execute(
                 update(payment_incoming_table)
                 .where(payment_incoming_table.c.id == payment_id)
-                .values(**update_data)
+                .values(**nilai)
             )
-            
-            result = await database.execute(query)
 
-            
+            _sesudah = await database.fetch_one(
+                select(payment_incoming_table).where(
+                    payment_incoming_table.c.id == payment_id
+                )
+            )
+
             from repository.audit_log_repository import AuditLogRepository
 
-            
             await AuditLogRepository.record(
-            
                 entity="payment_incoming",
-            
                 entityID=payment_id,
-            
                 action="update",
-            
+                userID=user_id,
+                # Dibandingkan keadaan SEBELUM dengan keadaan SESUDAH, bukan
+                # dengan muatan permintaan: muatan hanya memuat kolom yang
+                # dikirim, sehingga jejaknya dahulu menyebut perubahan yang
+                # sebenarnya tidak terjadi.
                 changes=AuditLogRepository.diff(
-            
-                    dict(_sebelum) if _sebelum else {}, update_data
-            
+                    dict(_sebelum), dict(_sesudah or {})
                 ),
-            
             )
             log_info(f"Payment incoming updated: {payment_id}")
-            return {"affected_rows": result}
+            return {"message": "Payment updated successfully"}
         except Exception as e:
             log_error(f"Error updating payment incoming: {str(e)}")
             return internal_error()
 
     @staticmethod
     async def soft_delete(payment_id: int, user_id: int):
-        """Soft delete a payment incoming."""
+        """
+        Hapus pembayaran masuk (lunak).
+
+        `deletedAt` dan `deletedBy` ikut diisi. Keduanya sudah lama ada di
+        tabelnya tetapi tidak pernah ditulis — yang terhapus hanya dapat
+        ditelusuri lewat `updatedBy`, yang artinya berbeda dan dapat ditimpa
+        penyuntingan berikutnya.
+        """
         try:
             from sqlalchemy import update
-            
+
+            _sebelum = await database.fetch_one(
+                select(payment_incoming_table).where(
+                    payment_incoming_table.c.id == payment_id
+                )
+            )
+            if not _sebelum:
+                return {"error": "Pembayaran tidak ditemukan.", "status": 404}
+            if _sebelum["isDelete"]:
+                # Bukan galat: hasil akhirnya sudah seperti yang diminta.
+                return {"message": "Payment deleted successfully"}
+
+            sekarang = datetime.now()
             query = (
                 update(payment_incoming_table)
                 .where(payment_incoming_table.c.id == payment_id)
                 .values(
                     isDelete=True,
                     updatedBy=user_id,
-                    updatedAt=datetime.now()
+                    updatedAt=sekarang,
+                    deletedBy=user_id,
+                    deletedAt=sekarang,
                 )
             )
-            
+
             await database.execute(query)
             log_info(f"Payment incoming soft deleted: {payment_id}")
             from repository.audit_log_repository import AuditLogRepository

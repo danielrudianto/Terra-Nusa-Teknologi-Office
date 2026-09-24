@@ -8,6 +8,7 @@ from typing import List
 from functools import reduce
 from datetime import date
 from utils.errors import internal_error
+from utils.transaksi import atomik
 
 class PaymentIncomingController:
     @staticmethod
@@ -35,4 +36,83 @@ class PaymentIncomingController:
             return payment
         except Exception as e:
             log_error(f"Error creating payment: {str(e)}")
+            return internal_error()
+
+    #: Menghapus pembayaran masuk dibatasi level 4 ke atas.
+    #:
+    #: Mencatatnya level 3 — itu pekerjaan sehari-hari. Membatalkannya bukan:
+    #: yang terhapus membuat faktur kembali tampak belum lunas, dan uang yang
+    #: sudah masuk rekening tidak lagi terlihat di mana pun. Pemisahannya sama
+    #: dengan penghapusan pembelian yang sudah dibayar.
+    LEVEL_HAPUS = 4
+
+    @staticmethod
+    @atomik
+    async def update_payment(payment_id: int, data: dict, user_id: int):
+        """
+        Betulkan pembayaran masuk yang salah catat.
+
+        Yang dapat dibetulkan hanya REKENING, TANGGAL, dan NOMINAL —
+        daftarnya ditegakkan di repository. Fakturnya sendiri tidak dapat
+        dipindah: memindahkan pembayaran ke faktur lain melewati seluruh
+        penjagaan yang berjalan saat pembayaran dibuat, dan hasilnya dua
+        faktur yang dua-duanya salah.
+
+        Nominal dijaga POSITIF di sini, bukan hanya di layar. Nol atau minus
+        akan lolos ke pembukuan sebagai penerimaan yang tidak pernah ada.
+        """
+        try:
+            lama = await PaymentIncomingRepository.get_by_id(payment_id)
+            if not lama:
+                return {"error": "Pembayaran tidak ditemukan.", "status": 404}
+            if isinstance(lama, dict) and "error" in lama:
+                return lama
+
+            if "amount" in (data or {}):
+                try:
+                    nominal = float(data["amount"])
+                except (TypeError, ValueError):
+                    return {"error": "Nominal tidak sah.", "status": 400}
+                if nominal <= 0:
+                    return {
+                        "error": "Nominal pembayaran harus lebih dari nol.",
+                        "status": 400,
+                    }
+
+            return await PaymentIncomingRepository.update(
+                payment_id, data or {}, user_id
+            )
+        except Exception as e:
+            log_error(f"Error updating payment {payment_id}: {str(e)}")
+            return internal_error()
+
+    @staticmethod
+    @atomik
+    async def delete_payment(payment_id: int, user_id: int, user_level: int = 0):
+        """
+        Hapus pembayaran masuk yang tidak pernah terjadi.
+
+        Dijaga level: lihat `LEVEL_HAPUS`. Penjagaan ini ADA DI SINI, bukan
+        hanya di matriks izin — rute lain yang kelak memanggil pembatalan ini
+        tetap melewatinya.
+        """
+        try:
+            if (user_level or 0) < PaymentIncomingController.LEVEL_HAPUS:
+                log_error(
+                    f"Penghapusan pembayaran masuk {payment_id} ditolak: "
+                    f"level {user_level}."
+                )
+                return {
+                    "error": (
+                        "Penghapusan pembayaran masuk hanya untuk level 4 "
+                        "ke atas."
+                    ),
+                    "status": 403,
+                }
+
+            return await PaymentIncomingRepository.soft_delete(
+                payment_id, user_id
+            )
+        except Exception as e:
+            log_error(f"Error deleting payment {payment_id}: {str(e)}")
             return internal_error()

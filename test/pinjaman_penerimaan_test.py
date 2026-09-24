@@ -75,10 +75,13 @@ class RepoPenerimaanTiruan:
         self.dibuat.append(dict(data))
         return {"payment_id": 99}
 
-    async def update(self, payment_id, data):
+    async def update(self, payment_id, data, user_id):
+        # `user_id` argumen tersendiri sejak muatannya disaring daftar kolom
+        # yang boleh diubah — `updatedBy` tidak lagi boleh menumpang di sana.
         if self.gagal:
             return {"error": "Internal server error.", "status": 500}
         self.diubah.append((payment_id, dict(data)))
+        self.pengubah = user_id
         return {"affected_rows": 1}
 
 
