@@ -57,8 +57,21 @@ async def get_my_permissions(
         )
     )
 
+    # Tanda "hanya baca" IKUT DIKIRIM.
+    #
+    # Peta izin di atas sudah menutup seluruh aksi tulis bagi akun pemeriksa,
+    # sehingga tombolnya memang tidak muncul. Tetapi layar yang kosong tanpa
+    # sebab terbaca seperti aplikasi yang rusak — yang memakainya perlu tahu
+    # bahwa akunnya memang dibuat untuk membaca saja.
+    try:
+        hanya_baca = bool(current_user["isReadOnly"])
+    except Exception:
+        # Kolomnya belum ada (SQL belum dijalankan). Tidak ada akun pemeriksa.
+        hanya_baca = False
+
     return {
         "level": current_user["authenticationLevel"] or 1,
         "departments": [d["department"] for d in divisi],
         "permissions": izin,
+        "readOnly": hanya_baca,
     }

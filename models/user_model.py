@@ -1,4 +1,4 @@
-from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy import Table, Column, Integer, String, Boolean, DateTime, ForeignKey, text
 from utils.database import metadata
 from datetime import datetime
 
@@ -26,4 +26,19 @@ users_table = Table(
     Column("updatedAt", DateTime(), nullable=True, default=None),
     Column("deletedAt", DateTime(), nullable=True, default=None),
     Column("authenticationLevel", Integer, default=1, nullable=False, comment="Authentication level of the user, between 1 and 5"),
+    # Akun PEMERIKSA — boleh membaca, tidak boleh mengubah apa pun.
+    #
+    # Dipakai konsultan pajak dan akuntansi yang menelusuri pembukuan
+    # sendiri. Tanpa tanda ini, memberi mereka akses ke laba rugi berarti
+    # memberi level 5 — yang sekaligus memberi hak menulis atas rekening
+    # bank, pinjaman, dan pengguna.
+    #
+    # Ditegakkan di `utils/permission.py::is_allowed`, di atas izin khusus.
+    Column(
+        "isReadOnly",
+        Boolean,
+        nullable=False,
+        server_default=text("0"),
+        default=False,
+    ),
 )

@@ -118,6 +118,22 @@ async def _departments(user_id: int) -> set[str]:
     return data
 
 
+def _hanya_baca(user) -> bool:
+    """
+    Akun pemeriksa — boleh membaca, tidak boleh mengubah apa pun.
+
+    Dibaca lewat `try`, bukan `user["isReadOnly"]` langsung: `user` adalah
+    `Row`, dan kolom yang belum ada di basis data (SQL-nya belum dijalankan)
+    melemparkan `KeyError` — yang artinya seluruh aplikasi berhenti bekerja,
+    bukan satu tanda yang tidak terbaca. Tidak ada kolomnya berarti tidak ada
+    akun pemeriksa, dan itu keadaan yang benar.
+    """
+    try:
+        return bool(user["isReadOnly"])
+    except Exception:
+        return False
+
+
 async def is_allowed(user, module: str, action: str) -> bool:
     """Apakah pengguna boleh melakukan aksi ini pada modul tersebut."""
     if user is None:
@@ -125,6 +141,28 @@ async def is_allowed(user, module: str, action: str) -> bool:
 
     user_id = user["id"]
     level = user["authenticationLevel"] or 1
+
+    """
+    HANYA BACA — diperiksa PALING AWAL, di atas izin khusus sekalipun.
+
+    Dipasang untuk pemeriksa dari luar: konsultan pajak dan akuntansi yang
+    perlu menelusuri pembukuan sendiri. Tanpa tanda ini, memberi mereka akses
+    ke laba rugi berarti memberi level 5 — dan level 5 sekaligus memberi hak
+    MENULIS atas rekening bank, pinjaman, dan pengguna. Auditor eksternal
+    yang dapat mengubah data induk keuangan adalah temuan tersendiri, dan
+    yang pertama menuliskannya justru auditor itu.
+
+    Letaknya di atas `_overrides` disengaja: izin khusus per pengguna tidak
+    boleh membukanya kembali. Tanda ini menyatakan sifat AKUNNYA, bukan
+    kewenangan atas satu modul — satu baris `allowed = 1` yang terlanjur ada
+    tidak boleh menjadikannya dapat menulis.
+
+    Arahnya MENOLAK: modul yang ditambahkan kelak ikut tertutup tanpa perlu
+    diingat. Daftar yang harus diperbarui setiap ada modul baru adalah
+    daftar yang suatu saat lupa diperbarui.
+    """
+    if _hanya_baca(user) and action != "read":
+        return False
 
     override = (await _overrides(user_id)).get((module, action))
     if override is not None:
