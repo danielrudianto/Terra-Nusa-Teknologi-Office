@@ -159,7 +159,16 @@ class TestJawabanSimpanCoP:
             encoding="utf-8",
         ).read()
         i = c.index("hasil = await CertificateOfPaymentRepository.create(")
-        return set(re.findall(r'"(\w+)":', c[i : i + 600]))
+
+        # Jendelanya DIHITUNG, bukan 600 karakter tetap.
+        #
+        # Dengan angka tetap, menambahkan satu paragraf keterangan di dalam
+        # dict-nya membuang kunci-kunci terakhir dari pandangan uji ini —
+        # dan ujinya gagal menyebut "kunci tidak pernah dikirim" untuk kunci
+        # yang jelas ada dua baris di bawahnya. Kegagalan yang menuduh
+        # tempat yang salah lebih buruk daripada tidak ada uji.
+        j = c.index("\n                },\n", i)
+        return set(re.findall(r'"(\w+)":', c[i:j]))
 
     def test_jawaban_tidak_membaca_kunci_yang_tak_pernah_dikirim(self):
         """

@@ -491,7 +491,21 @@ class CertificateOfPaymentController:
                     # penomoran mengurut per vendor, dan vendor yang keliru
                     # menempatkan dokumen pada deret milik pihak lain.
                     "supplierID": spk.get("supplierID"),
-                    "projectName": data.get("projectName") or spk.get("projectName") or "",
+                    # Proyeknya juga dari SPK-nya, dengan alasan yang SAMA
+                    # PERSIS seperti vendornya di atas — dan sampai sekarang
+                    # baris ini justru mendahulukan kiriman layar.
+                    #
+                    # Deret nomor dokumen mengurut per VENDOR DAN PROYEK
+                    # (`nomor_dokumen_berikut`: WHERE supplierID = :vendor AND
+                    # projectName = :proyek), dan kode proyeknya ikut tercetak
+                    # pada nama CoP-nya. Proyek yang keliru karena itu
+                    # mengambil nomor dari deret proyek lain — dan karena
+                    # penomoran memakai MAX dan tidak pernah memakai ulang
+                    # nomor, nomor itu hangus selamanya bagi pemiliknya.
+                    #
+                    # Layar memang sudah mengirim `spk.projectName`; yang
+                    # ditutup di sini muatan yang disusun sendiri.
+                    "projectName": spk.get("projectName") or "",
                     "date": data.get("date"),
                     "periodStart": data.get("periodStart"),
                     "periodEnd": data.get("periodEnd"),

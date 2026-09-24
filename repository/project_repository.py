@@ -301,6 +301,7 @@ class ProjectRepository:
         memakainya — cukup untuk membetulkan salah ketik, tanpa memutus
         jejak yang sudah terbit.
         """
+        from models.payment_plan_model import payment_plans_table
         from models.purchase_draft_model import purchase_draft_table
         from models.purchase_model import purchases_table
         from models.purchase_order_model import purchase_orders_table
@@ -314,6 +315,17 @@ class ProjectRepository:
             purchase_draft_table,
             reimbursements_table,
             sales_invoice_tables,
+            # Rencana pengeluaran — SATU-SATUNYA yang biasa sudah terisi
+            # ketika belum ada dokumen sama sekali.
+            #
+            # Justru itulah gunanya: modelnya sendiri menyebut "rencana
+            # dibuat sebelum dokumennya ada". Tanpa tabel ini, penggantian
+            # kode proyek tepat pada masa itu selalu lolos — dan seluruh
+            # baris rencananya tertinggal menyebut kode lama, sehingga
+            # kalender kas proyek yang baru menampilkan nol komitmen
+            # sementara barisnya masih terhitung pada total seluruh proyek
+            # di bawah kode yang tidak dimiliki siapa pun.
+            payment_plans_table,
         ):
             n = await database.fetch_val(
                 select(func.count()).select_from(tabel).where(

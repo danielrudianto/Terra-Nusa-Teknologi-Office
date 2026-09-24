@@ -452,8 +452,37 @@ class ExpenseRepository:
     @staticmethod
     async def update(expense_id: int, expense_data: dict):
         """
-        Update an expense in the database.
+        Ubah beban.
+
+        Kolom yang boleh diubah DIDAFTAR di sini, bukan diambil apa adanya
+        dari muatan permintaan. Alasannya sama dengan `PurchaseRepository`,
+        dan di sini akibatnya lebih tajam: `isPaid` pada beban BUKAN milik
+        layar ini — ia dihitung `PaymentOutgoingController` dari pembayaran
+        yang sudah disetujui.
+
+        Tanpa daftar ini, satu permintaan `{"isPaid": true}` menandai setoran
+        PPN sebagai lunas tanpa ada satu baris pembayaran pun di belakangnya:
+        rekonsiliasi setoran menampilkan masanya sudah beres, penanda "belum
+        dibayar" pada daftar beban berhenti muncul, dan uangnya tidak pernah
+        keluar. Tidak ada galat, dan tidak ada angka yang terlihat ganjil.
+
+        `isDelete`, `createdBy`, dan `id` tertutup oleh daftar yang sama —
+        cukup menambahkan satu bidang pada permintaannya untuk menulis
+        ketiganya.
+
+        `rowVersion` sengaja TIDAK di daftar: ia dikeluarkan lebih dulu di
+        bawah sebagai penjaga versi, bukan kolom yang ditulis.
         """
+        BOLEH = {
+            "invoiceName", "receiptName", "taxInvoiceName", "opponentID",
+            "date", "dueDate", "purchaseType", "masaPajak", "description",
+            "dpp", "ppn", "pbbkb",
+            "pphCode", "pphTaxObject", "pphPercentage",
+            "bankName", "bankAccountName", "bankAccountNumber",
+            "paymentMethod",
+            "updatedBy", "updatedAt",
+        }
+
         try:
             # Keadaan sebelum & sesudah dibandingkan agar nilai lama ikut
             # terekam; tanpa ini audit hanya tahu "diubah", bukan "dari apa".
@@ -476,8 +505,13 @@ class ExpenseRepository:
             bertambah, nol kembali hanya berarti satu hal.
             """
             versi = expense_data.pop("rowVersion", None)
+
+            nilai = {k: v for k, v in (expense_data or {}).items() if k in BOLEH}
+            if not nilai:
+                return {"error": "No editable field supplied.", "status": 400}
+
             hasil = await perbarui_terkunci(
-                expenses_table, expense_id, expense_data, versi
+                expenses_table, expense_id, nilai, versi
             )
             if hasil == "hilang":
                 return {"error": "Expense not found", "status": 404}
