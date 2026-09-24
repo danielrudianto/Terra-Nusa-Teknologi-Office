@@ -156,8 +156,9 @@ def test_aksi_yang_dijaga_tidak_bernilai_nol():
         ),
         (
             "routes/calendar_routes.py",
-            'require("payment_outgoing", "read")',
-            "kalender memuat jadwal pembayaran, dijaga seperti data pembayaran",
+            'require("payment_calendar", "read")',
+            "kalender punya modulnya sendiri: isinya RENCANA pembayaran, "
+            "bukan hanya pembayaran yang sudah terjadi",
         ),
     ],
 )

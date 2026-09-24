@@ -144,3 +144,50 @@ def test_tidak_ada_rute_tulis_berpenjaga_baca():
 
     masalah = bacatuliscek.periksa(str(akar / "routes"))
     assert masalah == [], "\n".join(masalah)
+
+
+# ------------------------------------------------- wilayah konsultan luar
+
+
+def test_konsultan_tidak_melihat_kalender_tetapi_melihat_pembayaran():
+    """
+    Kalender kas BUKAN urusan pemeriksa dari luar.
+
+    Isinya rencana pembayaran — siapa akan dibayar kapan, dengan uang mana.
+    Itu rencana kas perusahaan, bukan pembukuan yang sedang diperiksa.
+
+    Yang tetap harus terbuka: `payment_outgoing`, karena dari situlah mutasi
+    bank dibaca dan rekening koran dicocokkan. Keduanya dapat dipisahkan
+    hanya sejak kalender punya modulnya sendiri; selama ia menumpang
+    `payment_outgoing`, menutup yang satu berarti menutup yang lain.
+    """
+    from constants.department_modules import modules_for
+
+    wilayah = modules_for({"konsultan"})
+    assert "payment_calendar" not in wilayah
+    assert "payment_plan" not in wilayah
+    assert "payment_outgoing" in wilayah
+    assert "payment_incoming" in wilayah
+
+
+def test_fat_tetap_melihat_kalender():
+    # Modul baru tidak boleh mencabut kalender dari yang memang memakainya.
+    from constants.department_modules import modules_for
+
+    assert "payment_calendar" in modules_for({"fat"})
+
+
+def test_kalender_hanya_dapat_dibaca():
+    """
+    Kalender tidak membuat apa pun sendiri.
+
+    Rencana dicatat lewat `payment_plan`, pembayaran lewat
+    `payment_outgoing`. Aksi tulis pada modul ini tidak berlaku sama sekali —
+    bukan sekadar berlevel tinggi.
+    """
+    from constants.permission_matrix import ACTIONS, MATRIX, NOT_APPLICABLE
+
+    baris = MATRIX["payment_calendar"]
+    assert baris[ACTIONS.index("read")] == 3
+    for aksi in ("create", "update", "delete", "approve"):
+        assert baris[ACTIONS.index(aksi)] == NOT_APPLICABLE

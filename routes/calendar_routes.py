@@ -1,16 +1,24 @@
 """
 Rute kalender pembayaran.
 
-Dijaga `payment_outgoing:read`, bukan `calendar:read`.
+Dijaga `payment_calendar:read` — MODULNYA SENDIRI.
 
-Isinya jadwal pembayaran keluar, mutasi antarrekening, dan saldo
-rekening pada tanggal tersebut — seluruhnya data keuangan. Menjaganya
-dengan izin kalender membuat data itu terbaca oleh siapa pun yang
-dapat membuka kalender, padahal membuka daftar pembayarannya sendiri
-memerlukan akses 3.
+Isinya jadwal pembayaran keluar, mutasi antarrekening, dan saldo rekening
+pada tanggal tersebut — seluruhnya data keuangan. Menjaganya dengan izin
+kalender biasa membuat data itu terbaca oleh siapa pun yang dapat membuka
+kalender, padahal membuka daftar pembayarannya sendiri memerlukan akses 3.
+Karena itu dahulu ia menumpang `payment_outgoing:read`.
 
-Modul `calendar` tetap ada untuk penanda menu; yang menentukan batas
-data adalah isinya, bukan halaman yang menampilkannya.
+Menumpang itu punya harganya, dan baru terlihat ketika pemeriksa dari luar
+diberi akses: kalender memuat RENCANA pembayaran — siapa akan dibayar kapan,
+dengan uang mana — sementara `payment_outgoing` memuat pembayaran yang sudah
+terjadi. Yang pertama rencana kas perusahaan; yang kedua pembukuan.
+Konsultan perlu yang kedua untuk mencocokkan mutasi bank, dan tidak ada
+urusan dengan yang pertama. Selama keduanya satu izin, keduanya tidak dapat
+dipisahkan.
+
+Modul `calendar` tetap ada untuk penanda menu; yang menentukan batas data
+adalah isinya, bukan halaman yang menampilkannya.
 """
 
 from typing import Annotated, List
@@ -28,7 +36,7 @@ from controllers.calendar_controller import CalendarController
 router = APIRouter()
 
 @router.get("/")
-async def get_calendar_data(month: int, year: int, current_user: Annotated[User, Depends(require("payment_outgoing", "read"))], bankAccounts: List[int] =  Query(None)):
+async def get_calendar_data(month: int, year: int, current_user: Annotated[User, Depends(require("payment_calendar", "read"))], bankAccounts: List[int] =  Query(None)):
     """
     Get calendar data for a specific month and year.
     """
@@ -45,7 +53,7 @@ async def get_calendar_data(month: int, year: int, current_user: Annotated[User,
         raise e # Re-raise to return the HTTPException response
 
 @router.get("/daily")    
-async def get_calendar_data_by_date(date: str, current_user: Annotated[User, Depends(require("payment_outgoing", "read"))], bankAccounts: List[int] = Query(None)):
+async def get_calendar_data_by_date(date: str, current_user: Annotated[User, Depends(require("payment_calendar", "read"))], bankAccounts: List[int] = Query(None)):
     """
     Get calendar data for a specific date.
     """
@@ -64,7 +72,7 @@ async def get_calendar_data_by_date(date: str, current_user: Annotated[User, Dep
 
 @router.get("/tertunda")
 async def pembayaran_tertunda(
-    current_user: Annotated[User, Depends(require("payment_outgoing", "read"))],
+    current_user: Annotated[User, Depends(require("payment_calendar", "read"))],
     bankAccounts: List[int] = Query(None),
 ):
     """
@@ -79,7 +87,7 @@ async def pembayaran_tertunda(
 
 @router.get("/terjadwal")
 async def pembayaran_terjadwal(
-    current_user: Annotated[User, Depends(require("payment_outgoing", "read"))],
+    current_user: Annotated[User, Depends(require("payment_calendar", "read"))],
     mulai: date,
     akhir: date | None = None,
     bankAccounts: List[int] = Query(None),
@@ -99,7 +107,7 @@ async def pembayaran_terjadwal(
 
 @router.get("/download")
 async def download_calendar(
-    current_user: Annotated[User, Depends(require("payment_outgoing", "read"))],
+    current_user: Annotated[User, Depends(require("payment_calendar", "read"))],
     month: int | None = None,
     year: int | None = None,
     start: date | None = None,

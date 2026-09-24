@@ -117,6 +117,22 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     # tersendiri di payment_outgoing_controller: pembayaran tidak dapat
     # disetujui oleh orang yang membuatnya, berapa pun levelnya.
     "payment_outgoing": (3, 3, 3, 3, 4),
+    # Kalender kas — MODULNYA SENDIRI, bukan menumpang `payment_outgoing`.
+    #
+    # Kalender memuat dua hal yang berbeda sifatnya: pembayaran yang sudah
+    # terjadi, dan RENCANA pembayaran. Yang pertama pembukuan; yang kedua
+    # rencana kas perusahaan — siapa akan dibayar kapan, dan dengan uang
+    # mana.
+    #
+    # Selama ia menumpang `payment_outgoing`, kedua pertanyaan itu tidak
+    # pernah dapat dipisahkan: "boleh melihat pembayaran yang sudah terjadi"
+    # dan "boleh melihat rencana pembayaran kita" terjawab oleh satu izin
+    # yang sama. Konsultan dari luar perlu yang pertama untuk mencocokkan
+    # mutasi bank, dan tidak ada urusan dengan yang kedua.
+    #
+    # Hanya `read`: kalender tidak membuat apa pun sendiri. Rencana dicatat
+    # lewat `payment_plan`, pembayaran lewat `payment_outgoing`.
+    "payment_calendar": (3, 0, 0, 0, 0),
     # Proyek adalah data induk, tetapi pembuatannya dibatasi akses 4.
     #
     # Kode proyek tidak dapat diubah setelah dibuat — ia satu-satunya

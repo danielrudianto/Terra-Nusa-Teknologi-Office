@@ -84,6 +84,10 @@ DEPARTMENT_MODULES: dict[str, set[str]] = {
         "bank",
         "payment_incoming",
         "payment_outgoing",
+        # Kalender kas: perencanaannya pekerjaan FAT, sama seperti
+        # `payment_plan` di atas. Modulnya terpisah agar dapat diberikan
+        # tanpa ikut memberikan rencana pembayaran kepada pihak luar.
+        "payment_calendar",
         "interpayment",
         "loan",
         # perpajakan

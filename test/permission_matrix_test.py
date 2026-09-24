@@ -355,7 +355,10 @@ def test_rute_dijaga_sesuai_data_yang_dikembalikan():
 
     HARUS = {
         "routes/dashboard_routes.py": ["bank"],
-        "routes/calendar_routes.py": ["payment_outgoing"],
+        # Dahulu `payment_outgoing`; kini modulnya sendiri. Kalender memuat
+        # RENCANA pembayaran, dan rencana kas perusahaan bukan hal yang sama
+        # dengan pembayaran yang sudah terjadi.
+        "routes/calendar_routes.py": ["payment_calendar"],
     }
 
     akar = Path(__file__).resolve().parents[1]
