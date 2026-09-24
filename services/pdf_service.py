@@ -709,6 +709,45 @@ def _lengkapi(data: dict) -> dict:
         "persenAdendum": float(adendum / nilai_adendum) if nilai_adendum else 0.0,
     }
 
+    """
+    KONTRAKNYA BERPLAFON? Menentukan persentase dicetak atau tidak.
+
+    Pada SPK tenaga kerja (jenis D) yang disepakati HARGA SATUANNYA — upah
+    per hari, lembur per jam, tarif per meter — dan volumenya sengaja tidak
+    diplafon. `purchase_order_items.quantity` di sana berisi 1 sebagai
+    penambal, sehingga "nilai kontrak" yang terhitung adalah satu satuan
+    saja: Rp 120.000 untuk SPK yang setahun membayar puluhan juta.
+
+    Setiap persentase yang memakai angka itu sebagai penyebut karena itu
+    tidak menyatakan apa pun. Yang tercetak pada lembar sungguhan:
+
+        Progress Kontrak   300.00%  x  Rp 120.000,00  =  Rp 360.000,00
+        Pembayaran 2       700.00%  x  Rp 120.000,00
+        Pembayaran 4       733.33%
+
+    Tujuh ratus persen bukan sekadar jelek dipandang: ia angka yang
+    TERBACA, di lembar yang ditandatangani dua pihak, dan yang membacanya
+    tidak punya cara mengetahui bahwa penyebutnya memang tidak ada.
+
+    NILAI RUPIAHNYA TETAP BENAR dan tetap dicetak — yang dibuang hanya
+    persentasenya, berikut perkalian yang menghasilkannya. Sama seperti
+    lembar BAP, yang sudah lebih dulu mengganti bobot tanpa penyebut dengan
+    tanda pisah dan menerangkannya di kakinya (`cop_bap_isi.html`).
+
+    Sumber kebenaran jenisnya SATU: `JENIS_BOLEH_TANPA_PAGU` di repositori
+    CoP — himpunan yang sama yang dipakai menegakkan pagu. Disalin ke sini
+    sebagai huruf "D", keduanya akan berselisih diam-diam begitu salah satu
+    berubah.
+    """
+    from repository.certificate_of_payment_repository import (
+        JENIS_BOLEH_TANPA_PAGU,
+    )
+
+    keluar["kontrakBerplafon"] = (
+        str(spk.get("purchaseType") or "").strip().upper()
+        not in JENIS_BOLEH_TANPA_PAGU
+    )
+
     # Akumulasi: persentase tiap pembayaran terhadap nilai kontrak.
     #
     # Nomor barisnya DIURUTKAN ULANG 1, 2, 3 …, bukan memakai nomor CoP-nya.

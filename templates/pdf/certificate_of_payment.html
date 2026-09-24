@@ -128,6 +128,17 @@
         font-feature-settings: "tnum" 1;
         text-align: right;
       }
+      /* Catatan kaki blok akumulasi — keterangan kolom persen yang
+         sengaja dikosongkan pada SPK harga satuan. Ukuran dan warnanya
+         mengikuti `.bap-catatan` di lembar BAP, supaya kedua lembar dalam
+         satu berkas PDF tidak punya dua bentuk catatan yang berbeda. */
+      .cop-catatan-persen {
+        margin-top: 6pt;
+        font-size: 7.6pt;
+        color: #444;
+        line-height: 1.35;
+      }
+
       .h-label { width: 33%; }
       .h-titik { width: 2%; text-align: left; }
       .h-persen { width: 9%; text-align: right; }
@@ -488,6 +499,25 @@
               <col style="width: 4%" /><col style="width: 4%" />
               <col style="width: 17%" /><col style="width: 4%" />
             </colgroup>
+{#
+              PERSENTASE DIBUANG pada SPK harga satuan.
+
+              `kontrakBerplafon` salah berarti "nilai kontrak" yang menjadi
+              penyebut cuma satu satuan penambal — lihat catatan panjangnya
+              di `_lengkapi()` pada `services/pdf_service.py`. Persentase
+              yang memakainya keluar 300%, 700%, 733,33%.
+
+              Yang dibuang PERSENNYA beserta perkalian yang
+              menghasilkannya; nilai rupiahnya tetap benar dan tetap
+              tercetak, pindah ke kolom hasil dengan "Rp." di depannya
+              seperti baris Sub-Total di bawahnya.
+
+              `is not defined` disengaja, sama seperti `bapAdaPlafon` di
+              lembar BAP: kunci yang hilang adalah kekeliruan pemanggil,
+              dan lembarnya harus kembali ke perilaku lama — bukan
+              mengosongkan seluruh kolom persen pada SELURUH dokumen.
+            #}
+            {% if kontrakBerplafon is not defined or kontrakBerplafon %}
             <tr>
               <td class="h-label">Progress Kontrak</td><td class="h-titik">:</td>
               <td class="h-persen">{{ progres.persenInduk | persenPecahanUS }}</td>
@@ -508,6 +538,16 @@
               <td class="h-hasil garis-jumlah">{{ progres.nilaiAdendum | uang }}</td>
               <td class="h-tanda">+</td>
             </tr>
+            {% else %}
+            <tr>
+              <td class="h-label">Progress Kontrak</td><td class="h-titik">:</td>
+              <td class="h-persen"></td><td class="h-kali"></td>
+              <td class="h-rp"></td><td class="h-dasar"></td>
+              <td class="h-sama"></td><td class="h-rp2">Rp.</td>
+              <td class="h-hasil garis-jumlah">{{ progres.nilaiInduk | uang }}</td>
+              <td class="h-tanda"></td>
+            </tr>
+            {% endif %}
             <tr class="jumlah">
               <td class="h-label" colspan="6">Sub-Total Progress Periode Ini</td>
               <td class="h-sama"></td>
@@ -787,7 +827,7 @@
             -->
             <tr>
               <td class="h-label">Downpayment</td><td class="h-titik"></td>
-              <td class="h-persen">{{ spk.dpPercentage | persenUS }}</td>
+              <td class="h-persen">{% if kontrakBerplafon is not defined or kontrakBerplafon %}{{ spk.dpPercentage | persenUS }}{% endif %}</td>
               <td class="h-kali"></td>
               <td class="h-rp">Rp.</td>
               <td class="h-dasar">{{ dpKontrak | uang }}</td>
@@ -798,7 +838,7 @@
             <tr>
               <td class="h-label">Pembayaran {{ r.urut }}</td>
               <td class="h-titik"></td>
-              <td class="h-persen">{{ r.persen | persenPecahanUS }}</td>
+              <td class="h-persen">{% if kontrakBerplafon is not defined or kontrakBerplafon %}{{ r.persen | persenPecahanUS }}{% endif %}</td>
               <td class="h-kali"></td>
               <td class="h-rp">Rp.</td>
               <td class="h-dasar{% if loop.last %} garis-jumlah{% endif %}">{{ r.net | uang }}</td>
@@ -816,6 +856,24 @@
               <td class="h-hasil"></td><td class="h-tanda"></td>
             </tr>
           </table>
+          {#
+            KOLOM PERSEN YANG KOSONG HARUS DITERANGKAN di lembarnya sendiri.
+
+            Yang membacanya tidak punya cara lain mengetahui apakah kolom
+            yang kosong itu berarti "belum dihitung", "datanya hilang", atau
+            "tidak berlaku" — dan ketiganya menuntun ke pertanyaan yang
+            berbeda. Bentuk dan nadanya mengikuti catatan yang sudah ada di
+            kaki lembar BAP.
+          #}
+          {% if kontrakBerplafon is defined and not kontrakBerplafon %}
+          <div class="cop-catatan-persen">
+            Kolom persentase sengaja dikosongkan: SPK ini menyepakati HARGA
+            SATUAN, bukan volume, sehingga tidak ada nilai kontrak yang
+            dapat dijadikan penyebut. Nilai rupiah pada setiap baris dihitung
+            dari volume terlaksana dikalikan harga satuannya, dan berlaku apa
+            adanya.
+          </div>
+          {% endif %}
         </div>
 
         <!-- ---- CATATAN & TANDA TANGAN ---- -->
