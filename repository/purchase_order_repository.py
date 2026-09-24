@@ -450,6 +450,14 @@ class PurchaseOrderRepository:
                     purchase_orders_table.c.id,
                     purchase_orders_table.c.name,
                     purchase_orders_table.c.projectName,
+                    # Jenis pengadaannya ikut, dengan alasan yang sama
+                    # seperti proyeknya: pembelian menyimpan `purchaseType`
+                    # sendiri, dan itulah yang menentukan kategori biaya
+                    # pada laporan proyek. Bila ia tidak ikut berpindah saat
+                    # nomor PO dibetulkan, biayanya tetap masuk kategori
+                    # dokumen yang LAMA — laporan menunjukkan asuransi untuk
+                    # pembelian material, tanpa satu pun galat.
+                    purchase_orders_table.c.purchaseType,
                     purchase_orders_table.c.supplierID,
                 ).where(
                     purchase_orders_table.c.name == name,

@@ -477,6 +477,11 @@ class PurchaseController:
     _META_BOLEH = {
         "date", "taxInvoiceName", "invoiceName", "receiptName",
         "pphCode", "pphTaxObject", "taxPeriod",
+        # Jenis pengadaan TIDAK datang dari layar — ia diisi ulang di bawah
+        # dari purchase order yang dipilih, persis seperti `projectName`.
+        # Didaftarkan di sini hanya supaya penyaring tidak membuangnya
+        # kembali sesudah diisi.
+        "purchaseType",
         # Nomor PO ikut boleh dibetulkan, dan proyeknya MENGIKUTI.
         #
         # Keduanya keterangan, bukan nominal: tidak satu rupiah pun bergeser,
@@ -604,6 +609,17 @@ class PurchaseController:
                     # Proyeknya MENGIKUTI PO-nya, kecuali layar menyebut
                     # proyek lain dengan sengaja — lihat di bawah.
                     bersih.setdefault("projectName", po["projectName"])
+                    # Jenis pengadaannya juga.
+                    #
+                    # `purchaseType` menentukan KATEGORI biaya pada laporan
+                    # proyek. Tanpa baris ini, membetulkan nomor PO
+                    # memindahkan proyeknya tetapi meninggalkan kategorinya:
+                    # pembelian material yang dipindahkan dari dokumen 6.4.2
+                    # tetap terhitung sebagai asuransi, dan yang membaca
+                    # laporannya mencari pembelian yang "hilang" di kategori
+                    # yang benar sementara nilainya ada di kategori lain.
+                    if po["purchaseType"]:
+                        bersih["purchaseType"] = po["purchaseType"]
 
             # ---- proyek yang dibebani ------------------------------------
             #

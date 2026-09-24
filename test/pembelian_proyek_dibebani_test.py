@@ -26,6 +26,7 @@ PEMBELIAN = {
     "id": 5,
     "purchaseOrderName": "144-PO-R501-G",
     "projectName": "R501",
+    "purchaseType": "6.4.2",
     "dpp": 1_000_000,
     "ppn": 11,
     "pphPercentage": 0,
@@ -49,8 +50,21 @@ class RepoPo:
     @staticmethod
     async def cari_aktif_berdasarkan_nama(nama):
         peta = {
-            "144-PO-R501-G": {"name": "144-PO-R501-G", "projectName": "R501"},
-            "021-PO-TSKBP-G": {"name": "021-PO-TSKBP-G", "projectName": "TSKBP"},
+            "144-PO-R501-G": {
+                "name": "144-PO-R501-G",
+                "projectName": "R501",
+                "purchaseType": "G",
+            },
+            "021-PO-TSKBP-G": {
+                "name": "021-PO-TSKBP-G",
+                "projectName": "TSKBP",
+                "purchaseType": "G",
+            },
+            "831-SPK-PUSAT-6.4.1": {
+                "name": "831-SPK-PUSAT-6.4.1",
+                "projectName": "PUSAT",
+                "purchaseType": "6.4.1",
+            },
         }
         return peta.get(nama)
 
@@ -58,7 +72,7 @@ class RepoPo:
 class RepoProyek:
     @staticmethod
     async def get_by_code(kode):
-        return {"code": kode.upper()} if kode.upper() in {"R501", "MCHP", "TSKBP"} else None
+        return {"code": kode.upper()} if kode.upper() in {"R501", "MCHP", "TSKBP", "PUSAT"} else None
 
 
 class RepoBayar:
@@ -163,3 +177,43 @@ async def test_menyunting_hal_lain_tidak_menyentuh_proyek():
     hasil = await sunting({"invoiceName": "INV-77"})
     assert "error" not in hasil
     assert "projectName" not in RepoPembelian.diperbarui[1]
+
+
+# ------------------------------------------- jenis pengadaan ikut PO-nya
+
+
+@pytest.mark.asyncio
+async def test_jenis_pengadaan_ikut_nomor_po_barunya():
+    """
+    `purchaseType` menentukan KATEGORI biaya pada laporan proyek.
+
+    Kasus nyatanya: nomor PO salah diketik saat mencatat, lalu dibetulkan.
+    Proyeknya ikut berpindah, jenisnya tidak — sehingga pembelian jasa
+    hukum tetap terhitung sebagai asuransi, dan yang membaca laporan
+    mencari nilai yang "hilang" di kategori yang benar sementara angkanya
+    ada di kategori lain. Tidak ada galat sama sekali.
+    """
+    hasil = await sunting({"purchaseOrderName": "831-SPK-PUSAT-6.4.1"})
+    assert "error" not in hasil
+    assert RepoPembelian.diperbarui[1]["purchaseType"] == "6.4.1"
+    assert RepoPembelian.diperbarui[1]["projectName"] == "PUSAT"
+
+
+@pytest.mark.asyncio
+async def test_jenis_tidak_disentuh_bila_nomor_po_tidak_berubah():
+    # Penyuntingan nomor faktur tidak boleh menulis ulang kolom yang tidak
+    # ada hubungannya.
+    hasil = await sunting({"invoiceName": "INV-77"})
+    assert "error" not in hasil
+    assert "purchaseType" not in RepoPembelian.diperbarui[1]
+
+
+@pytest.mark.asyncio
+async def test_jenis_dari_layar_tidak_dipercaya():
+    # Muatan dapat disusun sendiri lewat Network tab; jenisnya selalu
+    # diambil dari dokumen PO-nya, bukan dari yang dikirim.
+    hasil = await sunting(
+        {"purchaseOrderName": "831-SPK-PUSAT-6.4.1", "purchaseType": "F"}
+    )
+    assert "error" not in hasil
+    assert RepoPembelian.diperbarui[1]["purchaseType"] == "6.4.1"
