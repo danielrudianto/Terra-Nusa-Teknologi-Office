@@ -1115,7 +1115,18 @@ class CertificateOfPaymentRepository:
         # Diurutkan sesuai PERJALANAN dokumennya — draf, BAP disetujui, CoP
         # dibuat, CoP disetujui — bukan menurut abjad namanya, karena urutan
         # itulah yang berarti bagi yang membacanya.
-        "keadaan": "c.isApproved, c.isCopCreated, c.isBapApproved",
+        # Diurutkan sesuai PERJALANAN dokumennya — draf, BAP disetujui, CoP
+        # dibuat, disetujui, ditagih. Penagihan adalah tahap KELIMA, jadi ia
+        # yang paling menentukan; tanpa menyebutnya di sini, dua dokumen
+        # yang berbeda tahap tampil berselang-seling di kolom yang sedang
+        # mengurutkannya.
+        "keadaan": (
+            "(tagihan.id IS NOT NULL), c.isApproved, "
+            "c.isCopCreated, c.isBapApproved"
+        ),
+        # Penagihan sebagai kolom urut tersendiri — "mana yang belum
+        # ditagih" dijawab sekali ketuk, tanpa mengganti penyaring.
+        "tagihan": "(tagihan.id IS NOT NULL)",
     }
 
     @staticmethod
@@ -1174,6 +1185,40 @@ class CertificateOfPaymentRepository:
             membuat jumlah pada setiap keping lain berubah arti tanpa ada
             yang memberitahu.
             """
+            """
+            TAHAP KELIMA: SUDAH DITAGIHKAN.
+
+            Penagihan bukan dimensi lain melainkan LANGKAH BERIKUTNYA
+            sesudah CoP disetujui — di lapangan, satu-satunya pertanyaan
+            yang tersisa di depan CoP yang sudah disetujui adalah "sudah
+            dibuatkan tagihannya belum". Karena itu ia masuk ke deret tahap
+            yang sama, bukan menjadi penyaring kedua yang harus
+            dikombinasikan sendiri.
+
+            Dibaca dari `purchases`, BUKAN dari penanda pada CoP — sama
+            seperti `tagihan()` di bawah. Tidak ada penanda kedua yang harus
+            dijaga sejalan, dan pembelian yang dihapus membuka kembali
+            CoP-nya dengan sendirinya.
+
+            DIKELOMPOKKAN LEBIH DULU, bukan `LEFT JOIN purchases` langsung.
+            Tidak ada yang menjamin satu CoP hanya dirujuk satu pembelian —
+            tidak ada UNIQUE di kolom itu — dan sambungan mentah akan
+            MELIPATGANDAKAN baris CoP-nya di daftar sementara `total` di
+            bawahnya menghitung yang lain. Satu dokumen muncul dua kali,
+            pemenggal halamannya meleset, dan tidak ada satu pun galat.
+            """
+            TAGIHAN = """
+                LEFT JOIN (
+                    SELECT certificateOfPaymentID AS cop,
+                           MIN(id)          AS id,
+                           MIN(invoiceName) AS invoiceName,
+                           MAX(isPaid)      AS isPaid
+                    FROM purchases
+                    WHERE isDelete = 0 AND certificateOfPaymentID IS NOT NULL
+                    GROUP BY certificateOfPaymentID
+                ) tagihan ON tagihan.cop = c.id
+            """
+
             terhapus = (keadaan or "").strip() == "dihapus"
             syarat = ["c.isDelete = 1" if terhapus else "c.isDelete = 0"]
             params: Dict[str, Any] = {}
@@ -1235,10 +1280,20 @@ class CertificateOfPaymentRepository:
                 "draft": "c.isBapApproved = 0",
                 "bap": "c.isBapApproved = 1 AND c.isCopCreated = 0",
                 "dibuat": "c.isCopCreated = 1 AND c.isApproved = 0",
+                # SIAP TAGIH — disetujui, dan belum ada pembelian yang
+                # menagihkannya. Inilah yang dicari orang: pekerjaan yang
+                # sudah sah tetapi uangnya belum diminta.
+                "siap": "c.isApproved = 1 AND tagihan.id IS NULL",
+                # SUDAH DITAGIH — tahap terakhir, tidak menunggu siapa pun.
+                "ditagih": "c.isApproved = 1 AND tagihan.id IS NOT NULL",
+                # Alias lama tetap dikenali agar tautan dan keping penyaring
+                # yang tersimpan tidak mendadak kosong.
+                #
+                # "disetujui" SENGAJA tetap berarti SELURUH yang disetujui —
+                # ditagih maupun belum. Beranda ponsel dan tautan lama
+                # memakai kata itu, dan mempersempitnya diam-diam membuat
+                # angka di sana berubah tanpa ada yang mengubahnya.
                 "disetujui": "c.isApproved = 1",
-                # Alias lama tetap dikenali agar tautan/keping penyaring yang
-                # tersimpan tidak mendadak kosong: "diperiksa" kini berarti
-                # tahap "dibuat".
                 "diperiksa": "c.isCopCreated = 1 AND c.isApproved = 0",
             }
             # "dihapus" sudah dikerjakan di atas lewat `isDelete`; ia bukan
@@ -1264,12 +1319,17 @@ class CertificateOfPaymentRepository:
             # menyentuh kolom di sana, dan jumlah yang dihitung tanpa
             # gabungan itu tidak dapat menyaringnya. Halaman terakhir lalu
             # berisi baris kosong karena jumlahnya lebih besar dari isinya.
+            # Hitungannya menyambung TAGIHAN juga — penyaring "siap"/"ditagih"
+            # menyentuh kolom di sana, dan jumlah yang dihitung tanpa
+            # sambungan itu gagal dengan galat SQL, bukan dengan angka yang
+            # keliru. Sama seperti `purchase_orders` di atasnya.
             total = await database.fetch_val(
                 f"""
                 SELECT COUNT(*)
                 FROM certificate_of_payments c
                 JOIN purchase_orders po ON po.id = c.purchaseOrderID
                 LEFT JOIN suppliers s ON s.id = po.supplierID
+                {TAGIHAN}
                 WHERE {where}
                 """,
                 params,
@@ -1291,12 +1351,18 @@ class CertificateOfPaymentRepository:
                        -- membawa orang ke keping "Dihapus". Tanpa nama, yang
                        -- tersisa hanya id yang tidak berarti apa pun di
                        -- layar.
-                       penghapus.name AS deletedByName
+                       penghapus.name AS deletedByName,
+                       -- Keadaan penagihan, untuk lencana tahap kelima di
+                       -- kolom "keadaan" dan nomor tagihannya di tooltip.
+                       tagihan.id          AS tagihanID,
+                       tagihan.invoiceName AS tagihanNomor,
+                       tagihan.isPaid      AS tagihanLunas
                 FROM certificate_of_payments c
                 JOIN purchase_orders po ON po.id = c.purchaseOrderID
                 LEFT JOIN suppliers s ON s.id = po.supplierID
                 LEFT JOIN users pembuat ON pembuat.id = c.createdBy
                 LEFT JOIN users penghapus ON penghapus.id = c.deletedBy
+                {TAGIHAN}
                 WHERE {where}
                 ORDER BY {urutan}
                 LIMIT :limit OFFSET :offset

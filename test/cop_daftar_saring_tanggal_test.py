@@ -158,3 +158,95 @@ async def test_pengurutan_spk_benar_benar_sampai_ke_sql(fake_db):
     await _panggil(db, sort_by="spk", sort_dir="asc")
     sql = _sql(db, "fetch_all")[0]
     assert "ORDER BY po.name ASC" in sql, sql
+
+
+# --------------------------------------------------------------------- #
+# tahap kelima: sudah ditagihkan
+# --------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_siap_tagih_hanya_yang_disetujui_dan_belum_ditagih(fake_db):
+    db = fake_db(MODUL)
+    await _panggil(db, keadaan="siap")
+    sql = _sql(db, "fetch_all")[0]
+    assert "c.isApproved = 1" in sql
+    assert "tagihan.id IS NULL" in sql
+
+
+@pytest.mark.asyncio
+async def test_ditagih_menuntut_ADA_pembelian_yang_hidup(fake_db):
+    db = fake_db(MODUL)
+    await _panggil(db, keadaan="ditagih")
+    sql = _sql(db, "fetch_all")[0]
+    assert "tagihan.id IS NOT NULL" in sql
+    # Pembelian yang dihapus TIDAK menahan CoP-nya sebagai "sudah ditagih" —
+    # menghapus pembeliannya harus membuka kembali CoP-nya dengan
+    # sendirinya, tanpa langkah tambahan yang dapat terlupa.
+    assert "isDelete = 0 AND certificateOfPaymentID IS NOT NULL" in sql
+
+
+@pytest.mark.asyncio
+async def test_disetujui_TETAP_berarti_seluruhnya(fake_db):
+    """
+    Alias lama tidak boleh menyempit diam-diam.
+
+    Beranda ponsel dan tautan tersimpan memakai `keadaan=disetujui`.
+    Mempersempitnya menjadi "yang belum ditagih" membuat angka di sana
+    berubah tanpa ada satu pun yang mengubahnya.
+    """
+    db = fake_db(MODUL)
+    await _panggil(db, keadaan="disetujui")
+    sql = _sql(db, "fetch_all")[0]
+    assert "c.isApproved = 1" in sql
+    assert "tagihan.id IS NULL" not in sql
+    assert "tagihan.id IS NOT NULL" not in sql
+
+
+@pytest.mark.asyncio
+async def test_penagihan_DIKELOMPOKKAN_dulu_bukan_disambung_mentah(fake_db):
+    """
+    Penjaga terpenting di bagian ini.
+
+    Tidak ada UNIQUE pada `purchases.certificateOfPaymentID`. Disambung
+    mentah, satu CoP yang dirujuk dua pembelian MENGGANDA di daftar
+    sementara `total` menghitung yang lain — satu dokumen muncul dua kali,
+    pemenggal halamannya meleset, dan tidak ada galat sama sekali.
+    """
+    db = fake_db(MODUL)
+    await _panggil(db)
+    sql = _sql(db, "fetch_all")[0]
+    assert "GROUP BY certificateOfPaymentID" in sql
+    # Sambungan mentah ke tabelnya langsung tidak boleh ada.
+    assert "JOIN purchases tagihan" not in sql
+
+
+@pytest.mark.asyncio
+async def test_hitungan_ikut_menyambung_penagihan(fake_db):
+    """
+    Tanpa ini, memilih keping "Siap ditagih" menjatuhkan hitungannya dengan
+    galat SQL — `tagihan` tidak dikenal di sana — dan seluruh daftar gagal.
+    """
+    db = fake_db(MODUL)
+    await _panggil(db, keadaan="siap")
+    hitung = _sql(db, "fetch_val")[0]
+    assert "tagihan" in hitung, hitung
+    assert "GROUP BY certificateOfPaymentID" in hitung
+
+
+@pytest.mark.asyncio
+async def test_baris_membawa_nomor_tagihannya(fake_db):
+    db = fake_db(MODUL)
+    await _panggil(db)
+    sql = _sql(db, "fetch_all")[0]
+    for kolom in ("tagihanID", "tagihanNomor", "tagihanLunas"):
+        assert kolom in sql, kolom
+
+
+@pytest.mark.asyncio
+async def test_tahap_kelima_hidup_bersama_rentang_tanggal(fake_db):
+    db = fake_db(MODUL)
+    await _panggil(db, keadaan="siap", dari="2026-09-01", sampai="2026-09-30")
+    sql = _sql(db, "fetch_all")[0]
+    assert "tagihan.id IS NULL" in sql
+    assert "c.date >= :dari" in sql
+    assert "c.date <= :sampai" in sql
+    assert "c.isDelete = 0" in sql

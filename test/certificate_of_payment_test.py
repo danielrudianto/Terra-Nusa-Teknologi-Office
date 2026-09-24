@@ -2099,15 +2099,26 @@ class TestUrutanDaftar:
 
     def test_keadaan_urut_mengikuti_perjalanan_dokumen(self):
         """
-        Draf -> diperiksa -> disetujui, bukan menurut abjad.
+        Draf -> BAP -> CoP dibuat -> disetujui -> DITAGIH, bukan abjad.
 
         Itulah urutan yang berarti bagi yang membacanya; menurut abjad,
         "diperiksa" mendahului "draf" dan daftarnya tidak menyatakan apa-apa.
+
+        Penagihan ikut, dan PALING MENENTUKAN — ia tahap kelima. Tanpa
+        menyebutnya, CoP yang sudah ditagih dan yang belum tampil
+        berselang-seling di dalam kelompok "disetujui", padahal kolom itu
+        yang sedang dipakai mengurutkan.
         """
         hasil = Repo._urutan("keadaan", "asc")
         assert hasil == (
-            "c.isApproved ASC, c.isCopCreated ASC, c.isBapApproved ASC, "
-            "c.id DESC"
+            "(tagihan.id IS NOT NULL) ASC, c.isApproved ASC, "
+            "c.isCopCreated ASC, c.isBapApproved ASC, c.id DESC"
+        )
+
+    def test_tagihan_boleh_menjadi_dasar_pengurutan(self):
+        """"Mana yang belum ditagih" dijawab sekali ketuk kepala kolom."""
+        assert Repo._urutan("tagihan", "asc") == (
+            "(tagihan.id IS NOT NULL) ASC, c.id DESC"
         )
 
     @pytest.mark.asyncio
