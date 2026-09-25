@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException, Request
+import os
+
+from fastapi import APIRouter, HTTPException, Request, Response
 from models.auth_model import LoginData
 from controllers.user_controller import UserController
 from datetime import datetime, timedelta, timezone
@@ -17,8 +19,99 @@ from utils.auth_utils import User
 
 router = APIRouter()
 
+
+# ---------------------------------------------------------------------------
+# REFRESH TOKEN DISIMPAN SEBAGAI COOKIE HttpOnly, BUKAN DI localStorage.
+# ---------------------------------------------------------------------------
+#
+# `localStorage` dapat dibaca JavaScript mana pun yang berhasil berjalan di
+# halaman — satu skrip pihak ketiga yang disusupi, satu XSS di layar mana
+# pun, dan refresh token ikut terbawa. Refresh token adalah kunci yang
+# paling mahal di sistem ini: ia menerbitkan access token baru berulang kali
+# selama tujuh hari, jadi yang mencurinya tidak perlu kata sandi dan tidak
+# terlihat sebagai login baru.
+#
+# Cookie `HttpOnly` TIDAK dapat dibaca JavaScript sama sekali. Ia tetap
+# terkirim sendiri oleh peramban pada permintaan ke host yang menerbitkannya.
+#
+# ATURAN COOKIE-NYA, dan tiap bagian ada alasannya:
+#
+#   httponly  — inti seluruh perubahan ini.
+#   secure    — hanya lewat HTTPS. Dimatikan di luar produksi supaya
+#               pengembangan di `http://localhost` tetap jalan; kalau tidak,
+#               peramban membuang cookie-nya diam-diam dan yang terlihat
+#               hanyalah "sesi berakhir" tiap satu jam.
+#   samesite  — `lax`. Aplikasi (`terrabot.…`) dan API (`services.terrabot.…`)
+#               berbagi domain terdaftar yang sama, sehingga permintaannya
+#               SAME-SITE walau beda asal. `strict` pun sebenarnya cukup,
+#               tetapi `lax` menyisakan ruang bila kelak ada tautan masuk.
+#   path      — `/auth` saja. Cookie ini hanya diperlukan rute penyegaran dan
+#               keluar; mengirimkannya pada setiap permintaan gambar dan
+#               daftar hanya memperluas permukaan tanpa gunanya.
+#
+# TANPA `domain`, SENGAJA. Cookie diterbitkan oleh host API dan dikirim
+# kembali ke host API itu juga. Memberi `domain=.terrabot.…` justru
+# menyebarkannya ke seluruh subdomain, termasuk yang tidak ada urusannya.
+#
+# Sisi peramban wajib mengirim `withCredentials`, dan CORS di `main.py`
+# sudah `allow_credentials=True` dengan daftar asal yang disebut satu per
+# satu — bukan `*`, yang memang tidak diizinkan bersama kredensial.
+
+NAMA_COOKIE_SEGAR = "refresh_token"
+JALUR_COOKIE_SEGAR = "/auth"
+
+
+def _produksi() -> bool:
+    return (os.getenv("APP_ENV") or "").strip().lower() == "production"
+
+
+def _pasang_cookie_segar(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=NAMA_COOKIE_SEGAR,
+        value=token,
+        httponly=True,
+        secure=_produksi(),
+        samesite="lax",
+        path=JALUR_COOKIE_SEGAR,
+        max_age=int(REFRESH_TOKEN_EXPIRE_MINUTES) * 60,
+    )
+
+
+def _hapus_cookie_segar(response: Response) -> None:
+    # Atributnya HARUS sama dengan saat dipasang — peramban mencocokkan
+    # nama, path, dan domain. Berbeda satu saja, cookie lamanya tetap
+    # tinggal dan yang "keluar" masih dapat menyegarkan tokennya.
+    response.delete_cookie(
+        key=NAMA_COOKIE_SEGAR,
+        path=JALUR_COOKIE_SEGAR,
+        httponly=True,
+        secure=_produksi(),
+        samesite="lax",
+    )
+
+
+def _baca_token_segar(request: Request) -> str:
+    """
+    Refresh token dari COOKIE lebih dulu, header sebagai cadangan.
+
+    Cadangannya SENGAJA dipertahankan untuk masa peralihan: tab yang sudah
+    terbuka sebelum pembaruan ini masih memegang tokennya di `localStorage`
+    dan mengirimkannya lewat header. Tanpa cadangan ini mereka semua
+    terlempar keluar serentak pada saat deploy — dan yang terlihat oleh
+    mereka hanyalah "sesi berakhir" tanpa sebab.
+
+    Begitu seluruh pengguna sudah masuk kembali (paling lama tujuh hari,
+    sepanjang masa refresh token), cabang headernya dapat dibuang.
+    """
+    dari_cookie = (request.cookies.get(NAMA_COOKIE_SEGAR) or "").strip()
+    if dari_cookie:
+        return dari_cookie
+    header = request.headers.get("x-refresh-token") or ""
+    bagian = header.split(" ")
+    return bagian[1].strip() if len(bagian) > 1 else ""
+
 @router.post("/")
-async def login(loginData: LoginData, request: Request):
+async def login(loginData: LoginData, request: Request, response: Response):
     ip = request.client.host if request.client else None
 
     # Diperiksa sebelum kata sandi dicocokkan, supaya percobaan yang sudah
@@ -104,10 +197,23 @@ async def login(loginData: LoginData, request: Request):
         refresh_payload, timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES)
     )
     
+    _pasang_cookie_segar(response, refresh_token)
+
+    """
+    `refresh_token` MASIH ikut di badan jawaban — sementara.
+
+    Layar yang baru tidak menyimpannya lagi; ia mengandalkan cookie. Bidang
+    ini ditinggalkan supaya build layar yang LAMA — yang masih terbuka di
+    tab seseorang saat deploy — tidak mendadak gagal masuk.
+
+    Dibuang pada pembersihan berikutnya, bersama cabang header pada
+    `_baca_token_segar`. Keduanya berpasangan; membuang salah satunya lebih
+    dulu meninggalkan jalan masuk yang tidak dipakai siapa pun.
+    """
     return {"access_token": token, "refresh_token": refresh_token, "token_type": "bearer", "user": user}
     
 @router.post("/refresh")
-async def refresh_token(request: Request):
+async def refresh_token(request: Request, response: Response):
     """
     Perbarui access token, sekaligus menerbitkan refresh token baru.
 
@@ -121,9 +227,7 @@ async def refresh_token(request: Request):
     lebih dulu terlempar, sementara yang rutin masuk-keluar tidak pernah
     mengalaminya karena selalu mendapat token baru dari proses login.
     """
-    header = request.headers.get("x-refresh-token") or ""
-    bagian = header.split(" ")
-    refresh_token = bagian[1] if len(bagian) > 1 else ""
+    refresh_token = _baca_token_segar(request)
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Refresh token not provided")
 
@@ -150,8 +254,32 @@ async def refresh_token(request: Request):
         timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES),
     )
 
+    # BERPUTAR: tiap penyegaran menerbitkan cookie baru berikut masa baru.
+    # Tanpa ini, cookie-nya tetap milik login pertama dan kedaluwarsa tujuh
+    # hari kemudian walau orangnya memakai aplikasi setiap hari — persis
+    # cacat yang dahulu terjadi pada refresh token di badan jawaban.
+    _pasang_cookie_segar(response, new_refresh)
+
     return {
         "access_token": token_data,
         "refresh_token": new_refresh,
         "token_type": "bearer",
     }
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    """
+    Hapus cookie refresh token.
+
+    WAJIB ADA sejak cookie-nya `HttpOnly`: layar tidak dapat menghapusnya
+    sendiri — itu memang intinya. Tanpa rute ini, "keluar" hanya membuang
+    access token di layar, sementara kunci yang paling mahal tetap tinggal
+    di peramban dan masih dapat menerbitkan token baru selama tujuh hari.
+
+    TIDAK menuntut token yang sah. Yang menekan keluar mungkin justru
+    sedang terlempar karena tokennya sudah tidak berlaku, dan menolak
+    permintaannya berarti meninggalkan cookie-nya di sana.
+    """
+    _hapus_cookie_segar(response)
+    return {"ok": True}

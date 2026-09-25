@@ -48,6 +48,17 @@ KUERI_POST = {
 TANPA_IZIN = {
     ("auth_routes.py", "/"),
     ("auth_routes.py", "/refresh"),
+    # KELUAR sengaja tidak berpenjaga izin.
+    #
+    # Yang menekan keluar justru sering sedang terlempar karena tokennya
+    # sudah tidak berlaku. Menuntut token yang sah berarti menolak
+    # permintaannya — dan meninggalkan cookie refresh-nya di peramban, yaitu
+    # kebalikan dari yang diminta.
+    #
+    # Ia pun tidak menulis apa pun ke basis data: satu-satunya akibatnya
+    # adalah cookie di peramban PEMANGGILNYA SENDIRI dihapus. Tidak ada yang
+    # dapat ditembus akun hanya-baca di sini.
+    ("auth_routes.py", "/logout"),
     ("employee_form_routes.py", "/isi/{token}"),
     ("hr_recruitment_routes.py", "/exam/{token}/biodata"),
     ("hr_recruitment_routes.py", "/exam/{token}/mulai"),
