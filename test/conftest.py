@@ -158,3 +158,97 @@ def _pasang_tabel_tiruan() -> None:
 if not UJI_DB:
     _pasang_tabel_tiruan()
 
+
+# ---------------------------------------------------------------------------
+# PRASYARAT DISARING SAAT PENGUMPULAN, BUKAN SAAT UJI DIJALANKAN
+#
+# Sebelumnya uji yang prasyaratnya tidak ada — basis data uji, `pdftotext`,
+# repo frontend di sebelah — dijalankan lalu melapor SKIPPED satu per satu.
+# Delapan puluh satu baris "SKIPPED [1] ... TEST_DATABASE_URL belum disetel"
+# dengan kalimat yang sama persis, setiap kali, di bawah hasil yang sebenarnya.
+#
+# Kenapa itu buruk, bukan sekadar berisik: ringkasan yang selalu memuat puluhan
+# skip membuat skip BERHENTI BERARTI. Satu uji yang mulai dilewati karena
+# sebab yang sungguhan — berkas hilang, prasyarat berubah — tenggelam di antara
+# delapan puluh yang memang selalu dilewati, dan tidak ada yang menyadarinya.
+#
+# Sekarang uji itu tidak ikut dikumpulkan sama sekali: pytest melaporkannya
+# sebagai `deselected`, satu angka, dan sebabnya disebut SEKALI di kepala
+# keluaran. Yang berjalan berjalan; yang tidak, tidak muncul sebagai hasil.
+#
+# Penandanya TIDAK diubah. `pytest.mark.skipif` di berkas ujinya tetap menjadi
+# satu-satunya sumber kebenaran — hook di bawah hanya membacanya lebih awal.
+# Dengan begitu menjalankan satu berkas secara langsung tetap berperilaku
+# seperti biasa, dan tidak ada daftar kedua yang harus dijaga tetap sepakat.
+# ---------------------------------------------------------------------------
+
+_KUNCI_PRASYARAT = pytest.StashKey[dict]()
+
+#: Sebab yang terbaca orang, diringkas dari `reason` yang panjang.
+_RINGKASAN_SEBAB = (
+    ("TEST_DATABASE_URL", "butuh basis data uji (TEST_DATABASE_URL)"),
+    ("pdftotext", "butuh pdftotext"),
+    ("repo frontend", "butuh repo frontend di sebelahnya"),
+    ("terjemahan frontend", "butuh berkas terjemahan frontend"),
+)
+
+
+def _sebab_ringkas(alasan: str) -> str:
+    for kunci, ringkas in _RINGKASAN_SEBAB:
+        if kunci.lower() in (alasan or "").lower():
+            return ringkas
+    teks = " ".join((alasan or "prasyarat tidak terpenuhi").split())
+    return teks[:60]
+
+
+def _prasyarat_kurang(item):
+    """
+    Alasan `skipif` yang SUDAH pasti benar sekarang, atau None.
+
+    Hanya kondisi yang sudah berupa boolean yang dibaca — itulah bentuk
+    seluruh penanda di repo ini (`not TEST_DB`, `shutil.which(...) is None`),
+    dinilai saat modulnya di-import. Kondisi berupa TEKS tidak disentuh:
+    menilainya menuntut ruang nama uji yang belum tentu tersedia di sini, dan
+    menebaknya akan membuang uji yang sebenarnya harus berjalan.
+    """
+    for tanda in item.iter_markers(name="skipif"):
+        for syarat in tanda.args:
+            if isinstance(syarat, bool) and syarat:
+                return str(tanda.kwargs.get("reason") or "prasyarat tidak terpenuhi")
+    return None
+
+
+def pytest_collection_modifyitems(config, items):
+    jalan, dibuang = [], []
+    hitung = {}
+    for item in items:
+        alasan = _prasyarat_kurang(item)
+        if alasan is None:
+            jalan.append(item)
+            continue
+        dibuang.append(item)
+        ringkas = _sebab_ringkas(alasan)
+        hitung[ringkas] = hitung.get(ringkas, 0) + 1
+
+    if not dibuang:
+        return
+
+    # `items[:]` diganti di tempat: pytest memegang daftar yang SAMA.
+    items[:] = jalan
+    config.hook.pytest_deselected(items=dibuang)
+    config.stash[_KUNCI_PRASYARAT] = hitung
+
+
+
+def pytest_report_collectionfinish(config, items):
+    """Sebabnya disebut SEKALI, di kepala keluaran — bukan per uji di bawah."""
+    hitung = config.stash.get(_KUNCI_PRASYARAT, None)
+    if not hitung:
+        return []
+    baris = [
+        f"tidak dikumpulkan: {sum(hitung.values())} uji "
+        f"({len(items)} dijalankan)"
+    ]
+    for sebab, n in sorted(hitung.items(), key=lambda kv: -kv[1]):
+        baris.append(f"  {n:>3} — {sebab}")
+    return baris

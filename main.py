@@ -254,9 +254,26 @@ if __name__ == "__main__":
     lingkungan = (os.getenv("APP_ENV") or "development").strip().lower()
     is_produksi = lingkungan in ("production", "produksi", "prod")
 
+    """
+    Diikat ke 127.0.0.1, bukan 0.0.0.0.
+
+    Aplikasi ini dilayani di balik Nginx pada mesin yang sama, jadi ia cukup
+    didengarkan dari localhost. `0.0.0.0` membuat port 7500 menerima koneksi
+    dari jaringan mana pun yang menjangkau host — melewati Nginx beserta
+    seluruh header keamanan dan pembatasan yang dipasang di sana.
+
+    Saat ini firewall GCP menutup port itu, jadi paparannya nihil. Tetapi
+    satu perubahan aturan firewall — oleh siapa pun, kapan pun — langsung
+    membuka API tanpa apa pun di depannya, dan tidak ada yang akan
+    menyadarinya. Pertahanan yang bergantung pada satu lapis saja bukan
+    pertahanan.
+
+    Dapat ditimpa lewat `HOST` bila memang perlu, mis. di dalam kontainer
+    yang port-nya dipetakan dari luar.
+    """
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
+        host=os.getenv("HOST", "127.0.0.1"),
         port=int(os.getenv("PORT") or 7500),
         reload=not is_produksi,
         workers=1,

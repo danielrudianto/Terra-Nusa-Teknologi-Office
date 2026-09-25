@@ -132,10 +132,44 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
 
         return user
     except InvalidTokenError as e:
-        print(e)
+        log_error(f"Token tidak sah pada get_current_user: {e}")
         raise HTTPException(status_code=401, detail="Invalid authentication credentials 3")
+    except HTTPException:
+        """
+        Penolakan yang SUDAH kita putuskan sendiri diteruskan apa adanya.
+
+        `HTTPException` adalah turunan `Exception`. Tanpa cabang ini, SETIAP
+        penolakan yang dibuat di dalam blok `try` di atas — userID kosong,
+        pengguna tidak ada, dan yang paling penting akun NONAKTIF/TERHAPUS —
+        tertangkap oleh `except Exception` di bawah lalu ditelan. Fungsinya
+        mengembalikan `None`, bukan 401.
+
+        Akibatnya bukan sekadar kode status yang keliru. Pemeriksaan
+        `isActive`/`isDeleted` beberapa baris di atas dibuat khusus supaya
+        mencabut akses berlaku SEKETIKA, bukan menunggu tokennya kedaluwarsa
+        tujuh hari — dan pemeriksaan itulah yang ikut tertelan. Rute
+        berpenjaga `require(...)` tetap menolak (`is_allowed(None)` -> 403),
+        tetapi rute yang hanya `Depends(get_current_user)` menerima `None`
+        dan hasilnya bergantung pada apa yang dilakukannya terhadap `None`.
+        """
+        raise
     except Exception as e:
-        print(e)
+        """
+        Galat tak terduga BUKAN berarti lolos.
+
+        Basis data tak terjangkau, kolom hilang, apa pun — yang tidak dapat
+        dipastikan sah harus diperlakukan tidak sah. Sebelumnya cabang ini
+        hanya mencetak galatnya ke stdout lalu membiarkan fungsinya
+        mengembalikan `None` secara diam-diam.
+
+        `log_error`, bukan `print`: keluaran `print` tidak masuk ke berkas
+        log mana pun, sehingga kegagalan autentikasi tidak meninggalkan jejak
+        yang dapat ditelusuri sesudahnya.
+        """
+        log_error(f"Galat tak terduga pada get_current_user: {e}")
+        raise HTTPException(
+            status_code=401, detail="Invalid authentication credentials"
+        )
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None):

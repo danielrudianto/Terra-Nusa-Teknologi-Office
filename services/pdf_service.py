@@ -1,5 +1,5 @@
 from weasyprint import HTML
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 import base64
 import os
 import uuid
@@ -35,8 +35,20 @@ class PDFService:
         os.makedirs(PDFService.OUTPUT_DIR, exist_ok=True)
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         TEMPLATE_DIR = os.path.join(BASE_DIR, "../templates/pdf")
+        # `autoescape` WAJIB, dan di sini sempat tertinggal.
+        #
+        # Slip gaji menempelkan nama karyawan, jabatan, dan catatan ke templat
+        # HTML yang lalu dirender WeasyPrint. Nilai yang memuat `<`, `&`, atau
+        # markup lain merusak tata letak PDF-nya — dan begitu kelak ada teks
+        # yang berasal dari isian pengguna, ia menjadi jalur injeksi ke dokumen
+        # yang dicetak dan dibagikan.
+        #
+        # Blok cetak lain di BERKAS YANG SAMA sudah memakainya (cari
+        # `autoescape=True` di bawah); hanya Environment ini yang luput.
+        # Asimetri semacam itu tidak menghasilkan galat apa pun — ia menunggu.
         env = Environment(
-            loader=FileSystemLoader(TEMPLATE_DIR)
+            loader=FileSystemLoader(TEMPLATE_DIR),
+            autoescape=select_autoescape(["html", "xml"]),
         )
         template = env.get_template("salary_slip.html")
 

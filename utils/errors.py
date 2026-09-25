@@ -107,6 +107,22 @@ class ErrorCode:
     # mencari tombol yang tidak ia tekan.
     PO_CANCEL_APPROVED_FORBIDDEN = "PO_CANCEL_APPROVED_FORBIDDEN"
 
+    # Menghapus SPK yang masih menanggung berita acara / CoP.
+    #
+    # BUKAN soal wewenang — karena itu bukan `FORBIDDEN` dan tidak dapat
+    # dilewati pemilik. Yang menghalangi keadaan datanya: CoP menyimpan
+    # `purchaseOrderID` dan barisnya menyimpan `purchaseOrderItemID`,
+    # keduanya kunci asing sungguhan. Menghapus SPK-nya membuat kedua
+    # tautan itu menunjuk dokumen yang tidak ada lagi — dan nama pekerjaan
+    # pada lembar BAP dibaca DARI baris SPK itu, sehingga dokumennya mulai
+    # mencetak pekerjaan milik SPK yang sudah dihapus.
+    #
+    # Terjadi sungguhan: SPK 145 dihapus sementara empat BAP menggantung di
+    # atasnya; nomornya dibebaskan menjadi `...~x145`, penggantinya terbit,
+    # dan keempat BAP itu tetap menunjuk bangkainya sampai dibetulkan
+    # tangan lewat SQL.
+    PO_DELETE_HAS_COP = "PO_DELETE_HAS_COP"
+
     # Tahap yang SUDAH dilewati, dikerjakan ulang.
     #
     # Bukan `VALIDATION` dan bukan `FORBIDDEN`: permintaannya benar bentuknya

@@ -24,6 +24,33 @@ from constants.permission_matrix import ACTIONS, MATRIX
 AKAR = Path(__file__).resolve().parents[1]
 
 
+def _berkas_i18n_frontend():
+    """
+    Berkas terjemahan frontend, bila repo-nya ada di sebelah repo ini.
+
+    Dihitung SAAT IMPORT, bukan di dalam badan uji. Prasyarat yang dinilai
+    saat uji berjalan hanya dapat dilaporkan sebagai SKIPPED — satu baris di
+    bawah hasil, setiap kali, pada mesin mana pun yang tidak memegang kedua
+    repo sekaligus. Dinilai di sini, `conftest` dapat membuangnya sebelum
+    dikumpulkan dan menyebut sebabnya sekali di kepala keluaran.
+    """
+    for jalur in (
+        AKAR.parent / "frontend" / "src" / "assets" / "i18n" / "id.json",
+        AKAR.parent
+        / "Terra-Nusa-Teknologi-Office-frontend"
+        / "src"
+        / "assets"
+        / "i18n"
+        / "id.json",
+    ):
+        if jalur.exists():
+            return jalur
+    return None
+
+
+BERKAS_I18N = _berkas_i18n_frontend()
+
+
 def _isi(relatif: str) -> str:
     return (AKAR / relatif).read_text(encoding="utf-8")
 
@@ -261,6 +288,10 @@ def test_model_menerima_field_yang_dikirim_repository():
     assert not salah, "model dibentuk dengan id= tetapi tidak punya field id:\n  " + "\n  ".join(salah)
 
 
+@pytest.mark.skipif(
+    BERKAS_I18N is None,
+    reason="berkas terjemahan frontend tidak tersedia di sini",
+)
 def test_setiap_kode_galat_punya_terjemahan():
     """
     Kode galat yang tidak punya terjemahannya tampil sebagai pesan umum.
@@ -269,25 +300,17 @@ def test_setiap_kode_galat_punya_terjemahan():
     — dan itu tidak terlihat sebagai kekeliruan, hanya sebagai pesan yang
     kurang membantu.
 
-    Berkas terjemahan berada di repositori frontend; bila tidak ditemukan,
-    pengujian ini dilewati agar backend tetap dapat diuji sendiri.
+    Berkas terjemahan berada di repositori frontend; bila repo itu tidak ada
+    di sebelah, pengujian ini TIDAK dikumpulkan sama sekali (lihat
+    `BERKAS_I18N` di atas) agar backend tetap dapat diuji sendiri tanpa
+    meninggalkan baris SKIPPED di bawah hasil.
     """
     import json
 
     from utils.errors import ErrorCode
 
-    kandidat = [
-        AKAR.parent / "frontend" / "src" / "assets" / "i18n" / "id.json",
-        AKAR.parent
-        / "Terra-Nusa-Teknologi-Office-frontend"
-        / "src"
-        / "assets"
-        / "i18n"
-        / "id.json",
-    ]
-    berkas = next((p for p in kandidat if p.exists()), None)
-    if berkas is None:
-        pytest.skip("berkas terjemahan frontend tidak tersedia di sini")
+    berkas = BERKAS_I18N
+    assert berkas is not None  # dijamin penanda di atas
 
     terjemahan = json.loads(berkas.read_text(encoding="utf-8")).get(
         "serverError", {}

@@ -1765,6 +1765,79 @@ class PurchaseOrderRepository:
             if not keadaan:
                 return {"error": "Purchase order not found", "status": 404}
 
+            """
+            SPK yang masih menanggung BERITA ACARA tidak boleh dihapus.
+
+            Diperiksa SEBELUM aturan wewenang, dan berlaku bagi SIAPA PUN —
+            pemilik sekalipun. Ini bukan pertanyaan "siapa yang berhak",
+            melainkan "apa yang terjadi pada dokumen lain": tidak ada
+            jawaban yang membuat penghapusan ini aman selama BAP-nya masih
+            hidup.
+
+            DUA TAUTAN, KEDUANYA DIPERIKSA
+
+              * `certificate_of_payments.purchaseOrderID` — kepala dokumen;
+              * `certificate_of_payment_items.purchaseOrderItemID` — barisnya,
+                yang menunjuk baris SPK ini.
+
+            Keduanya kunci asing sungguhan dan TIDAK ikut berpindah ketika
+            SPK pengganti terbit di nomor yang sama. Memeriksa kepalanya saja
+            tidak cukup: BAP dapat berkepala SPK induk sementara sebagian
+            barisnya menunjuk baris ADENDUM — menghapus adendumnya lalu
+            menggantung barisnya tanpa satu pun kepala yang menyebutkannya.
+
+            AKIBATNYA BUKAN SEKADAR TAUTAN PUTUS
+
+            Nama pekerjaan, satuan, dan komponen upah pada lembar BAP dibaca
+            DARI baris SPK (`JOIN purchase_order_items poi ON poi.id =
+            ci.purchaseOrderItemID`). Begitu SPK-nya dihapus dan penggantinya
+            memakai nama pekerjaan yang berbeda, dokumen yang sama mencetak
+            dua nama pekerjaan yang berlainan — dan itu lembar yang
+            ditandatangani.
+
+            Sudah terjadi: SPK 145 dihapus dengan empat BAP menggantung,
+            nomornya dibebaskan menjadi `...~x145`, dan keempat BAP itu baru
+            ketahuan setelah nomor aneh itu tampak di layar.
+
+            JALAN KELUARNYA disebutkan dalam pesannya — batalkan dulu BAP-nya
+            — supaya yang membacanya tahu apa yang harus dikerjakan, bukan
+            sekadar bahwa ia ditolak.
+            """
+            tertahan = await database.fetch_one(
+                """
+                SELECT COUNT(*) AS jumlah,
+                       MIN(c.name) AS contoh
+                FROM certificate_of_payments c
+                WHERE c.isDelete = 0
+                  AND (
+                        c.purchaseOrderID = :id
+                        OR EXISTS (
+                            SELECT 1
+                            FROM certificate_of_payment_items ci
+                            JOIN purchase_order_items poi
+                              ON poi.id = ci.purchaseOrderItemID
+                            WHERE ci.certificateOfPaymentID = c.id
+                              AND poi.purchaseOrderID = :id
+                        )
+                      )
+                """,
+                {"id": purchase_order_id},
+            )
+            jumlah_cop = int((tertahan or {}).get("jumlah") or 0)
+            if jumlah_cop:
+                contoh = (tertahan or {}).get("contoh") or ""
+                return app_error(
+                    ErrorCode.PO_DELETE_HAS_COP,
+                    (
+                        f"Purchase order ini masih menanggung {jumlah_cop} "
+                        f"berita acara/CoP (mis. {contoh}). Batalkan dulu "
+                        "dokumen-dokumen itu; menghapus SPK-nya sekarang "
+                        "membuat berita acaranya menunjuk dokumen yang tidak "
+                        "ada lagi."
+                    ).strip(),
+                    409,
+                )
+
             disetujui = bool(keadaan["isApproved"])
             if disetujui and not boleh_menghapus_yang_disetujui(user_level):
                 return app_error(
