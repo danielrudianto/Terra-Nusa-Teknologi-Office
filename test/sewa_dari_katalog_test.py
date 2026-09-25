@@ -89,7 +89,7 @@ def test_rekap_membaca_kedua_sumber():
     s = open(
         os.path.join(AKAR, "repository", "purchase_order_repository.py")
     ).read()
-    i = s.index("async def rekap_proyek")
+    i = s.index("async def rekap")
     j = s.index("async def ", i + 10)
     b = s[i:j]
     assert "itemDescription" in b

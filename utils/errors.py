@@ -94,6 +94,19 @@ class ErrorCode:
     # bukan meminta haknya dinaikkan.
     PO_DELETE_APPROVED_FORBIDDEN = "PO_DELETE_APPROVED_FORBIDDEN"
 
+    # MEMBATALKAN dokumen yang sudah terbit.
+    #
+    # Sepasang dengan yang di atas, dan sebabnya sama: lembar yang sudah
+    # disetujui ada di tangan vendor, dan membatalkannya mencabut
+    # `isApproved`, `approvedBy`, dan `approvedAt` — blok tanda tangan pada
+    # lembar yang beredar tidak lagi punya padanan apa pun di sistem, dan
+    # penyetuju pertama tidak diberi tahu bahwa namanya sudah dicabut.
+    #
+    # Kodenya sendiri, bukan `PO_DELETE_APPROVED_FORBIDDEN`: yang membacanya
+    # tidak sedang menghapus, dan pesan yang menyebut "menghapus" membuatnya
+    # mencari tombol yang tidak ia tekan.
+    PO_CANCEL_APPROVED_FORBIDDEN = "PO_CANCEL_APPROVED_FORBIDDEN"
+
     # Tahap yang SUDAH dilewati, dikerjakan ulang.
     #
     # Bukan `VALIDATION` dan bukan `FORBIDDEN`: permintaannya benar bentuknya

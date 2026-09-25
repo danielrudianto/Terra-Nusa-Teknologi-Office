@@ -1,6 +1,7 @@
 import json
 from datetime import datetime as dt
 from utils.permission import (
+    boleh_menghapus_yang_disetujui,
     boleh_menyetujui_sendiri,
     boleh_menyetujui_yang_diperiksanya,
 )
@@ -657,13 +658,28 @@ class PurchaseOrderRepository:
 
 
     @staticmethod
-    async def rekap_proyek(
-        project_name: str,
+    async def rekap(
+        project_name: str = None,
+        supplier_id: int = None,
         dari: str = None,
         sampai: str = None,
     ):
         """
-        Seluruh purchase order sebuah proyek beserta baris barangnya.
+        Seluruh purchase order satu PROYEK atau satu PEMASOK, beserta barisnya.
+
+        SATU JALUR, DUA SUDUT PANDANG
+
+        Dulu hanya per proyek. Rekap per pemasok adalah pertanyaan yang
+        berbeda dan sama seringnya — "sudah berapa banyak kita pesan ke
+        vendor ini tahun ini", yang ditanyakan saat menawar ulang harga dan
+        saat menagih diskon volume — tetapi DATANYA sama persis: dokumen yang
+        sama, baris yang sama, bentuk berkas yang sama. Yang berbeda hanya
+        satu baris `WHERE`.
+
+        Karena itu di sini, bukan sebagai method kedua. Dua salinan kueri
+        yang harus tetap sepakat adalah cara paling pasti membuat kedua rekap
+        menyebut angka berbeda untuk dokumen yang sama, begitu salah satunya
+        diperbaiki sendirian.
 
         Untuk rekap yang diunduh sebagai Excel. Dikembalikan dalam SATU
         permintaan, bukan satu per dokumen: proyek dengan lima puluh dokumen
@@ -691,8 +707,36 @@ class PurchaseOrderRepository:
             `<=` sudah mencakup seluruh hari itu — tidak perlu menggeser ke
             hari berikutnya seperti pada kolom berjam.
             """
-            syarat = ["po.projectName = :proyek", "po.isDelete = 0"]
-            nilai_dokumen = {"proyek": project_name}
+            """
+            Tepat SATU sudut pandang, bukan nol dan bukan dua.
+
+            Tanpa keduanya, kueri ini mengembalikan SELURUH purchase order
+            perusahaan — berkas raksasa yang tidak diminta siapa pun, dan
+            tidak ada galat apa pun yang menyebutkannya. Dengan keduanya,
+            judul berkasnya hanya dapat menyebut salah satu, sehingga isinya
+            tidak sesuai judulnya.
+
+            Rutenya juga memeriksanya; di sini diulang karena repository ini
+            dapat dipanggil dari tempat lain, dan yang dijaga bukan bentuk
+            permintaannya melainkan berkas yang terbit darinya.
+            """
+            proyek = (project_name or "").strip()
+            if bool(proyek) == bool(supplier_id):
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "Sebutkan proyek ATAU pemasok — tepat salah satu.",
+                    400,
+                )
+
+            syarat = ["po.isDelete = 0"]
+            nilai_dokumen = {}
+
+            if proyek:
+                syarat.append("po.projectName = :proyek")
+                nilai_dokumen["proyek"] = proyek
+            else:
+                syarat.append("po.supplierID = :pemasok")
+                nilai_dokumen["pemasok"] = int(supplier_id)
 
             if dari:
                 syarat.append("po.date >= :dari")
@@ -713,7 +757,11 @@ class PurchaseOrderRepository:
                 FROM purchase_orders po
                 LEFT JOIN suppliers s ON s.id = po.supplierID
                 WHERE {" AND ".join(syarat)}
-                ORDER BY po.number ASC
+                -- Per PROYEK, `number` sudah berjalan urut di dalamnya.
+                -- Per PEMASOK, dokumennya datang dari banyak proyek dan
+                -- `number` saja mengacaknya — yang membaca rekap vendor
+                -- membacanya per proyek, bukan per nomor.
+                ORDER BY po.projectName ASC, po.number ASC
                 """,
                 nilai_dokumen,
             )
@@ -745,7 +793,7 @@ class PurchaseOrderRepository:
                 "items": [dict(b) for b in baris],
             }
         except Exception as e:
-            log_error(f"Error building project recap: {str(e)}")
+            log_error(f"Error building purchase order recap: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
 
     @staticmethod
@@ -1373,6 +1421,42 @@ class PurchaseOrderRepository:
         Karena itu penjagaan persetujuan-sendiri harus ada DI SINI; menaruhnya
         hanya di `approve()` berarti aturannya tidak pernah berlaku.
         """
+        # MEMBATALKAN yang sudah disetujui — hanya pemilik.
+        #
+        # Seluruh penjagaan di bawah bersyarat `status == "approved"`, dan
+        # tidak ada satu pun yang berlaku pada cabang yang lain. Sementara
+        # itu cabang yang lain MENULIS `isApproved = False`, `approvedBy =
+        # None`, dan `approvedAt = None` (lihat blok `else` di bawah), dan
+        # `WHERE`-nya pun tidak dipersempit. Akibatnya siapa pun yang punya
+        # `purchase_order:approve` — level 3 ke atas — dapat mencabut
+        # persetujuan purchase order yang sudah TERBIT, dan tidak ada galat
+        # apa pun yang keluar.
+        #
+        # Layar desktop menyembunyikan tombolnya begitu dokumennya selesai
+        # (`sudahSelesai`), jadi dari sana tidak terlihat. Tetapi rutenya
+        # tetap terbuka: satu permintaan langsung, atau layar lain yang
+        # belum menyembunyikan tombolnya, sudah cukup.
+        #
+        # Aturannya disamakan dengan MENGHAPUS yang sudah disetujui —
+        # `boleh_menghapus_yang_disetujui`, hanya pemilik — karena akibatnya
+        # memang sama: lembar yang sudah dipegang vendor kehilangan
+        # padanannya di sistem. Yang belum disetujui tidak disentuh sama
+        # sekali; membatalkan draf tetap bebas.
+        if status != "approved":
+            sudah = await database.fetch_val(
+                select(purchase_orders_table.c.isApproved).where(
+                    purchase_orders_table.c.id == purchase_order_id
+                )
+            )
+            if sudah and not boleh_menghapus_yang_disetujui(user_level):
+                return app_error(
+                    ErrorCode.PO_CANCEL_APPROVED_FORBIDDEN,
+                    "Purchase order yang sudah disetujui hanya dapat "
+                    "dibatalkan oleh pemilik. Yang perlu diubah setelah "
+                    "terbit diselesaikan lewat adendum.",
+                    403,
+                )
+
         # Yang membuat dokumen tidak boleh menyetujuinya sendiri.
         #
         # Dikecualikan untuk level 4 ke atas: keduanya memang berwenang atas

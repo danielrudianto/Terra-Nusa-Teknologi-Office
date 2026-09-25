@@ -250,10 +250,60 @@ class ReminderRepository:
             return internal_error()
 
     @staticmethod
+    async def _nama_tandaan(target_ids: List[int] | None) -> str | None:
+        """
+        Daftar tandaan sebagai NAMA, bukan deretan id.
+
+        Jejak audit dibaca orang. "targets: 4, 9 -> 4, 9, 17" tidak
+        menjelaskan apa pun tanpa membuka tabel pengguna; yang dicari selalu
+        "siapa yang ditambahkan".
+
+        Gagal membaca namanya tidak menggagalkan apa pun — id-nya tetap
+        dicatat sebagai cadangan.
+        """
+        if target_ids is None:
+            return None
+        urut = list(dict.fromkeys(target_ids or []))
+        if not urut:
+            return "(tidak ada)"
+        try:
+            baris = await database.fetch_all(
+                select(users_table.c.id, users_table.c.name).where(
+                    users_table.c.id.in_(urut)
+                )
+            )
+            peta = {int(b["id"]): b["name"] for b in baris}
+        except Exception:
+            peta = {}
+        return ", ".join(str(peta.get(int(u), u)) for u in urut)
+
+    @staticmethod
     async def create(data: dict, target_ids: List[int]):
         try:
             reminder_id = await database.execute(insert(reminders_table).values(**data))
             await ReminderRepository._set_targets(reminder_id, target_ids)
+
+            # Jejak audit — agenda tidak punya satu pun sebelumnya.
+            #
+            # Agenda dibagikan (`isShared`) dan dapat menandai orang lain,
+            # jadi barisnya BUKAN milik pembuatnya saja: yang lain melihatnya,
+            # dan yang lain juga dapat mengubah atau menghapusnya. Tanpa
+            # jejak, "kok agendanya hilang" dan "kok tanggalnya pindah" tidak
+            # punya jawaban sama sekali.
+            from repository.audit_log_repository import AuditLogRepository
+
+            await AuditLogRepository.record(
+                entity="reminders",
+                entityID=reminder_id,
+                action="create",
+                changes=AuditLogRepository.diff(
+                    {},
+                    {
+                        **data,
+                        "targets": await ReminderRepository._nama_tandaan(target_ids),
+                    },
+                ),
+            )
             return {"id": reminder_id}
         except Exception as e:
             log_error(f"Error creating reminder: {str(e)}")
@@ -262,6 +312,24 @@ class ReminderRepository:
     @staticmethod
     async def update(reminder_id: int, data: dict, target_ids: List[int] | None):
         try:
+            # Keadaan SEBELUM dibaca lebih dulu.
+            #
+            # Tanpa ini jejaknya hanya dapat menyebut "diubah", bukan "dari
+            # apa" — dan pada agenda yang justru ditanyakan tanggalnya yang
+            # lama, bukan yang baru.
+            sebelum = await ReminderRepository.get_by_id(reminder_id)
+            tandaan_lama = None
+            if target_ids is not None:
+                try:
+                    baris = await database.fetch_all(
+                        select(reminder_targets_table.c.userID).where(
+                            reminder_targets_table.c.reminderID == reminder_id
+                        )
+                    )
+                    tandaan_lama = [int(b["userID"]) for b in baris]
+                except Exception:
+                    tandaan_lama = None
+
             if data:
                 await database.execute(
                     update(reminders_table)
@@ -272,6 +340,29 @@ class ReminderRepository:
             # berarti seluruh tandaan dilepas.
             if target_ids is not None:
                 await ReminderRepository._set_targets(reminder_id, target_ids)
+
+            from repository.audit_log_repository import AuditLogRepository
+
+            keadaan_lama = dict(sebelum or {})
+            keadaan_baru = {**keadaan_lama, **(data or {})}
+            if target_ids is not None:
+                keadaan_lama["targets"] = await ReminderRepository._nama_tandaan(
+                    tandaan_lama
+                )
+                keadaan_baru["targets"] = await ReminderRepository._nama_tandaan(
+                    target_ids
+                )
+
+            perubahan = AuditLogRepository.diff(keadaan_lama, keadaan_baru)
+            # Penyimpanan yang tidak mengubah apa pun tidak dicatat: daftar
+            # penuh baris "diubah" tanpa isi membuat yang sungguhan tenggelam.
+            if perubahan:
+                await AuditLogRepository.record(
+                    entity="reminders",
+                    entityID=reminder_id,
+                    action="update",
+                    changes=perubahan,
+                )
             return {"message": "Reminder updated successfully"}
         except Exception as e:
             log_error(f"Error updating reminder {reminder_id}: {str(e)}")
@@ -280,10 +371,28 @@ class ReminderRepository:
     @staticmethod
     async def soft_delete(reminder_id: int):
         try:
+            # Judulnya ikut dicatat SEBELUM dihapus.
+            #
+            # Sesudah `isDelete = 1`, satu-satunya cara tahu agenda mana yang
+            # hilang adalah membuka barisnya yang sudah terhapus. Pada daftar
+            # aktivitas, "menghapus pengingat #41" tidak memberi tahu siapa
+            # pun apa yang hilang.
+            sebelum = await ReminderRepository.get_by_id(reminder_id)
+
             await database.execute(
                 update(reminders_table)
                 .where(reminders_table.c.id == reminder_id)
                 .values(isDelete=True)
+            )
+
+            from repository.audit_log_repository import AuditLogRepository
+
+            judul = (sebelum or {}).get("title")
+            await AuditLogRepository.record(
+                entity="reminders",
+                entityID=reminder_id,
+                action="delete",
+                note=str(judul) if judul else None,
             )
             return {"message": "Reminder deleted successfully"}
         except Exception as e:

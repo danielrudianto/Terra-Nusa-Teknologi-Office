@@ -29,7 +29,7 @@ def _jalankan(fake_db, **kwargs):
     # Dokumen kosong menghentikan langkah berikutnya; cukup untuk memeriksa
     # kueri pertama, yang memang satu-satunya yang menyaring tanggal.
     db.queue("fetch_all", [])
-    asyncio.run(PurchaseOrderRepository.rekap_proyek("R501", **kwargs))
+    asyncio.run(PurchaseOrderRepository.rekap("R501", **kwargs))
     return str(db.last_query("fetch_all")), db
 
 
@@ -64,7 +64,7 @@ def test_batas_atas_INKLUSIF():
     """
     import inspect
 
-    sumber = inspect.getsource(PurchaseOrderRepository.rekap_proyek)
+    sumber = inspect.getsource(PurchaseOrderRepository.rekap)
     assert "po.date <= :sampai" in sumber
     assert "po.date < :sampai" not in sumber
 

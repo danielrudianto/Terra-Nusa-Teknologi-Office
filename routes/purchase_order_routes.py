@@ -94,19 +94,40 @@ async def daftar_kode_proyek(
 
 
 @router.get("/rekap")
-async def rekap_proyek(
-    proyek: str,
+async def rekap(
     user: Annotated[User, Depends(require("purchase_order", "read"))],
+    proyek: str = None,
+    pemasok: int = None,
     dari: str = None,
     sampai: str = None,
 ):
     """
-    Rekap seluruh purchase order sebuah proyek, untuk diunduh sebagai Excel.
+    Rekap purchase order satu PROYEK atau satu PEMASOK, untuk diunduh.
+
+    Tepat SALAH SATU disebut. `proyek` dulu wajib; sekarang keduanya
+    pilihan supaya rekap per pemasok memakai rute dan bentuk jawaban yang
+    sama — bukan rute kedua yang datanya harus dijaga tetap sepakat.
+
+    Tanpa keduanya, permintaannya berarti "seluruh purchase order
+    perusahaan": berkas raksasa yang tidak diminta siapa pun. Dengan
+    keduanya, judul berkasnya hanya dapat menyebut salah satu. Keduanya
+    ditolak 400 di sini, dan diperiksa lagi di repository — yang dijaga
+    bukan bentuk permintaannya, melainkan berkas yang terbit darinya.
 
     Ditaruh SEBELUM rute ber-parameter: FastAPI mencocokkan berurutan, dan
     "rekap" akan tertangkap sebagai id dokumen bila di bawah.
     """
-    hasil = await PurchaseOrderController.rekap_proyek(proyek, dari, sampai)
+    if bool((proyek or "").strip()) == bool(pemasok):
+        raise HTTPException(
+            status_code=400,
+            detail=error_detail(
+                {
+                    "code": ErrorCode.VALIDATION,
+                    "error": "Sebutkan proyek ATAU pemasok — tepat salah satu.",
+                }
+            ),
+        )
+    hasil = await PurchaseOrderController.rekap(proyek, pemasok, dari, sampai)
     if isinstance(hasil, dict) and "error" in hasil:
         raise HTTPException(status_code=hasil["status"], detail=error_detail(hasil))
     return hasil

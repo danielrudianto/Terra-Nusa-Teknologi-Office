@@ -573,22 +573,22 @@ class PurchaseOrderController:
             return internal_error()
 
     @staticmethod
-    async def rekap_proyek(
-        project_name: str,
+    async def rekap(
+        project_name: str = None,
+        supplier_id: int = None,
         dari: str = None,
         sampai: str = None,
     ):
         """
-        Rekap seluruh purchase order sebuah proyek, untuk diunduh sebagai
-        Excel.
+        Rekap purchase order satu PROYEK atau satu PEMASOK, untuk diunduh.
 
         Melewati controller seperti seluruh rute lain di berkas ini, bukan
         memanggil repository langsung: rutenya tidak mengimpor repository, dan
         menyimpang dari polanya membuat satu jalur yang berbeda sendiri tanpa
         alasan.
         """
-        return await PurchaseOrderRepository.rekap_proyek(
-            project_name, dari, sampai
+        return await PurchaseOrderRepository.rekap(
+            project_name, supplier_id, dari, sampai
         )
 
     @staticmethod
