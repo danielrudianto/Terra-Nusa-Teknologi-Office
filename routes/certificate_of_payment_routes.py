@@ -167,6 +167,53 @@ async def daftar_cop(
     )
 
 
+@router.get("/rekap")
+async def rekap(
+    current_user: Annotated[User, Depends(require("certificate_of_payment", "read"))],
+    proyek: Optional[str] = None,
+    pemasok: Optional[int] = None,
+    dari: Optional[str] = None,
+    sampai: Optional[str] = None,
+):
+    """
+    Rekap CoP satu PROYEK, satu PEMASOK, atau keduanya — untuk diunduh.
+
+    Bentuk permintaannya SAMA PERSIS dengan `/purchase-orders/rekap`:
+    nama parameter, sifat pilihan, dan syarat "sekurangnya salah satu".
+    Yang memakai kedua rekap ini orang yang sama pada hari yang sama, dan
+    dua bentuk penyaring yang berbeda untuk dua pertanyaan yang
+    berdampingan hanya melahirkan satu kesalahan baru — rentang tanggal
+    yang disangka sama padahal tidak.
+
+    Tanpa satu pun sudut pandang, permintaannya berarti "seluruh CoP
+    perusahaan": berkas raksasa yang tidak diminta siapa pun, dan tidak ada
+    galat apa pun yang menyebutkannya. Ditolak 400 di sini, dan diperiksa
+    lagi di repository — yang dijaga bukan bentuk permintaannya, melainkan
+    berkas yang terbit darinya.
+
+    Ditaruh SEBELUM `/{cop_id}`: FastAPI mencocokkan berurutan, dan "rekap"
+    akan tertangkap sebagai id dokumen bila di bawahnya, lalu gagal dengan
+    galat konversi yang tidak menyebut sebab sebenarnya.
+    """
+    if not (proyek or "").strip() and not pemasok:
+        raise HTTPException(
+            status_code=400,
+            detail=error_detail(
+                {
+                    "code": ErrorCode.VALIDATION,
+                    "error": (
+                        "Sebutkan proyek atau pemasok — sekurangnya salah satu."
+                    ),
+                }
+            ),
+        )
+    return _lempar_bila_galat(
+        await CertificateOfPaymentController.rekap(
+            proyek, pemasok, dari, sampai, user_level=_level(current_user)
+        )
+    )
+
+
 @router.get("/siap-tagih")
 async def cop_siap_tagih(
     current_user: Annotated[User, Depends(require("certificate_of_payment", "read"))],

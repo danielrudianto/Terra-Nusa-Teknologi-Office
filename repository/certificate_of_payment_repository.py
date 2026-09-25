@@ -1481,6 +1481,265 @@ class CertificateOfPaymentRepository:
         return {int(r["cop"]): dict(r) for r in baris}
 
     @staticmethod
+    async def rekap(
+        project_name: str = None,
+        supplier_id: int = None,
+        dari: str = None,
+        sampai: str = None,
+    ):
+        """
+        Seluruh certificate of payment satu PROYEK, satu PEMASOK, atau
+        keduanya — untuk diunduh sebagai Excel.
+
+        BENTUK PERMINTAANNYA SENGAJA SAMA PERSIS dengan rekap purchase order
+        (`PurchaseOrderRepository.rekap`): proyek dan/atau pemasok, rentang
+        tanggal pilihan, sekurangnya satu sudut pandang. Yang memakai kedua
+        rekap ini orang yang sama, pada hari yang sama, untuk menjawab
+        pertanyaan yang bersebelahan — "apa yang kita PESAN" dan "apa yang
+        sudah kita SERTIFIKASI". Dua bentuk penyaring yang berbeda untuk dua
+        pertanyaan yang berdampingan hanya menciptakan satu kesalahan baru:
+        rentang tanggal yang disangka sama padahal tidak.
+
+        DIKELOMPOKKAN PEMASOK -> SPK, bukan salah satunya saja.
+
+        CoP selalu menyertifikasi SATU SPK (`purchaseOrderID` tunggal),
+        sehingga SISA PAGU hanya punya arti per SPK: dijumlahkan lintas
+        kontrak, angka itu menyebut batas yang tidak pernah disepakati
+        siapa pun. Sebaliknya "sudah berapa yang kita sertifikasi ke vendor
+        ini" adalah pertanyaan yang benar-benar ditanyakan — saat menagih dan
+        saat menawar ulang harga. Keduanya dijawab sekaligus oleh satu
+        susunan bertingkat; memilih salah satu berarti membuang pertanyaan
+        yang lain.
+
+        NILAI TIDAK DIHITUNG ULANG DI SINI.
+
+        `grossAmount`, `deductionTotal`, `additionTotal`, dan `netAmount`
+        dibaca dari kolomnya. Menghitung ulang di kueri rekap berarti dua
+        tempat yang harus tetap sepakat tentang satu angka — dan yang
+        berselisih bukan galat, melainkan rekap yang menyebut angka berbeda
+        dari layar CoP-nya sendiri.
+
+        Dokumen TERHAPUS dikecualikan. Yang belum disetujui TETAP ikut,
+        ditandai lewat kolomnya: yang menyusun rekap perlu tahu berapa yang
+        masih tertahan di tahap mana, dan menyembunyikannya membuat
+        selisihnya tidak dapat dijelaskan.
+        """
+        try:
+            proyek = (project_name or "").strip()
+            if not proyek and not supplier_id:
+                return app_error(
+                    ErrorCode.VALIDATION,
+                    "Sebutkan proyek atau pemasok — sekurangnya salah satu.",
+                    400,
+                )
+
+            syarat = ["c.isDelete = 0"]
+            nilai = {}
+            # Menyempitkan, bukan memilih salah satu jalur — disebut
+            # bersamaan berarti irisan keduanya.
+            if proyek:
+                syarat.append("c.projectName = :proyek")
+                nilai["proyek"] = proyek
+            if supplier_id:
+                # Pemasok ada di SPK-nya, bukan di CoP.
+                syarat.append("po.supplierID = :pemasok")
+                nilai["pemasok"] = int(supplier_id)
+            # Batas INKLUSIF di kedua ujung: `c.date` bertipe DATE, jadi
+            # `<=` sudah mencakup seluruh hari terakhirnya. Yang meminta
+            # "rekap sampai tanggal 30" memang memaksudkan tanggal 30 ikut.
+            if dari:
+                syarat.append("c.date >= :dari")
+                nilai["dari"] = dari
+            if sampai:
+                syarat.append("c.date <= :sampai")
+                nilai["sampai"] = sampai
+
+            dokumen = await database.fetch_all(
+                f"""
+                SELECT c.id, c.name, c.number, c.date,
+                       c.periodStart, c.periodEnd, c.projectName, c.note,
+                       c.grossAmount, c.deductionTotal, c.additionTotal,
+                       c.netAmount,
+                       c.isBapApproved, c.isCopCreated, c.isApproved,
+                       po.id   AS purchaseOrderID,
+                       po.name AS purchaseOrderName,
+                       po.purchaseType,
+                       po.supplierID,
+                       s.name   AS supplierName,
+                       s.prefix AS supplierPrefix,
+                       -- Sudah ditagihkan atau belum: itu pertanyaan
+                       -- berikutnya sesudah "sudah disertifikasi berapa",
+                       -- dan rekap yang tidak menjawabnya memaksa orang
+                       -- membuka daftar Pembelian satu per satu.
+                       tagihan.invoiceName AS tagihanNomor,
+                       tagihan.isPaid      AS tagihanLunas
+                FROM certificate_of_payments c
+                JOIN purchase_orders po ON po.id = c.purchaseOrderID
+                LEFT JOIN suppliers s ON s.id = po.supplierID
+                LEFT JOIN (
+                    SELECT certificateOfPaymentID AS cop,
+                           MIN(invoiceName) AS invoiceName,
+                           MAX(isPaid)      AS isPaid
+                    FROM purchases
+                    WHERE isDelete = 0 AND certificateOfPaymentID IS NOT NULL
+                    GROUP BY certificateOfPaymentID
+                ) tagihan ON tagihan.cop = c.id
+                WHERE {" AND ".join(syarat)}
+                -- Urutan susunan berkasnya: pemasok, lalu SPK, lalu nomor
+                -- CoP di dalam SPK itu. Yang menyusun lembarnya tidak perlu
+                -- mengurutkan ulang, dan dua unduhan atas data yang sama
+                -- tidak dapat berbeda susunan.
+                ORDER BY s.name ASC, po.name ASC, c.number ASC, c.id ASC
+                """,
+                nilai,
+            )
+            if not dokumen:
+                return {"certificateOfPayments": [], "purchaseOrders": []}
+
+            """
+            BARIS CoP DAN PENYESUAIANNYA TIDAK DIBACA DI SINI.
+
+            Mula-mula keduanya ikut ditarik, "supaya tersedia". Tidak satu
+            lembar pun memakainya: ikhtisar dan lembar per-CoP membaca
+            `grossAmount`, `deductionTotal`, `additionTotal`, dan `netAmount`
+            dari kepalanya, dan lembar per-SPK menjumlahkan nilai bersih.
+
+            Dua kueri yang hasilnya tidak dibaca bukan sekadar pemborosan.
+            Kueri barisnya MEMBACA `purchase_order_items`, dan setiap pembaca
+            tabel itu wajib ikut menjoin nama masternya (`LEFT JOIN
+            master_item`) — kalau tidak, satu layar menyebut "Beton K-300"
+            dan layar sebelahnya "-" untuk baris yang sama. Aturan itu dijaga
+            `test_semua_pembaca_baris_spk_menjoin_nama_masternya`, dan ia
+            memang menangkapnya.
+
+            Menambahkan join demi memuaskan penjaga, pada data yang tidak
+            dibaca siapa pun, berarti menambah beban untuk menutup gejala.
+            Yang benar adalah tidak membacanya sama sekali. Bila kelak rekap
+            ini memerlukan rincian barisnya, kuerinya ditulis bersama join
+            itu — bukan tanpa.
+            """
+
+            """
+            NILAI KONTRAK PER SPK — dihitung SEKALI untuk seluruh rekap.
+
+            `nilai_kontrak()` memakai tiga kueri per SPK. Dipanggil sekali per
+            dokumen, rekap satu proyek berisi lima puluh SPK menjadi seratus
+            lima puluh kueri — dan rekapnya melambat justru pada proyek yang
+            paling perlu direkap. Bentuk di bawah tetap empat kueri berapa pun
+            banyaknya SPK.
+
+            Aturannya disalin dari `nilai_kontrak()` dan harus tetap sama:
+            dijumlahkan PER DOKUMEN (bukan sekali atas seluruh rantai), dan
+            SPK borongan memakai `customData.lumpSumPrice`, bukan jumlah
+            barisnya — yang bagi SPK borongan selalu nol.
+            """
+            po_ids = sorted({int(d["purchaseOrderID"]) for d in dokumen})
+            tanda_po = ",".join(f":p{i}" for i in range(len(po_ids)))
+            nilai_po = {f"p{i}": v for i, v in enumerate(po_ids)}
+
+            # Akar rantai tiap SPK: adendum memakai induknya.
+            akar_baris = await database.fetch_all(
+                f"""
+                SELECT id, COALESCE(parentPurchaseOrderID, id) AS akar
+                FROM purchase_orders
+                WHERE id IN ({tanda_po}) AND isDelete = 0
+                """,
+                nilai_po,
+            )
+            akar = {int(r["id"]): int(r["akar"]) for r in akar_baris}
+            akar_ids = sorted(set(akar.values()))
+
+            # Seluruh anggota rantai: induk + adendum yang SUDAH disetujui.
+            # Adendum yang belum disetujui bukan kesepakatan, dan pagu yang
+            # belum disepakati tidak boleh ikut menaikkan batas.
+            tanda_akar = ",".join(f":a{i}" for i in range(len(akar_ids)))
+            nilai_akar = {f"a{i}": v for i, v in enumerate(akar_ids)}
+            anggota_baris = await database.fetch_all(
+                f"""
+                SELECT id, COALESCE(parentPurchaseOrderID, id) AS akar
+                FROM purchase_orders
+                WHERE isDelete = 0
+                  AND ( id IN ({tanda_akar})
+                        OR ( parentPurchaseOrderID IN ({tanda_akar})
+                             AND isApproved = 1 ) )
+                """,
+                nilai_akar,
+            )
+            anggota = {}
+            for r in anggota_baris:
+                anggota.setdefault(int(r["akar"]), []).append(int(r["id"]))
+
+            semua_anggota = sorted({x for v in anggota.values() for x in v})
+            per_dokumen = {}
+            if semua_anggota:
+                tanda_m = ",".join(f":m{i}" for i in range(len(semua_anggota)))
+                nilai_m = {f"m{i}": v for i, v in enumerate(semua_anggota)}
+                jumlah = await database.fetch_all(
+                    f"""
+                    SELECT purchaseOrderID AS po,
+                           COALESCE(SUM(quantity * price), 0) AS nilai
+                    FROM purchase_order_items
+                    WHERE purchaseOrderID IN ({tanda_m})
+                    GROUP BY purchaseOrderID
+                    """,
+                    nilai_m,
+                )
+                per_dokumen = {int(r["po"]): _d(r["nilai"]) for r in jumlah}
+
+            borongan = await CertificateOfPaymentRepository._peta_borongan(
+                semua_anggota
+            )
+
+            nilai_akar_map = {}
+            for a, anggotanya in anggota.items():
+                total = Decimal("0")
+                for m in anggotanya:
+                    total += borongan[m] if m in borongan else per_dokumen.get(
+                        m, Decimal("0")
+                    )
+                nilai_akar_map[a] = total
+
+            """
+            SPK TANPA PAGU tidak diberi angka sisa.
+
+            Jenis D tidak punya plafon (`JENIS_BOLEH_TANPA_PAGU`): volumenya
+            memang ditentukan di berita acara. "Sisa pagu" pada dokumen
+            seperti itu menyebut batas yang tidak ada — dan angka yang
+            tercetak selalu dibaca sebagai kesepakatan. Ditandai, bukan
+            diisi nol.
+            """
+            spk = []
+            terlihat = set()
+            for d in dokumen:
+                po_id = int(d["purchaseOrderID"])
+                if po_id in terlihat:
+                    continue
+                terlihat.add(po_id)
+                a = akar.get(po_id, po_id)
+                tanpa_pagu = str(d["purchaseType"] or "") in JENIS_BOLEH_TANPA_PAGU
+                spk.append(
+                    {
+                        "id": po_id,
+                        "name": d["purchaseOrderName"],
+                        "projectName": d["projectName"],
+                        "purchaseType": d["purchaseType"],
+                        "supplierID": d["supplierID"],
+                        "supplierName": d["supplierName"],
+                        "supplierPrefix": d["supplierPrefix"],
+                        "nilaiKontrak": nilai_akar_map.get(a, Decimal("0")),
+                        "tanpaPagu": tanpa_pagu,
+                    }
+                )
+
+            return {
+                "certificateOfPayments": [dict(d) for d in dokumen],
+                "purchaseOrders": spk,
+            }
+        except Exception as e:
+            log_error(f"Gagal menyusun rekap CoP: {str(e)}")
+            return internal_error()
+
+    @staticmethod
     async def siap_tagih(
         keyword: str | None = None,
         batas: int = 30,

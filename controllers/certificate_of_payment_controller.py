@@ -1877,6 +1877,35 @@ class CertificateOfPaymentController:
     # ------------------------------------------------------------------
 
     @staticmethod
+    async def rekap(
+        project_name: str | None = None,
+        supplier_id: int | None = None,
+        dari: str | None = None,
+        sampai: str | None = None,
+        user_level: int = 1,
+    ):
+        """
+        Rekap CoP satu proyek dan/atau satu pemasok, untuk diunduh.
+
+        DIJAGA LEVEL 2 KE ATAS, sama seperti `siap_tagih` dan seluruh jalan
+        keluar lain yang memuat rupiah. Rekap ini justru yang paling padat
+        angkanya — nilai kotor, potongan, tambahan, nilai bersih, dan nilai
+        kontrak tiap SPK — dan berkas yang sudah terunduh tidak dapat
+        ditarik kembali. Menyembunyikan tombolnya di layar bukan pengamanan;
+        yang menentukan adalah cek ini.
+        """
+        if not boleh_melihat_nilai_cop(user_level):
+            return app_error(
+                ErrorCode.FORBIDDEN,
+                "Rekap ini memuat nilai rupiah dan hanya dapat diunduh "
+                "level 2 ke atas.",
+                403,
+            )
+        return await CertificateOfPaymentRepository.rekap(
+            project_name, supplier_id, dari, sampai
+        )
+
+    @staticmethod
     async def siap_tagih(
         keyword: str | None = None,
         user_level: int = 1,
