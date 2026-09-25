@@ -102,28 +102,33 @@ async def rekap(
     sampai: str = None,
 ):
     """
-    Rekap purchase order satu PROYEK atau satu PEMASOK, untuk diunduh.
+    Rekap purchase order satu PROYEK, satu PEMASOK, atau keduanya.
 
-    Tepat SALAH SATU disebut. `proyek` dulu wajib; sekarang keduanya
+    SEKURANGNYA salah satu disebut. `proyek` dulu wajib; sekarang keduanya
     pilihan supaya rekap per pemasok memakai rute dan bentuk jawaban yang
     sama — bukan rute kedua yang datanya harus dijaga tetap sepakat.
 
-    Tanpa keduanya, permintaannya berarti "seluruh purchase order
-    perusahaan": berkas raksasa yang tidak diminta siapa pun. Dengan
-    keduanya, judul berkasnya hanya dapat menyebut salah satu. Keduanya
-    ditolak 400 di sini, dan diperiksa lagi di repository — yang dijaga
-    bukan bentuk permintaannya, melainkan berkas yang terbit darinya.
+    Disebut BERSAMAAN, keduanya menyempitkan: "apa saja yang kita pesan ke
+    vendor ini di proyek ini" — pertanyaan yang ditanyakan saat menagih ke
+    pemilik proyek dan saat menyusun klaim.
+
+    Tanpa satu pun, permintaannya berarti "seluruh purchase order
+    perusahaan": berkas raksasa yang tidak diminta siapa pun. Itu ditolak
+    400 di sini, dan diperiksa lagi di repository — yang dijaga bukan
+    bentuk permintaannya, melainkan berkas yang terbit darinya.
 
     Ditaruh SEBELUM rute ber-parameter: FastAPI mencocokkan berurutan, dan
     "rekap" akan tertangkap sebagai id dokumen bila di bawah.
     """
-    if bool((proyek or "").strip()) == bool(pemasok):
+    if not (proyek or "").strip() and not pemasok:
         raise HTTPException(
             status_code=400,
             detail=error_detail(
                 {
                     "code": ErrorCode.VALIDATION,
-                    "error": "Sebutkan proyek ATAU pemasok — tepat salah satu.",
+                    "error": (
+                        "Sebutkan proyek atau pemasok — sekurangnya salah satu."
+                    ),
                 }
             ),
         )

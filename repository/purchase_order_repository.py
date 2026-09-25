@@ -665,9 +665,9 @@ class PurchaseOrderRepository:
         sampai: str = None,
     ):
         """
-        Seluruh purchase order satu PROYEK atau satu PEMASOK, beserta barisnya.
+        Seluruh purchase order satu PROYEK, satu PEMASOK, atau KEDUANYA.
 
-        SATU JALUR, DUA SUDUT PANDANG
+        SATU JALUR, DUA SUDUT PANDANG YANG DAPAT DIGABUNG
 
         Dulu hanya per proyek. Rekap per pemasok adalah pertanyaan yang
         berbeda dan sama seringnya — "sudah berapa banyak kita pesan ke
@@ -708,33 +708,41 @@ class PurchaseOrderRepository:
             hari berikutnya seperti pada kolom berjam.
             """
             """
-            Tepat SATU sudut pandang, bukan nol dan bukan dua.
+            SEKURANGNYA satu sudut pandang. Keduanya sekaligus BOLEH.
 
-            Tanpa keduanya, kueri ini mengembalikan SELURUH purchase order
+            Tanpa satu pun, kueri ini mengembalikan SELURUH purchase order
             perusahaan — berkas raksasa yang tidak diminta siapa pun, dan
-            tidak ada galat apa pun yang menyebutkannya. Dengan keduanya,
-            judul berkasnya hanya dapat menyebut salah satu, sehingga isinya
-            tidak sesuai judulnya.
+            tidak ada galat apa pun yang menyebutkannya. Itulah yang ditolak
+            di sini.
+
+            Keduanya sekaligus dulu ikut ditolak, dengan alasan judul berkas
+            hanya dapat menyebut salah satu. Alasan itu keliru: "apa saja
+            yang kita pesan ke vendor ini DI PROYEK ini" adalah pertanyaan
+            yang wajar — ditanyakan saat menagih ke pemilik proyek dan saat
+            menyusun klaim — dan judulnya cukup menyebut keduanya. Yang
+            menyusun judul (layarnya) sudah memegang kedua namanya.
 
             Rutenya juga memeriksanya; di sini diulang karena repository ini
             dapat dipanggil dari tempat lain, dan yang dijaga bukan bentuk
             permintaannya melainkan berkas yang terbit darinya.
             """
             proyek = (project_name or "").strip()
-            if bool(proyek) == bool(supplier_id):
+            if not proyek and not supplier_id:
                 return app_error(
                     ErrorCode.VALIDATION,
-                    "Sebutkan proyek ATAU pemasok — tepat salah satu.",
+                    "Sebutkan proyek atau pemasok — sekurangnya salah satu.",
                     400,
                 )
 
             syarat = ["po.isDelete = 0"]
             nilai_dokumen = {}
 
+            # Keduanya bersifat MENYEMPITKAN, bukan memilih salah satu jalur:
+            # disebut bersamaan berarti irisan keduanya.
             if proyek:
                 syarat.append("po.projectName = :proyek")
                 nilai_dokumen["proyek"] = proyek
-            else:
+            if supplier_id:
                 syarat.append("po.supplierID = :pemasok")
                 nilai_dokumen["pemasok"] = int(supplier_id)
 

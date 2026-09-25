@@ -13,12 +13,14 @@ kedua rekap menyebut angka berbeda untuk dokumen yang sama, begitu salah
 satunya diperbaiki sendirian. Karena itu yang diuji di sini bukan hanya
 penyaringnya, melainkan bahwa keduanya melewati kueri yang sama.
 
-YANG DIJAGA PALING KERAS: TEPAT SATU
+YANG DIJAGA PALING KERAS: SEKURANGNYA SATU
 
-Tanpa keduanya, kueri ini mengembalikan SELURUH purchase order perusahaan —
+Tanpa satu pun, kueri ini mengembalikan SELURUH purchase order perusahaan —
 berkas raksasa yang tidak diminta siapa pun, dan tidak ada galat apa pun yang
-menyebutkannya. Dengan keduanya, judul berkasnya hanya dapat menyebut salah
-satu, sehingga isinya tidak sesuai judulnya.
+menyebutkannya.
+
+Keduanya sekaligus JUSTRU BOLEH, dan menyempitkan: rekap satu vendor pada
+satu proyek.
 """
 
 import asyncio
@@ -100,7 +102,7 @@ class TestPenyaring:
         assert nilai["sampai"] == "2026-08-31"
 
 
-class TestTepatSatu:
+class TestSekurangnyaSatu:
     def test_tanpa_keduanya_ditolak(self, fake_db):
         """
         Bukan "kembalikan semuanya": berkas berisi seluruh purchase order
@@ -114,21 +116,40 @@ class TestTepatSatu:
         # Dan tidak satu pun kueri dijalankan.
         assert kueri == ""
 
-    def test_keduanya_sekaligus_ditolak(self, fake_db):
-        kueri, _, hasil = _jalankan(fake_db, project_name="R501", supplier_id=17)
+    def test_keduanya_sekaligus_menyempitkan(self, fake_db):
+        """
+        Bukan ditolak: "apa saja yang kita pesan ke vendor ini DI PROYEK
+        ini" adalah pertanyaan yang wajar — ditanyakan saat menagih ke
+        pemilik proyek dan saat menyusun klaim.
 
-        assert hasil.get("status") == 400
-        assert kueri == ""
+        Keduanya harus masuk ke WHERE, bukan salah satu menang atas yang
+        lain: kalau hanya salah satu yang dipakai, berkasnya memuat lebih
+        banyak daripada judulnya dan tidak ada yang menyebutkannya.
+        """
+        kueri, db, hasil = _jalankan(
+            fake_db, project_name="R501", supplier_id=17
+        )
+
+        assert hasil.get("status") != 400
+        w = _where(kueri)
+        assert "po.projectName = :proyek" in w
+        assert "po.supplierID = :pemasok" in w
+        nilai = db.last_values("fetch_all")
+        assert nilai["proyek"] == "R501"
+        assert nilai["pemasok"] == 17
 
     @pytest.mark.parametrize("kosong", ["", "   ", None])
-    def test_proyek_kosong_bukan_berarti_disebut(self, fake_db, kosong):
+    def test_proyek_kosong_tidak_ikut_menyaring(self, fake_db, kosong):
         """
         `proyek=""` dari querystring tidak boleh terbaca sebagai "proyek
         disebut" — ia akan menghasilkan `projectName = ''`, yang cocok dengan
         nol dokumen dan terbaca sebagai "proyeknya memang belum punya apa-apa".
         """
-        _, _, hasil = _jalankan(fake_db, project_name=kosong, supplier_id=17)
+        kueri, _, hasil = _jalankan(
+            fake_db, project_name=kosong, supplier_id=17
+        )
         assert hasil.get("status") != 400
+        assert "po.projectName" not in _where(kueri)
 
     def test_proyek_kosong_TANPA_pemasok_tetap_ditolak(self, fake_db):
         _, _, hasil = _jalankan(fake_db, project_name="  ")
