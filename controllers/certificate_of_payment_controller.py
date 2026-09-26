@@ -1745,9 +1745,49 @@ class CertificateOfPaymentController:
             # lembar ini berselisih dengan catatan penerimaan pemasok.
             dp_kontrak = nilai_kontrak * _d(spk.get("dpPercentage")) / Decimal("100")
 
+            # TANDA TANGAN yang dibubuhkan pada lembarnya.
+            #
+            # Diambil SERVER, saat merender — bukan dikirim ke layar lalu
+            # ditempel di sana. Gambar tanda tangan adalah stempel; sekali ia
+            # sampai di peramban seseorang, ia dapat dipakai di dokumen apa
+            # pun di luar sistem ini.
+            #
+            # Hanya yang MENANDATANGANI lembarnya yang diambil: penyetuju CoP
+            # untuk lembar CoP, pembuat BAP untuk lembar BAP. Keduanya sudah
+            # menjadi nama yang tercetak di sana; yang ditambahkan hanya
+            # gambarnya.
+            #
+            # Kalau belum disetujui, `approvedBy` kosong dan tidak ada yang
+            # dibubuhkan — kolomnya tetap bergaris kosong, sama seperti
+            # sebelumnya.
+            from repository.user_signature_repository import (
+                UserSignatureRepository,
+            )
+
+            ttd = await UserSignatureRepository.gambar_untuk(
+                [
+                    cop.get("approvedBy"),
+                    cop.get("createdBy"),
+                    cop.get("bapApprovedBy"),
+                ]
+            )
+
             return {
                 "cop": {
                     "id": cop["id"],
+                    # Kunci gambar sengaja SEJAJAR dengan nama dan jabatannya
+                    # (`approvedByName`, `approvedByPosition`), supaya yang
+                    # membaca templatnya tidak perlu menelusuri dari mana
+                    # gambarnya datang.
+                    "approvedBySignature": ttd.get(cop.get("approvedBy"))
+                    if cop.get("isApproved")
+                    else None,
+                    "createdBySignature": ttd.get(cop.get("createdBy"))
+                    if cop.get("isBapApproved")
+                    else None,
+                    "bapApprovedBySignature": ttd.get(cop.get("bapApprovedBy"))
+                    if cop.get("isBapApproved")
+                    else None,
                     "name": cop["name"],
                     "number": nomor,
                     "date": cop["date"],

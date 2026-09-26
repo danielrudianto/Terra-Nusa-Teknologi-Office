@@ -217,7 +217,10 @@
   <tr>
     <td>
       <div class="bt-peran">Pemberi Tugas,</div>
-      <div class="bt-badan">{{ perusahaan.nama }}</div>
+      <div class="bt-badan{% if penandatanganBap.ttd %} bt-badan--bertanda{% endif %}">{{ perusahaan.nama }}</div>
+      {% if penandatanganBap.ttd %}
+      <img class="bt-ttd" src="{{ penandatanganBap.ttd }}" alt="" />
+      {% endif %}
       {% if penandatanganBap.nama %}
       <div class="bt-nama">{{ penandatanganBap.nama }}</div>
       <div class="bt-jabatan">{{ penandatanganBap.jabatan or "" }}</div>
@@ -227,7 +230,10 @@
     </td>
     <td>
       <div class="bt-peran">Disetujui oleh,</div>
-      <div class="bt-badan">&nbsp;</div>
+      <div class="bt-badan{% if cop.bapApprovedBySignature %} bt-badan--bertanda{% endif %}">&nbsp;</div>
+      {% if cop.bapApprovedBySignature %}
+      <img class="bt-ttd" src="{{ cop.bapApprovedBySignature }}" alt="" />
+      {% endif %}
       {% if cop.bapApprovedByName %}
       <div class="bt-nama">{{ cop.bapApprovedByName }}</div>
       <div class="bt-jabatan">{{ cop.bapApprovedByPosition or "" }}</div>

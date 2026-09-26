@@ -334,3 +334,44 @@ class UserSignatureRepository:
         except Exception as e:
             log_error(f"Error fetching signature history: {str(e)}")
             return internal_error()
+
+    # ------------------------------------------------------------------
+    # Pembubuhan pada dokumen
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def gambar_untuk(user_ids) -> dict:
+        """
+        Gambar tanda tangan beberapa orang sekaligus, sebagai data-URI.
+
+        DIPAKAI PENCETAK DOKUMEN, bukan layar. Yang meminta di sini server
+        sendiri — saat merender CoP/BAP — sehingga gambarnya tidak pernah
+        singgah di peramban siapa pun sebelum menjadi bagian dari dokumennya.
+
+        Satu kueri untuk semua id, bukan satu per orang: lembar BAP memuat
+        dua penandatangan, dan dua perjalanan ke basis data untuk satu
+        cetakan adalah dua kali lipat yang tidak perlu.
+        """
+        import base64
+
+        bersih = sorted({int(i) for i in (user_ids or []) if i})
+        if not bersih:
+            return {}
+        try:
+            baris = await database.fetch_all(
+                select(
+                    user_signatures_table.c.userID,
+                    user_signatures_table.c.image,
+                ).where(user_signatures_table.c.userID.in_(bersih))
+            )
+            return {
+                r["userID"]: "data:image/png;base64,"
+                + base64.b64encode(r["image"]).decode("ascii")
+                for r in baris
+            }
+        except Exception as e:
+            log_error(f"Error fetching signatures for stamping: {str(e)}")
+            # Dokumen TETAP tercetak, tanpa tanda tangan. Menggagalkan
+            # cetakan karena gambarnya tidak terbaca berarti satu kolom
+            # kosong menahan seluruh lembar.
+            return {}

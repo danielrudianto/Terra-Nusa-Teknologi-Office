@@ -790,6 +790,10 @@ def _lengkapi(data: dict) -> dict:
     keluar["penandatangan"] = {
         "nama": cop.get("approvedByName"),
         "jabatan": cop.get("approvedByPosition"),
+        # Gambar tanda tangannya, bila orang itu sudah menyiapkannya.
+        # Kosong bukan kegagalan: lembarnya tercetak persis seperti sebelum
+        # fitur ini ada — kolom bergaris yang ditandatangani tangan.
+        "ttd": cop.get("approvedBySignature"),
     }
 
     # Penandatangan pihak pemberi tugas pada lembar BAP — ORANG YANG BERBEDA.
@@ -813,6 +817,7 @@ def _lengkapi(data: dict) -> dict:
     keluar["penandatanganBap"] = {
         "nama": cop.get("createdByName"),
         "jabatan": cop.get("createdByPosition"),
+        "ttd": cop.get("createdBySignature"),
     }
     keluar["perusahaan"] = _PERUSAHAAN
     keluar["logoDataUri"] = _logo_data_uri()

@@ -210,6 +210,18 @@
       }
       .ttd-peran { margin-bottom: 2pt; }
       .ttd-badan { margin-bottom: 40pt; }
+      /* Ruang tanda tangannya TETAP setinggi 40pt, bertanda tangan maupun
+         tidak: tinggi blok yang berubah dapat mendorong lembarnya ke halaman
+         berikutnya, dan yang mencetak tidak akan menghubungkannya dengan
+         tanda tangan yang baru dipasang seseorang. */
+      .ttd-badan--bertanda { margin-bottom: 4pt; }
+      .ttd-gambar {
+        display: block;
+        height: 34pt;
+        max-width: 150pt;
+        object-fit: contain;
+        margin-bottom: 2pt;
+      }
       .ttd-nama {
         text-decoration: underline;
         font-weight: normal;
@@ -904,7 +916,10 @@
             <tr>
               <td>
                 <div class="ttd-peran">Pemberi Tugas</div>
-                <div class="ttd-badan">{{ perusahaan.nama }}</div>
+                <div class="ttd-badan{% if penandatangan.ttd %} ttd-badan--bertanda{% endif %}">{{ perusahaan.nama }}</div>
+                {% if penandatangan.ttd %}
+                <img class="ttd-gambar" src="{{ penandatangan.ttd }}" alt="" />
+                {% endif %}
                 {% if penandatangan.nama %}
                 <div class="ttd-nama">{{ penandatangan.nama }}</div>
                 <div class="ttd-jabatan">{{ penandatangan.jabatan or "" }}</div>

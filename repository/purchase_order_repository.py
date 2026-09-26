@@ -607,7 +607,36 @@ class PurchaseOrderRepository:
             result = await database.fetch_one(query)
             if not result:
                 return {"error": "Purchase order not found", "status": 404}
-            return _normalize_row(result)
+            baris = _normalize_row(result)
+
+            # TANDA TANGAN PENYETUJU, hanya bila dokumennya MEMANG SUDAH
+            # DISETUJUI.
+            #
+            # Lembar SPK dirakit di peramban (pdfmake), tidak seperti CoP/BAP
+            # yang dirender server — jadi di sini gambarnya memang harus
+            # sampai ke layar. Dua batas yang menjaganya tetap sempit:
+            #
+            #   * hanya tanda tangan ORANG YANG MENANDATANGANI dokumen ini,
+            #     bukan siapa pun yang id-nya disebut; dan
+            #   * hanya bila `isApproved` — SPK yang belum disetujui tidak
+            #     boleh tercetak seolah sudah, dan itu kegagalan yang tidak
+            #     terlihat begitu lembarnya keluar dari pencetak.
+            #
+            # Terus terang soal batasnya: siapa pun yang boleh mengunduh
+            # lembar yang sudah bertanda tangan pada akhirnya dapat mengambil
+            # gambarnya dari berkas PDF itu juga. Yang dijaga di sini bukan
+            # kerahasiaan mutlak, melainkan agar tidak ada satu pun jalan
+            # MEMANEN tanda tangan orang per orang.
+            if baris.get("isApproved") and baris.get("approvedBy"):
+                from repository.user_signature_repository import (
+                    UserSignatureRepository,
+                )
+
+                ttd = await UserSignatureRepository.gambar_untuk(
+                    [baris.get("approvedBy")]
+                )
+                baris["approvedBySignature"] = ttd.get(baris.get("approvedBy"))
+            return baris
         except Exception as e:
             log_error(f"Unexpected error while fetching purchase order: {str(e)}")
             return {"error": "Internal server error.", "status": 500}
