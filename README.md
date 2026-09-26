@@ -1,9 +1,39 @@
+<div align="center">
+
 # TerraBot — Backend
 
-API untuk sistem manajemen PT Alpha Konstruksi Nusantara: purchase order,
-pembelian, pembayaran, penggajian, dan pelaporan proyek.
+**API sistem manajemen keuangan & HR PT Alpha Konstruksi Nusantara**
+purchase order · pembelian · pembayaran · penggajian · pelaporan proyek
 
-FastAPI · MySQL · Redis · Meilisearch
+<br>
+
+![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat-square&logo=fastapi&logoColor=white)
+![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?style=flat-square&logo=mysql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-DC382D?style=flat-square&logo=redis&logoColor=white)
+![Meilisearch](https://img.shields.io/badge/Meilisearch-FF5CAA?style=flat-square&logo=meilisearch&logoColor=white)
+
+![Endpoint](https://img.shields.io/badge/endpoint-187-2ea44f?style=flat-square)
+![Uji](https://img.shields.io/badge/uji-244%20lolos-2ea44f?style=flat-square)
+![Status](https://img.shields.io/badge/status-produksi-0a7ea4?style=flat-square)
+
+</div>
+
+---
+
+## Daftar isi
+
+- [Keadaan](#keadaan)
+- [Menjalankan](#menjalankan)
+- [Lingkungan](#lingkungan)
+- [Susunan](#susunan)
+- [Hal yang tidak terlihat dari kodenya](#hal-yang-tidak-terlihat-dari-kodenya)
+- [Keamanan](#keamanan)
+- [Audit keamanan](#audit-keamanan)
+- [Jejak audit](#jejak-audit)
+- [Uji](#uji)
+- [Deploy](#deploy)
+- [Catatan](#catatan)
 
 ---
 
