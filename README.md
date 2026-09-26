@@ -164,6 +164,59 @@ SQL.
 
 ---
 
+## Audit keamanan
+
+Backend dan frontend ditinjau menyeluruh pada 25–26 September 2026: telaah kode
+(SAST), audit dependensi, dan audit basis data yang **hanya membaca**. Bagian
+ini mencatat apa yang diperiksa dan keadaan sesudahnya — bukan agar dianggap
+selesai, melainkan agar yang berikutnya tahu apa yang sudah dilihat.
+
+**Yang diperiksa**
+
+- **Otorisasi.** Cakupan `require(...)` di seluruh rute pengubah data: 140 dari
+  149 memakainya. Sembilan sisanya memang publik — login/refresh dan endpoint
+  ujian rekrutmen/form karyawan yang diautentikasi lewat token pada URL-nya
+  (`secrets.token_urlsafe(32)`), bukan lubang.
+- **Injeksi SQL.** Seluruh kueri memakai parameter terikat; nama tabel/kolom
+  hanya dari konstanta internal; daftar id di-`int()` sebelum disisipkan.
+- **Login.** Rate-limit + kunci (`login_guard`), pesan seragam (anti-enumerasi
+  email), bcrypt, kunci diperiksa sebelum hashing.
+- **CORS.** Daftar asal eksplisit, tidak pernah `*`; `localhost` hanya di luar
+  produksi.
+- **Rahasia.** `.env`, token O365, dan dump `*.sql` tidak pernah masuk riwayat
+  git — sudah diverifikasi.
+- **Dependensi.** `npm audit` frontend nol temuan; `pdfjs-dist` dinaikkan ke v6
+  (celah eksekusi JavaScript saat membuka PDF berbahaya, ditutup).
+- **Basis data (read-only).** `bind_address = 127.0.0.1`, `local_infile` OFF,
+  `sql_mode` ketat, seluruh tabel utf8mb4, view `balance`/`mutation` =
+  SECURITY INVOKER, kolom uang tersimpan DECIMAL di DB, FK bersih tanpa orphan.
+
+**Pengerasan yang dipasang**
+
+- **Refresh token** pindah ke cookie `HttpOnly; Secure; SameSite=Lax` — tidak
+  lagi di `localStorage`, sehingga satu celah XSS tidak lagi berarti ambil-alih
+  akun tujuh hari. Cadangan header dipertahankan sementara masa peralihan.
+- **`get_current_user`** tidak lagi menelan `HTTPException`. Dulu penolakan yang
+  dibuat di dalam blok `try` (termasuk akun nonaktif) tertangkap `except
+  Exception` lalu mengembalikan `None` diam-diam.
+- **`pdf_service`** slip gaji: `autoescape` Jinja2 dinyalakan.
+- **Uvicorn** mengikat `127.0.0.1` secara bawaan (bukan `0.0.0.0`); dapat ditimpa
+  lewat `HOST`.
+- **Content-Security-Policy** di-enforce di Nginx untuk `terrabot.…`
+  (`scripts/nginx-terrabot.conf`).
+- **Akun DB aplikasi** (`terrabot`) dibatasi ke `SELECT, INSERT, UPDATE, DELETE`
+  pada `tnt.*` — bukan lagi `ALL PRIVILEGES`. Migrasi skema (`create_tables.py`,
+  berkas `sql/`) dijalankan sebagai root, bukan akun aplikasi.
+
+**Sisa yang diketahui**
+
+- Sebagian model SQLAlchemy masih mendeklarasikan kolom uang sebagai `Float`
+  walau kolom DB-nya DECIMAL — pembacaan menjadi `float` di sisi Python.
+  Menaikkannya ke `Numeric` perlu penyelarasan agar tidak mencampur `Decimal`
+  dengan `float` (lihat catatan di `## Uji`).
+
+---
+
 ## Jejak audit
 
 Setiap tindakan yang membuat, mengubah, atau menghapus dokumen tercatat di
