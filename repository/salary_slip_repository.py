@@ -1,5 +1,6 @@
 from sqlalchemy import select, func, update
 from utils.errors import ErrorCode, app_error, internal_error
+from models.user_model import users_table
 from utils.database import database
 from utils.logger_utils import log_error
 from models.salary_slip_model import salary_slips_table, salary_slips_allowance_table, salary_slips_deduction_table
@@ -199,17 +200,50 @@ class SalarySlipRepository:
                 salary_slips_table.c.bankAccountName,
                 salary_slips_table.c.bankAccountNumber,
                 salary_slips_table.c.paymentMethod,
+                salary_slips_table.c.createdBy,
                 employees_table.c.name,
                 employees_table.c.nik,
-            ).join(
-                employees_table, salary_slips_table.c.userID == employees_table.c.id
+                # Pembuat slipnya — nama dan jabatan, untuk kolom "Dibuat
+                # oleh" pada blok tanda tangan. Tanpa join ini lembarnya cuma
+                # tahu ADA yang membuat, tidak tahu siapa, dan kolomnya
+                # terpaksa dibiarkan kosong untuk ditulis tangan.
+                users_table.c.name.label("createdByName"),
+                users_table.c.position.label("createdByPosition"),
+            ).select_from(
+                salary_slips_table.join(
+                    employees_table,
+                    salary_slips_table.c.userID == employees_table.c.id,
+                ).outerjoin(
+                    # Kiri luar: slip lama dapat menunjuk pengguna yang sudah
+                    # dihapus. Join dalam akan membuat slipnya HILANG sama
+                    # sekali dari layar — 404 pada dokumen yang jelas ada.
+                    users_table,
+                    salary_slips_table.c.createdBy == users_table.c.id,
+                )
             ).where(
                 salary_slips_table.c.id == id
             )
             result = await database.fetch_one(query)
             if not result:
                 return {"error": "Salary slip not found", "status": 404}
-            return dict(result)
+            baris = dict(result)
+
+            # TANDA TANGAN pembuat slip.
+            #
+            # Hanya kolom "Dibuat oleh" yang terisi: slip gaji tidak menyimpan
+            # pemeriksa maupun penyetuju, jadi dua kolom lainnya memang tidak
+            # punya orangnya. Mengisinya dengan nama yang sama berarti satu
+            # orang tampak menyetujui pekerjaannya sendiri di atas kertas.
+            if baris.get("createdBy"):
+                from repository.user_signature_repository import (
+                    UserSignatureRepository,
+                )
+
+                ttd = await UserSignatureRepository.gambar_untuk(
+                    [baris.get("createdBy")]
+                )
+                baris["createdBySignature"] = ttd.get(baris.get("createdBy"))
+            return baris
         except Exception as e:
             log_error(f"Error fetching salary slip by ID: {str(e)}")
             return internal_error()

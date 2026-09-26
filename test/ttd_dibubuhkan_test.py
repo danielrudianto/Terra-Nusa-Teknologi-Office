@@ -198,3 +198,37 @@ def test_gambar_diambil_repository_bukan_dikirim_layar():
         AKAR / "controllers" / "certificate_of_payment_controller.py"
     ).read_text(encoding="utf-8")
     assert "UserSignatureRepository.gambar_untuk" in isi
+
+
+# ---------------------------------------------------------------------------
+# Daftar pengguna: sudah terdaftar tanda tangannya atau belum
+# ---------------------------------------------------------------------------
+
+
+def test_daftar_pengguna_membawa_penanda_tanda_tangan():
+    """
+    "di list user pengen ada dong, tanda tangan sudah terdaftar atau belum"
+
+    Sebagai EXISTS, dan TANPA kolom gambarnya: daftar ini memuat seluruh
+    pengguna, dan menarik gambar tiap orang berarti memindahkan puluhan tanda
+    tangan hanya untuk menghasilkan satu centang per baris.
+    """
+    isi = (AKAR / "repository" / "user_repository.py").read_text(encoding="utf-8")
+    potong = isi[isi.index("_punya_ttd") : isi.index("_punya_ttd") + 600]
+    assert ".exists()" in potong, potong[:300]
+    assert 'label("hasSignature")' in potong, potong[:300]
+    assert "user_signatures_table.c.image" not in isi
+
+
+def test_slip_gaji_hanya_membubuhkan_pembuatnya():
+    """
+    Slip gaji tidak menyimpan pemeriksa maupun penyetuju, jadi dua kolom
+    lainnya memang tidak punya orangnya. Mengisinya dengan nama yang sama
+    membuat satu orang tampak memeriksa dan menyetujui pekerjaannya sendiri.
+    """
+    isi = (AKAR / "repository" / "salary_slip_repository.py").read_text(
+        encoding="utf-8"
+    )
+    assert "createdBySignature" in isi
+    assert "checkedBySignature" not in isi
+    assert "approvedBySignature" not in isi

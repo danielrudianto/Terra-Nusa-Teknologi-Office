@@ -115,7 +115,23 @@ class UserRepository:
         offset = (page - 1) * pageSize
 
         base_where = users_table.c.isDeleted == False
-        data_query = select(users_table).where(base_where)
+
+        # SUDAH PUNYA TANDA TANGAN?
+        #
+        # Sebagai EXISTS, bukan join, dan TANPA kolom gambarnya. Join biasa
+        # menggandakan baris bila kelak satu orang boleh punya lebih dari satu
+        # tanda tangan, dan menarik blobnya berarti puluhan gambar berpindah
+        # hanya untuk menghasilkan satu tanda centang per baris.
+        from models.user_signature_model import user_signatures_table
+
+        _punya_ttd = (
+            select(user_signatures_table.c.id)
+            .where(user_signatures_table.c.userID == users_table.c.id)
+            .exists()
+            .label("hasSignature")
+        )
+
+        data_query = select(users_table, _punya_ttd).where(base_where)
         count_query = select(func.count(users_table.c.id)).where(base_where)
 
         if keyword:
