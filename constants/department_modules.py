@@ -25,6 +25,17 @@ UMUM = {
     "dashboard",
     "calendar",
     "user_avatar",
+    # Tanda tangan sendiri: milik SETIAP orang, bukan wilayah satu divisi.
+    #
+    # Wajib dimiliki semua pengguna, jadi tanpa ada di sini setiap orang yang
+    # punya divisi akan ditolak justru pada layar yang MEMAKSANYA membuat
+    # tanda tangan — terkunci di depan pintu yang tidak dapat dilewati tanpa
+    # membuatnya.
+    #
+    # Aman berada di sini karena yang dibatasi bukan divisinya, melainkan
+    # rutenya: tidak ada endpoint yang membaca atau menulis tanda tangan
+    # orang lain.
+    "user_signature",
     # Proyek dibaca hampir setiap divisi: kodenya dipakai di purchase order,
     # pembelian, reimbursement, dan faktur penjualan. Menutupnya per divisi
     # membuat orang tidak dapat memastikan kode yang sedang ia ketik benar.

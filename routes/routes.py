@@ -40,6 +40,7 @@ from routes.payment_plan_routes import router as payment_plan_router
 from routes.finance_status_routes import router as finance_status_router
 from routes.kpi_routes import router as kpi_router
 from routes.user_avatar_routes import router as user_avatar_router
+from routes.user_signature_routes import router as user_signature_router
 from routes.audit_log_routes import router as audit_log_router
 from routes.push_routes import router as push_router
 from routes.report_routes import router as report_router
@@ -114,6 +115,11 @@ router.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])
 router.include_router(master_item_router, prefix="/master-items", tags=["Master Items"])
 router.include_router(master_equipment_router, prefix="/master-equipment", tags=["Master Equipment"])
 router.include_router(user_avatar_router, prefix="/user-avatars", tags=["User Avatars"])
+router.include_router(
+    user_signature_router,
+    prefix="/user-signatures",
+    tags=["User Signatures"],
+)
 router.include_router(audit_log_router, prefix="/audit-logs", tags=["Audit Logs"])
 router.include_router(push_router, prefix="/push", tags=["Push Notifications"])
 router.include_router(report_router, prefix="/reports", tags=["Reports"])

@@ -260,6 +260,13 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     # bisa dibatasi level 5. Mengubahnya terbuka di level 1 karena rutenya
     # sudah menjaga sendiri bahwa seseorang hanya boleh mengubah avatarnya.
     "user_avatar": (1, 0, 1, 0, 0),
+    # Tanda tangan sendiri. Level 1 untuk keduanya, dan itu memang benar:
+    # SETIAP pengguna wajib punya, termasuk yang paling junior.
+    #
+    # Yang membatasinya bukan level melainkan RUTENYA: tidak ada endpoint
+    # yang mengembalikan atau menulis tanda tangan orang lain. Jadi "read"
+    # di sini berarti "membaca milik sendiri", bukan membaca milik siapa pun.
+    "user_signature": (1, 0, 1, 0, 0),
 }
 
 

@@ -51,6 +51,7 @@ import models.project_progress_model  # kemajuan pekerjaan proyek
 import models.purchase_draft_model  # draf pembelian
 import models.purchase_order_item_model  # baris barang purchase order
 import models.user_avatar_model  # avatar pengguna
+import models.user_signature_model  # tanda tangan pengguna
 import models.user_department_model  # divisi pengguna
 import models.user_permission_model  # izin khusus per pengguna
 import models.hr_recruitment_model  # ujian rekrutmen HR
