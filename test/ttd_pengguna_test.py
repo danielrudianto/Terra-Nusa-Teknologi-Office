@@ -74,18 +74,44 @@ def uri(data: bytes) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_tidak_ada_rute_yang_membaca_tanda_tangan_orang_lain():
+def test_tidak_ada_rute_yang_membaca_tanda_tangan_MILIK_ORANG_LAIN_by_id():
     """
-    Tidak boleh ada rute berparameter id pada berkas ini.
+    Tidak ada rute yang mengembalikan tanda tangan seseorang berdasarkan
+    id PENGGUNA.
 
-    Diperiksa sebagai teks, bukan lewat permintaan HTTP, karena yang dijaga
-    adalah KETIADAAN sesuatu — dan yang tidak ada tidak dapat dipanggil untuk
-    diuji. Satu `@router.get("/{user_id}")` yang ditambahkan kelak akan
-    langsung tertangkap di sini.
+    Diperiksa sebagai teks, karena yang dijaga adalah KETIADAAN sesuatu — dan
+    yang tidak ada tidak dapat dipanggil untuk diuji. Satu
+    `@router.get("/{user_id}")` yang ditambahkan kelak langsung tertangkap.
+
+    Rute berparameter `request_id` boleh ada: ia menyetujui/menolak satu
+    permintaan, bukan membaca tanda tangan siapa pun berdasarkan pemiliknya.
     """
     isi = (AKAR / "routes" / "user_signature_routes.py").read_text(encoding="utf-8")
-    berparameter = re.findall(r'@router\.\w+\(\s*"([^"]*\{[^"]*)"', isi)
-    assert not berparameter, f"rute berparameter id: {berparameter}"
+    jalur = re.findall(r'@router\.\w+\(\s*"([^"]*)"', isi)
+    per_user = [j for j in jalur if "{user_id}" in j or "{userID}" in j]
+    assert not per_user, f"rute per-pengguna: {per_user}"
+
+
+def test_gambar_orang_lain_hanya_lewat_antrean_yang_dijaga_approve():
+    """
+    Gambar milik orang lain hanya boleh keluar lewat antrean persetujuan.
+
+    Itu satu-satunya tempat yang memang harus melihatnya — yang menyetujui
+    tidak dapat menyetujui sesuatu yang tidak ia lihat — dan penjaganya
+    `approve`, yang pada matriks bernilai 5.
+    """
+    isi = (AKAR / "routes" / "user_signature_routes.py").read_text(encoding="utf-8")
+    blok = isi.split("@router.")
+    for b in blok[1:]:
+        if '"/permintaan"' in b.split("\n")[0]:
+            assert 'require("user_signature", "approve")' in b, b[:200]
+            break
+    else:
+        raise AssertionError("rute antrean permintaan tidak ditemukan")
+
+    from constants.permission_matrix import ACTIONS, MATRIX
+
+    assert MATRIX["user_signature"][ACTIONS.index("approve")] == 5
 
 
 def test_setiap_rute_dijaga_izin():
@@ -208,11 +234,35 @@ async def test_punya_tidak_menarik_kolom_gambar():
 
 
 @pytest.mark.asyncio
-async def test_status_menjawab_ada_atau_tidak():
-    with patch.object(UserSignatureRepository, "punya", AsyncMock(return_value=True)):
-        assert await UserSignatureController.status(7) == {"hasSignature": True}
-    with patch.object(UserSignatureRepository, "punya", AsyncMock(return_value=False)):
-        assert await UserSignatureController.status(7) == {"hasSignature": False}
+async def test_status_menjawab_tiga_keadaan_bukan_dua():
+    """
+    Belum punya, punya, dan punya-tetapi-sedang-menunggu.
+
+    Tanpa keadaan ketiga, orang yang sudah mengajukan pergantian akan
+    mengajukan lagi — layarnya tidak menyebut apa pun sedang berjalan.
+    """
+    with patch.object(UserSignatureRepository, "punya", AsyncMock(return_value=True)), \
+         patch.object(
+             UserSignatureRepository, "tertunda_milik", AsyncMock(return_value=None)
+         ):
+        h = await UserSignatureController.status(7)
+    assert h["hasSignature"] is True and h["pending"] is False
+
+    with patch.object(UserSignatureRepository, "punya", AsyncMock(return_value=False)), \
+         patch.object(
+             UserSignatureRepository, "tertunda_milik", AsyncMock(return_value=None)
+         ):
+        h = await UserSignatureController.status(7)
+    assert h["hasSignature"] is False and h["pending"] is False
+
+    with patch.object(UserSignatureRepository, "punya", AsyncMock(return_value=True)), \
+         patch.object(
+             UserSignatureRepository,
+             "tertunda_milik",
+             AsyncMock(return_value={"id": 3, "createdAt": "2026-09-26"}),
+         ):
+        h = await UserSignatureController.status(7)
+    assert h["pending"] is True and h["pendingSince"] == "2026-09-26"
 
 
 @pytest.mark.asyncio

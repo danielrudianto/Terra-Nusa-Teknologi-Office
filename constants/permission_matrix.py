@@ -266,7 +266,11 @@ MATRIX: dict[str, tuple[int, int, int, int, int]] = {
     # Yang membatasinya bukan level melainkan RUTENYA: tidak ada endpoint
     # yang mengembalikan atau menulis tanda tangan orang lain. Jadi "read"
     # di sini berarti "membaca milik sendiri", bukan membaca milik siapa pun.
-    "user_signature": (1, 0, 1, 0, 0),
+    #
+    # `approve` = 5: MENGGANTI tanda tangan yang sudah ada perlu persetujuan
+    # direktur. Yang pertama tidak — ia tidak menimpa apa pun, dan menahannya
+    # mengunci orang baru di depan pintu yang wajib dilewati.
+    "user_signature": (1, 0, 1, 0, 5),
 }
 
 

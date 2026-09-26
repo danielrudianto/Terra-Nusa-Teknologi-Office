@@ -10,3 +10,9 @@ class UserSignatureSave(BaseModel):
     """
 
     image: str
+
+
+class UserSignatureKeputusan(BaseModel):
+    """Keputusan atas satu permintaan pergantian. Catatannya opsional."""
+
+    note: str | None = None

@@ -1,6 +1,9 @@
 from sqlalchemy import (
     Table,
     Column,
+    Enum,
+    Float,
+    Index,
     Integer,
     DateTime,
     ForeignKey,
@@ -68,6 +71,74 @@ user_signatures_table = Table(
     # nisbah sisinya tidak berubah.
     Column("width", Integer, nullable=True),
     Column("height", Integer, nullable=True),
+    # Sidik 64 bit sebagai HEKSA, bukan bilangan.
+    #
+    # BIGINT bertanda tidak dapat menampung 64 bit tanpa tanda, dan yang
+    # terjadi bukan galat — separuh sidik tersimpan sebagai angka negatif dan
+    # pembandingannya diam-diam salah. Heksa juga membuat sidiknya terbaca
+    # apa adanya saat menelusuri lewat SQL.
+    Column("fingerprint", String(16), nullable=True),
+    # Siapa yang menyetujui PERGANTIAN ini. Kosong pada tanda tangan PERTAMA:
+    # yang pertama berlaku seketika, karena setiap pengguna wajib punya dan
+    # menahannya berarti mengunci orang di depan pintu yang tidak dapat
+    # dilewati tanpa membuatnya.
+    Column("approvedBy", Integer, ForeignKey("users.id"), nullable=True),
+    Column("approvedAt", DateTime(), nullable=True),
     Column("createdAt", DateTime(), default=dt.now, nullable=False),
     Column("updatedAt", DateTime(), default=None, onupdate=dt.now, nullable=True),
+)
+
+
+# =====================================================================
+# Permintaan penggantian tanda tangan
+# =====================================================================
+#
+# KENAPA PERGANTIAN PERLU PERSETUJUAN, SEDANGKAN YANG PERTAMA TIDAK
+#
+# Yang pertama tidak menimpa apa pun: sebelumnya tidak ada tanda tangan, dan
+# setiap pengguna WAJIB punya. Menahannya berarti orang baru tidak dapat
+# bekerja sampai ada direktur yang sempat menekan tombol.
+#
+# Pergantian lain perkaranya. Ia MENGGANTI stempel yang sudah menempel pada
+# dokumen-dokumen yang beredar, dan dua hal buruk dapat lewat di situ:
+# seseorang memasang tiruan tanda tangan orang lain, atau seseorang mengganti
+# tanda tangannya sendiri lalu menyangkal dokumen lama ("itu bukan tanda
+# tangan saya").
+#
+# TABEL INI JUGA RIWAYATNYA
+#
+# Setiap versi yang pernah berlaku punya barisnya di sini, termasuk yang
+# pertama (tersimpan langsung sebagai `approved`). Itu yang menjawab
+# penyangkalan: bukan gambar yang berlaku hari ini, melainkan urutan gambar
+# beserta tanggal dan penyetujunya.
+user_signature_requests_table = Table(
+    "user_signature_requests",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("userID", Integer, ForeignKey("users.id"), nullable=False, index=True),
+    Column("image", LargeBinary, nullable=False),
+    Column("mimeType", String(40), nullable=False, default="image/png"),
+    Column("width", Integer, nullable=True),
+    Column("height", Integer, nullable=True),
+    Column("fingerprint", String(16), nullable=True),
+    Column(
+        "status",
+        Enum("pending", "approved", "rejected", name="user_signature_request_status"),
+        nullable=False,
+        server_default="pending",
+        default="pending",
+    ),
+    # BUKTI KEMIRIPAN DIBEKUKAN DI SINI, bukan dihitung ulang saat dibaca.
+    #
+    # Dihitung ulang, angkanya berubah setiap kali ada orang lain mengganti
+    # tanda tangannya — dan yang dibaca pemeriksa bulan depan bukan lagi
+    # angka yang dipakai menyetujui.
+    Column("similarity", Float, nullable=True),
+    Column("similarTo", Integer, ForeignKey("users.id"), nullable=True),
+    Column("note", String(255), nullable=True),
+    Column("createdAt", DateTime(), default=dt.now, nullable=False),
+    Column("decidedBy", Integer, ForeignKey("users.id"), nullable=True),
+    Column("decidedAt", DateTime(), nullable=True),
+    Column("decisionNote", String(255), nullable=True),
+    Index("ix_user_signature_request_status", "status"),
 )
