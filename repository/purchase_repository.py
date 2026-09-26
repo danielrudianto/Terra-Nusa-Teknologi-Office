@@ -129,17 +129,47 @@ class PurchaseRepository:
             # id-nya. Id diambil lewat sambungan nama agar dokumennya dapat
             # dibuka langsung dari daftar pembelian — tanpa ini, pengguna
             # harus menyalin nomornya lalu mencarinya di halaman lain.
+            # NOMOR CoP yang menagihkan pembelian ini, sama seperti pada
+            # `get_by_id`.
+            #
+            # `certificateOfPaymentID` sudah ikut lewat `*purchases_table.c`,
+            # tetapi id saja tidak dapat ditampilkan di daftar — yang membaca
+            # ingin tahu CoP MANA, bukan angka 214.
+            #
+            # Sambungannya SENGAJA tidak menyaring `isDelete`: pembelian yang
+            # CoP-nya telanjur dihapus tetap harus menyebut asal-usulnya. Yang
+            # dikirim keadaannya, supaya layar menampilkan nomornya tanpa
+            # menawarkan tautan ke dokumen yang sudah tidak dapat dibuka.
+            #
+            # Impor di dalam fungsi, alasan yang sama seperti di `get_by_id`:
+            # di kepala berkas ia memicu impor melingkar.
+            from models.certificate_of_payment_model import (
+                certificate_of_payments_table,
+            )
+
             query = (
                 select(
                     *purchases_table.c,
                     *supplier_columns,
                     purchase_orders_table.c.id.label("purchase_order_id"),
+                    certificate_of_payments_table.c.name.label(
+                        "certificate_of_payment_name"
+                    ),
+                    certificate_of_payments_table.c.isDelete.label(
+                        "certificate_of_payment_deleted"
+                    ),
                 )
                 .join(suppliers_table, purchases_table.c.supplierID == suppliers_table.c.id)
                 .join(
                     purchase_orders_table,
                     purchases_table.c.purchaseOrderName
                     == purchase_orders_table.c.name,
+                    isouter=True,
+                )
+                .join(
+                    certificate_of_payments_table,
+                    purchases_table.c.certificateOfPaymentID
+                    == certificate_of_payments_table.c.id,
                     isouter=True,
                 )
                 .where(*conditions)
